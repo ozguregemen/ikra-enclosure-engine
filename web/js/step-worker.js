@@ -8,7 +8,7 @@
 const OCCT_VERSION = '0.0.23';
 const OCCT_BASE = `https://cdn.jsdelivr.net/npm/occt-import-js@${OCCT_VERSION}/dist/`;
 
-importScripts(OCCT_BASE + 'occt-import-js.js');
+importScripts(OCCT_BASE + 'occt-import-js.js', 'step-names.js');
 
 let occtPromise = null;
 
@@ -35,7 +35,8 @@ self.onmessage = async (ev) => {
 
     self.postMessage({ id, type: 'progress', stage: 'parse' });
     const t0 = performance.now();
-    const result = occt.ReadStepFile(new Uint8Array(buffer), IMPORT_PARAMS);
+    const bytes = new Uint8Array(buffer);
+    const result = occt.ReadStepFile(bytes, IMPORT_PARAMS);
     const parseMs = performance.now() - t0;
 
     if (!result || !result.success) {
@@ -62,7 +63,15 @@ self.onmessage = async (ev) => {
       };
     });
 
-    self.postMessage({ id, type: 'result', root: result.root, meshes, parseMs }, transfer);
+    // Montajı düzleştirilmiş dosyalarda gövde adlarını STEP metninden kurtar
+    let nameRecovery = null;
+    try {
+      nameRecovery = recoverSolidNames(bytes, meshes);
+    } catch (e) {
+      nameRecovery = { applied: 0, error: String(e && e.message || e) };
+    }
+
+    self.postMessage({ id, type: 'result', root: result.root, meshes, parseMs, nameRecovery }, transfer);
   } catch (err) {
     self.postMessage({ id, type: 'error', message: (err && err.message) || String(err) });
   }

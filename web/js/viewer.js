@@ -14,6 +14,22 @@ const VIEW_DIRS = {
 
 const DEFAULT_COLOR = [0.62, 0.65, 0.69];
 const BOARD_COLOR = [0.12, 0.48, 0.28];
+// Dosyada renk yoksa ya da hepsi aynıysa bileşenleri ayırt etmek için kullanılan palet
+const PART_PALETTE = [
+  [0.55, 0.58, 0.64], [0.78, 0.55, 0.30], [0.36, 0.56, 0.73], [0.60, 0.48, 0.71],
+  [0.42, 0.65, 0.54], [0.72, 0.42, 0.42], [0.77, 0.69, 0.31], [0.37, 0.64, 0.64],
+];
+
+/** Ağların renkleri anlamlı mı? Hiç renk yoksa ya da hepsi aynıysa false. */
+function hasMeaningfulColors(meshes) {
+  const keys = new Set();
+  for (const m of meshes) {
+    if (m.color) keys.add(m.color.map((v) => v.toFixed(3)).join(','));
+    for (const f of m.faces || []) if (f.color) keys.add(f.color.map((v) => v.toFixed(3)).join(','));
+    if (keys.size > 1) return true;
+  }
+  return false;
+}
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -150,6 +166,9 @@ export class Viewer {
 
     const partOf = new Int32Array(meshes.length).fill(-1);
     for (const p of analysis.parts) for (const i of p.meshIdx) partOf[i] = p.id;
+    const useFileColors = hasMeaningfulColors(meshes);
+    const paletteColor = (partId) => (partId === boardPartId ? BOARD_COLOR
+      : PART_PALETTE[((partId % PART_PALETTE.length) + PART_PALETTE.length) % PART_PALETTE.length]);
 
     meshes.forEach((m, i) => {
       const geometry = new THREE.BufferGeometry();
@@ -162,9 +181,9 @@ export class Viewer {
       geometry.setIndex(new THREE.BufferAttribute(m.index, 1));
 
       const partId = partOf[i];
-      const baseColor = m.color || (partId === boardPartId ? BOARD_COLOR : null);
+      const baseColor = useFileColors ? (m.color || (partId === boardPartId ? BOARD_COLOR : null)) : paletteColor(partId);
       let material;
-      if (m.faces && m.faces.some((f) => f.color)) {
+      if (useFileColors && m.faces && m.faces.some((f) => f.color)) {
         const mats = [];
         const slot = new Map();
         for (const f of m.faces) {

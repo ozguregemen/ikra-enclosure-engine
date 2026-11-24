@@ -3,8 +3,16 @@
 /*.zip
 /*.pdf
 /*.docx
-/ilk_kutum.stp
 ~$*
+
+# Gerçek kart STEP dosyaları (şirket tasarımları) asla repoya girmez.
+# Yalnızca web/samples altındaki üretilmiş örnekler izinli.
+*.step
+*.stp
+*.STEP
+*.STP
+!/web/samples/*.step
+/yerel-testler/
 
 # Yerel araç ayarları
 .claude/

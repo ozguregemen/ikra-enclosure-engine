@@ -5,7 +5,7 @@
 import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 
-const APP_VERSION = '0.1.0 (M0)';
+const APP_VERSION = '0.1.1 (M0)';
 const SAMPLE_URL = 'samples/ornek-kart.step';
 const LARGE_FILE_MB = 50;
 

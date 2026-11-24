@@ -95,6 +95,39 @@ function collectParts(root, meshes, meshBoxes) {
   return parts;
 }
 
+/** 'Modul.step-1-solid3' → 'Modul' gibi CAD eklerini temizler. */
+export function cleanComponentName(seg) {
+  return String(seg || '')
+    .replace(/-solid\d+$/i, '')
+    .replace(/\.(step|stp)(-\d+)?$/i, '')
+    .replace(/-solid\d+$/i, '')
+    .trim();
+}
+
+/**
+ * Tek gövdeye düzleştirilmiş montajlarda gövdeleri ad yoluna göre bileşenlere ayırır.
+ * Ör. 'Kart_i.step-1/Waveshare.step-1/Waveshare-0.step-1-solid9' → bileşen 'Waveshare'.
+ * Ortak kök segmenti (üst montaj adı) atılır. İsimsiz gövdeler tek başına kalır.
+ */
+function splitByNamePath(meshIdx, meshes, meshBoxes) {
+  const segs = meshIdx.map((i) => (meshes[i].name || '').split('/').map((s) => s.trim()));
+  let drop = 0;
+  while (segs[0][drop] && segs.every((s) => s.length > drop + 1 && s[drop] === segs[0][drop])) drop++;
+
+  const groups = new Map();
+  meshIdx.forEach((mi, k) => {
+    const raw = segs[k][drop] || '';
+    const key = cleanComponentName(raw);
+    const mapKey = key ? 'n:' + key : 'm:' + mi;
+    if (!groups.has(mapKey)) groups.set(mapKey, { name: key, meshIdx: [] });
+    groups.get(mapKey).meshIdx.push(mi);
+  });
+
+  let unnamed = 0;
+  return [...groups.values()].map((g, id) =>
+    makePart(id, g.name || `Gövde ${++unnamed}`, g.meshIdx, meshBoxes));
+}
+
 /** İnce ve geniş plaka olan parçaya yüksek puan verir; isim eşleşmesi puanı artırır. */
 function boardScore(part) {
   const s = boxSize(part.box).slice().sort((a, b) => a - b);
@@ -122,10 +155,20 @@ export function analyzeAssembly(root, meshes, options = {}) {
   if (parts.length === 0) throw new Error('Dosyada 3B geometri bulunamadı.');
 
   if (parts.length === 1 && parts[0].meshIdx.length > 1) {
-    const base = parts[0];
-    parts = base.meshIdx.map((mi, k) =>
-      makePart(k, meshes[mi].name || `${base.name || 'Gövde'} · ${k + 1}`, [mi], meshBoxes));
-    warnings.push({ level: 'info', text: 'Dosyada montaj yapısı yok; her katı gövde ayrı bir bileşen kabul edildi.' });
+    const solidCount = parts[0].meshIdx.length;
+    const namedCount = parts[0].meshIdx.filter((i) => meshes[i].name).length;
+    parts = splitByNamePath(parts[0].meshIdx, meshes, meshBoxes);
+    if (namedCount > 0 && parts.length < solidCount) {
+      warnings.push({
+        level: 'info',
+        text: `Dosyada montaj yapısı yok (tek parça olarak kaydedilmiş). ${solidCount} gövde, adlarına göre ${parts.length} bileşene gruplandı.`,
+      });
+    } else {
+      warnings.push({
+        level: 'warn',
+        text: `Dosyada montaj yapısı ve gövde adı yok; ${solidCount} gövdenin her biri ayrı bileşen sayıldı. Mümkünse STEP'i montaj olarak dışa aktar.`,
+      });
+    }
   }
 
   const assemblyBox = parts.reduce((acc, p) => unionInto(acc, p.box), emptyBox());
