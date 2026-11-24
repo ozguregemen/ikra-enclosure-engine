@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ikra Enclosure Engine</title>
+  <meta name="description" content="PCB STEP dosyasından üretime uygun muhafaza tasarımı. Tamamen tarayıcıda çalışır; dosyanız bilgisayarınızdan çıkmaz.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b7285'/%3E%3Cpath d='M16 6 26 11.5v9L16 26 6 20.5v-9z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M6 11.5 16 17l10-5.5M16 17v9' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="7"/>
+        <path d="M16 6 26 11.5v9L16 26 6 20.5v-9z"/>
+        <path d="M6 11.5 16 17l10-5.5M16 17v9"/>
+      </svg>
+      <span class="brand-name">Ikra</span>
+      <span class="brand-sub">Enclosure Engine</span>
+    </div>
+    <span class="badge" title="Geliştirme aşaması">M0 · önizleme</span>
+    <span class="topbar-spacer"></span>
+    <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
+      Dosyan tarayıcında kalır
+    </span>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section class="panel" id="upload-panel">
+        <h2 class="panel-title">1 · PCB montajını yükle</h2>
+        <label class="dropzone" id="dropzone">
+          <input type="file" id="file-input" accept=".step,.stp,.STEP,.STP">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+          <span class="dz-main">STEP dosyasını buraya bırak</span>
+          <span class="dz-sub">ya da tıklayıp seç · .step / .stp</span>
+        </label>
+        <div class="row">
+          <button class="btn" id="sample-btn" type="button">Örnek kartla dene</button>
+          <span class="hint">KiCad / Altium STEP çıktısı</span>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="summary-panel" aria-live="polite"></section>
+
+      <section class="panel hidden" id="parts-panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Bileşenler</h2>
+          <span class="muted small" id="parts-count"></span>
+        </div>
+        <p class="muted small">Satırın üzerine gel: 3B'de vurgulanır. Modelde bir parçaya tıklamak da satırı seçer.</p>
+        <div class="table-wrap">
+          <table class="parts">
+            <thead>
+              <tr><th>Bileşen</th><th>Taraf</th><th class="num">Yükseklik</th><th>Kenar</th></tr>
+            </thead>
+            <tbody id="parts-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="roadmap-panel">
+        <h2 class="panel-title">V1 akışı</h2>
+        <ol class="steps">
+          <li class="step active"><span class="num">1</span>STEP yükle ve analiz et<span class="tag now">M0</span></li>
+          <li class="step"><span class="num">2</span>Üretim yöntemi seç<span class="tag">M1</span></li>
+          <li class="step"><span class="num">3</span>Malzeme seç<span class="tag">M1</span></li>
+          <li class="step"><span class="num">4</span>Muhafaza oluştur (gövde + kapak)<span class="tag">M1</span></li>
+          <li class="step"><span class="num">5</span>Standoff, vida, port açıklıkları<span class="tag">M2–M3</span></li>
+          <li class="step"><span class="num">6</span>IP seviyesi, DFM uyarıları<span class="tag">M3–M4</span></li>
+          <li class="step"><span class="num">7</span>STEP / PDF indir<span class="tag">M1–M4</span></li>
+        </ol>
+      </section>
+
+      <footer class="foot muted small">
+        <span id="app-version"></span> · 3B çekirdek: OpenCascade (WebAssembly)
+      </footer>
+    </aside>
+
+    <main class="viewer-wrap">
+      <div id="viewer"></div>
+
+      <div class="viewer-toolbar" role="toolbar" aria-label="Görünüm">
+        <div class="seg">
+          <button type="button" data-view="iso">İzometrik</button>
+          <button type="button" data-view="top">Üst</button>
+          <button type="button" data-view="front">Ön</button>
+          <button type="button" data-view="right">Sağ</button>
+        </div>
+        <button type="button" class="toggle on" id="guides-btn" aria-pressed="true" title="PCB ve zarf kutularını göster/gizle">Kılavuzlar</button>
+      </div>
+
+      <div class="axis-legend" aria-hidden="true">
+        <span class="ax x">X</span><span class="ax y">Y</span><span class="ax z">Z</span>
+      </div>
+
+      <div class="empty-hint" id="empty-hint">
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 6 40 15v18L24 42 8 33V15z"/><path d="M8 15l16 9 16-9M24 24v18"/></svg>
+        <p>3B önizleme burada görünecek</p>
+        <p class="muted small">Dosyayı pencerenin herhangi bir yerine sürükleyip bırakabilirsin.</p>
+      </div>
+
+      <div class="status hidden" id="status" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="status-text"></span>
+        <button type="button" class="status-close hidden" id="status-close" aria-label="Kapat">×</button>
+      </div>
+
+      <div class="drop-overlay hidden" id="drop-overlay">
+        <div>STEP dosyasını bırak</div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

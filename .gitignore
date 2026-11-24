@@ -1,0 +1,16 @@
+# Referans malzemeler ve büyük dosyalar repoya girmez
+# (üçüncü taraf PDF'ler telifli; OCCT SDK 258 MB, GitHub dosya sınırı 100 MB)
+/*.zip
+/*.pdf
+/*.docx
+/ilk_kutum.stp
+~$*
+
+# Yerel araç ayarları
+.claude/
+.vscode/
+
+# İşletim sistemi
+Thumbs.db
+desktop.ini
+.DS_Store
