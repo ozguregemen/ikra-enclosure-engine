@@ -55,6 +55,7 @@ export function createDesignUI({ viewer, setStatus }) {
     fasteners: null,
     lidMode: 'screw',
     selectedHoles: new Set(),
+    portOverrides: new Map(),
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -110,7 +111,12 @@ export function createDesignUI({ viewer, setStatus }) {
     await applyRules();
   });
 
-  const designOptions = () => ({ fasteners: state.fasteners, lidMode: state.lidMode, selectedHoles: state.selectedHoles });
+  const designOptions = () => ({
+    fasteners: state.fasteners,
+    lidMode: state.lidMode,
+    selectedHoles: state.selectedHoles,
+    portOverrides: state.portOverrides,
+  });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
 
   /** Bağlantı seçimi değişince, kullanıcı elle değiştirmediyse PCB altı yüksekliği yeni varsayılana çek */
@@ -213,16 +219,80 @@ export function createDesignUI({ viewer, setStatus }) {
     update();
   });
 
+  /* ---------- Port açıklıkları ---------- */
+
+  function renderPorts(d) {
+    const ports = d.ports || [];
+    $('#ports-summary').textContent = ports.length ? `${ports.filter((p) => p.enabled).length} / ${ports.length} açık` : '';
+    $('#port-list').innerHTML = ports.length
+      ? ports.map((p) => `
+        <div class="port-row ${p.enabled ? '' : 'off'}" data-part="${p.partId}">
+          <label class="port-main"><input type="checkbox" data-port="${esc(p.key)}" ${p.enabled ? 'checked' : ''}>
+            <span class="port-name" title="${esc(p.name)}">${esc(p.name)}</span></label>
+          <span class="port-size">${f2(p.openWidth)} × ${f2(p.openHeight)}</span>
+          <select data-port-style="${esc(p.key)}" aria-label="Açıklık tipi" ${p.enabled ? '' : 'disabled'}>
+            <option value="window" ${p.style === 'window' ? 'selected' : ''}>Pencere</option>
+            <option value="notch" ${p.style === 'notch' ? 'selected' : ''}>Çentik</option>
+          </select>
+          <span class="port-meta"><span class="pill side">${esc(p.side)}</span>${p.crossing ? 'duvardan geçiyor' : 'duvara dayalı'}` +
+          `${!p.crossing && p.connectorLike ? ' · konnektör' : ''}${p.autoNotch ? ' · üstte ince duvar kaldığı için çentik' : ''}</span>
+        </div>`).join('')
+      : '<div class="hole-empty">Duvara değen veya dayalı bileşen yok.</div>';
+  }
+
+  $('#port-list').addEventListener('change', (e) => {
+    const cb = e.target.closest('input[data-port]');
+    const sel = e.target.closest('select[data-port-style]');
+    const key = cb ? cb.dataset.port : sel ? sel.dataset.portStyle : null;
+    if (!key) return;
+    const ov = { ...(state.portOverrides.get(key) || {}) };
+    if (cb) ov.enabled = cb.checked;
+    if (sel) ov.style = sel.value;
+    state.portOverrides.set(key, ov);
+    update();
+  });
+  $('#port-list').addEventListener('mouseover', (e) => {
+    const row = e.target.closest('.port-row');
+    if (row) viewer.highlight(Number(row.dataset.part));
+  });
+  $('#port-list').addEventListener('mouseleave', () => viewer.highlight(null));
+
+  /* ---------- DFM paneli ---------- */
+
+  const DFM_CATS = [['genel', 'Genel'], ['surec', 'Süreç'], ['port', 'Port açıklıkları'], ['kapak', 'Kapak'], ['baglanti', 'Bağlantı']];
+  const LEVEL_RANK = { error: 0, warn: 1, info: 2, ok: 3 };
+  const LEVEL_LABEL = [['error', 'hata'], ['warn', 'uyarı'], ['ok', 'uygun'], ['info', 'bilgi']];
+
+  function noteHtml(c) {
+    return `<li class="note ${c.level === 'info' ? '' : c.level}"${c.focus ? ` data-focus="${c.focus.partId}"` : ''}><span>${esc(c.text)}` +
+      (c.fix ? ` <button type="button" class="link-btn" data-fix-key="${esc(c.fix.key)}" data-fix-value="${c.fix.value}">${esc(c.fix.label)}</button>` : '') +
+      '</span></li>';
+  }
+
+  function renderChecks(checks) {
+    const counts = { error: 0, warn: 0, info: 0, ok: 0 };
+    for (const c of checks) counts[c.level]++;
+    $('#dfm-counts').innerHTML = LEVEL_LABEL.filter(([k]) => counts[k])
+      .map(([k, label]) => `<span class="dfm-count ${k}">${counts[k]} ${label}</span>`).join('');
+    $('#dfm-list').innerHTML = DFM_CATS.map(([id, label]) => {
+      const list = checks.filter((c) => (c.cat || 'genel') === id).sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]);
+      return list.length ? `<section class="dfm-group"><h4>${label}</h4><ul class="notes">${list.map(noteHtml).join('')}</ul></section>` : '';
+    }).join('');
+  }
+
+  $('#dfm-list').addEventListener('mouseover', (e) => {
+    const li = e.target.closest('[data-focus]');
+    viewer.highlight(li ? Number(li.dataset.focus) : null);
+  });
+  $('#dfm-list').addEventListener('mouseleave', () => viewer.highlight(null));
+
   /* ---------- Hesap ve özet ---------- */
 
   function update() {
     if (!state.analysis || !state.rules) return;
-    const d = computeDesign(state.analysis, state.rules, state.params, {
-      fasteners: state.fasteners,
-      lidMode: state.lidMode,
-      selectedHoles: state.selectedHoles,
-    });
+    const d = computeDesign(state.analysis, state.rules, state.params, designOptions());
     state.design = d;
+    renderPorts(d);
     const bom = d.bom || [];
     $('#bom-title').classList.toggle('hidden', !bom.length);
     $('#bom-list').innerHTML = bom.map((line) => `<li>${esc(line)}</li>`).join('');
@@ -233,10 +303,7 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#generate-btn').disabled = !d.ok;
 
     renderStats();
-    $('#dfm-list').innerHTML = (d.checks || []).map((c) =>
-      `<li class="note ${c.level === 'info' ? '' : c.level}"><span>${esc(c.text)}` +
-      (c.fix ? ` <button type="button" class="link-btn" data-fix-key="${esc(c.fix.key)}" data-fix-value="${c.fix.value}">${esc(c.fix.label)}</button>` : '') +
-      '</span></li>').join('');
+    renderChecks(d.checks || []);
 
     if (state.generated) {
       $('#stale-tag').classList.toggle('hidden', false);
@@ -263,7 +330,9 @@ export function createDesignUI({ viewer, setStatus }) {
       stat('Tahmini kütle', mass, massSub) +
       stat('Kapak dili', `${d.lipBars.length} <span class="unit">/ 4 kenar</span>`, d.lipRemoved.length ? `kaldırılan: ${d.lipRemoved.map((x) => x.side).join(', ')}` : 'tüm kenarlarda') +
       stat('Bağlantı', `${d.screws.length} <span class="unit">vida</span>`,
-        d.standoffs.length ? `${d.standoffs.length} standoff · ${d.lidTubes.length} kapak borusu` : 'montaj deliği yok');
+        d.standoffs.length ? `${d.standoffs.length} standoff · ${d.lidTubes.length} kapak borusu` : 'montaj deliği yok') +
+      stat('Port açıklığı', `${d.geometry.cutouts.length}`,
+        d.geometry.cutouts.length ? d.ports.filter((p) => p.enabled).map((p) => `${p.side} ${p.style === 'notch' ? 'çentik' : 'pencere'}`).join(' · ') : 'yok');
   }
 
   const processLabel = () => state.index.processes.find((p) => p.id === state.process).label;
@@ -389,6 +458,7 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#design-panel').classList.remove('hidden');
     state.selectedHoles = new Set((state.analysis.holes || []).map((h, i) => (h.mount ? i : -1)).filter((i) => i >= 0));
     state.lidMode = 'screw';
+    state.portOverrides = new Map();
     state.params = currentDefaults();
     renderSelectors();
     renderParams();
@@ -409,7 +479,10 @@ export function createDesignUI({ viewer, setStatus }) {
       cavity: { L: d.cavity.L, W: d.cavity.W, H: d.cavity.H },
       z: d.z,
       lipBars: d.lipBars.map((l) => ({ side: l.side, depth: l.depth })),
-      ports: d.ports.map((p) => ({ name: p.name, side: p.side, width: p.width, height: p.height })),
+      ports: d.ports.map((p) => ({
+        name: p.name, side: p.side, crossing: p.crossing, enabled: p.enabled, style: p.style,
+        openWidth: p.openWidth, openHeight: p.openHeight, recess: p.recess,
+      })),
       lidMode: state.lidMode,
       fastening: d.fasteningMethod,
       standoffs: d.standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, screw: s.screw })),

@@ -31,6 +31,30 @@ function roundedSlab(L, W, r, cx, cy, z, h) {
   return drawRoundedRectangle(L, W, r).sketchOnPlane('XY', [cx, cy, z]).extrude(h);
 }
 
+/**
+ * Duvarı boydan boya kesen açıklık prizması.
+ * c: { axis (0:X duvarı, 1:Y duvarı), along, a0, a1 (duvar boyunca), z0, z1, n0, n1 (duvar kalınlığı yönü), r }
+ * replicad düzlemleri: 'YZ' → yerel x=Y, y=Z, normal +X;  'ZX' → yerel x=Z, y=X, normal +Y
+ */
+function cutoutPrism(c) {
+  const w = c.a1 - c.a0;
+  const h = c.z1 - c.z0;
+  const depth = c.n1 - c.n0;
+  const ac = (c.a0 + c.a1) / 2;
+  const zc = (c.z0 + c.z1) / 2;
+  if (c.r > 0.01) {
+    return c.axis === 0
+      ? drawRoundedRectangle(w, h, c.r).sketchOnPlane('YZ', [c.n0, ac, zc]).extrude(depth)
+      : drawRoundedRectangle(h, w, c.r).sketchOnPlane('ZX', [ac, c.n0, zc]).extrude(depth);
+  }
+  const min = [0, 0, 0];
+  const max = [0, 0, 0];
+  min[c.axis] = c.n0; max[c.axis] = c.n1;
+  min[c.along] = c.a0; max[c.along] = c.a1;
+  min[2] = c.z0; max[2] = c.z1;
+  return makeBox(min, max);
+}
+
 function buildEnclosure(g) {
   const [cx, cy] = g.center;
   const hBase = g.cavTop - g.z0;
@@ -49,6 +73,10 @@ function buildEnclosure(g) {
   // İnsert / kılavuz / sac vidası deliği: üstten açık, kör delik
   for (const s of standoffs) {
     base = base.cut(makeCylinder(s.holeD / 2, s.depth + 0.5, [s.x, s.y, s.z1 - s.depth], up));
+  }
+  // Port açıklıkları (konnektörler için duvar kesimi)
+  for (const c of g.cutouts || []) {
+    base = base.cut(cutoutPrism(c));
   }
 
   // Kapak: düz plaka + kenarlara konumlandırma dili + PCB'ye inen vida boruları

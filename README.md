@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: M2
+## Şu anki durum: M3
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -30,6 +30,17 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Standart vida boyu seçimi; PCB altı yükseklik insert derinliği ve vida boyuna göre otomatik ayarlanır
 - Bağlantı elemanları listesi (vida, insert/kılavuz), uyarılarda tek tıkla uygulanan öneriler
 
+**Port açıklıkları ve DFM paneli (M3)**
+- Duvardan geçen gövdeler üçgen ağın duvar düzlemindeki kesitiyle bulunur: yalnızca duvara taşan kısım
+  (ör. modül içindeki RJ45) açıklığı belirler, kart altındaki pinler hesaba katılmaz
+- Duvara dayalı konnektörler (USB, jack, terminal…) aday olarak listelenir; diğer kenar bileşenleri kapalı gelir
+- Açıklık tipi: pencere veya üstten açık çentik (kapak kapatır). Üstte ince duvar kalırsa otomatik çentik;
+  enjeksiyonda yan maça gerektirmemesi için varsayılan çentik. CNC'de köşe radyüsü takım yarıçapına göre
+- Kontroller: konnektör ön yüzünün duvar içinde kalma payı, köşeye yakınlık, komşu açıklıklar arası duvar,
+  FDM köprü uzunluğu, kapalı bırakılmış ama duvardan geçen bileşen
+- DFM paneli: kategorilere ayrılmış kontroller (genel, süreç, port, kapak, bağlantı), seviye sayaçları,
+  üzerine gelince ilgili bileşenin 3B'de vurgulanması
+
 ## Kural dosyaları
 
 `web/rules/<süreç>/<malzeme>.json` dosyaları süreç × malzeme kural setlerini tutar
@@ -44,8 +55,8 @@ Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş 
 |---|---|
 | M0 | STEP yükle, 3B göster, PCB ve bileşen analizi |
 | M1 | Kural dosyaları (süreç × malzeme), parametrik alt gövde + kapak, STEP/STL indir |
-| **M2** | Montaj deliklerini tanıma, standoff/boss ve vida noktaları |
-| M3 | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
+| M2 | Montaj deliklerini tanıma, standoff/boss ve vida noktaları |
+| **M3** | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
 | M4 | IP65/66/67 conta kanalı, temel PDF teknik resim |
 
 ## Yerelde çalıştırma
@@ -78,6 +89,7 @@ web/                  Yayınlanan statik site
   js/step-names.js    Düzleştirilmiş montajlarda gövde adlarını kurtarma
   js/analysis.js      PCB / bileşen analizi (saf fonksiyonlar)
   js/holes.js         Montaj deliği tespiti (B-rep yüzlerine çember uydurma)
+  js/ports.js         Port açıklığı tespiti (ağların duvar düzlemindeki kesiti)
   js/design.js        Muhafaza ölçüleri ve DFM kontrolleri (saf fonksiyonlar)
   js/design-ui.js     Süreç/malzeme/parametre paneli, üretim ve indirme
   js/cad-worker.js    Katı model üretimi ve STEP/STL çıktısı (Web Worker, replicad)

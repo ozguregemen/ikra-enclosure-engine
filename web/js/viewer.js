@@ -9,7 +9,9 @@ const VIEW_DIRS = {
   iso: [1, -1, 0.85],
   top: [0, -0.0001, 1],
   front: [0, -1, 0],
+  back: [0, 1, 0],
   right: [1, 0, 0],
+  left: [-1, 0, 0],
 };
 
 const DEFAULT_COLOR = [0.62, 0.65, 0.69];

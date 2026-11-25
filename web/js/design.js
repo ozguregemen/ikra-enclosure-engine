@@ -18,6 +18,8 @@ const RF_TOKENS = new Set(['ant', 'rf', 'sma', 'ble', 'lte', 'gsm', 'nfc', 'mmwa
 const isRfName = (name) => RF_SUBSTR.test(name) ||
   String(name).toLowerCase().split(/[^a-z0-9]+/).some((t) => RF_TOKENS.has(t));
 
+import { detectPorts } from './ports.js';
+
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
 const f = (v) => nf.format(Math.round(v * 100) / 100);
 
@@ -116,7 +118,13 @@ function overlaps2D(box, rect, gap) {
 export function computeDesign(analysis, rules, params, options = {}) {
   const checks = [];
   // fix: { key, value, label } — arayüzde tek tıkla uygulanabilecek parametre önerisi
-  const add = (level, text, fix = null) => checks.push({ level, text, fix });
+  // cat: genel | surec | port | kapak | baglanti; focus: { partId } — 3B'de vurgulanacak bileşen
+  let cat = 'genel';
+  const add = (level, text, fix = null, focus = null) => checks.push({ level, text, fix, cat, focus });
+  const partIdByName = (name) => {
+    const pt = analysis.parts.find((x) => x.name === name);
+    return pt ? { partId: pt.id } : null;
+  };
   const b = analysis.board;
   if (!b) return { ok: false, error: 'PCB tespit edilemediği için muhafaza oluşturulamıyor.' };
   if (b.axes.n !== 'Z') {
@@ -207,27 +215,39 @@ export function computeDesign(analysis, rules, params, options = {}) {
     }
   }
 
-  // --- Duvarla çakışan bileşenler (port adayları, M3'te açıklık açılacak) ---
-  const portMap = new Map();
-  for (const o of obstacles) {
-    const bx = o.box;
-    if (bx.max[2] <= z0 || bx.min[2] >= cavTop) continue;
-    const crossings = [];
-    if (bx.min[0] < cav.min[0]) crossings.push('-X');
-    if (bx.max[0] > cav.max[0]) crossings.push('+X');
-    if (bx.min[1] < cav.min[1]) crossings.push('-Y');
-    if (bx.max[1] > cav.max[1]) crossings.push('+Y');
-    for (const side of crossings) {
-      const key = o.name + '|' + side;
-      if (!portMap.has(key)) portMap.set(key, { name: o.name, side, min: [...bx.min], max: [...bx.max] });
-      const pm = portMap.get(key);
-      for (let k = 0; k < 3; k++) { pm.min[k] = Math.min(pm.min[k], bx.min[k]); pm.max[k] = Math.max(pm.max[k], bx.max[k]); }
-    }
-  }
-  const ports = [...portMap.values()].map((pm) => {
-    const along = pm.side.endsWith('X') ? 1 : 0; // duvar düzlemindeki yatay eksen
-    return { ...pm, width: pm.max[along] - pm.min[along], height: pm.max[2] - pm.min[2] };
+  // --- Port açıklıkları (M3): duvardan geçen veya duvara dayalı konnektörler ---
+  // Enjeksiyonda üstten açık çentik varsayılır: yan duvardaki kapalı pencere kalıpta yan maça ister.
+  const portOverrides = options.portOverrides || new Map();
+  const defaultStyle = rules.process === 'injection' ? 'notch' : 'window';
+  const cutR = rules.process === 'cnc' ? rules.process_params.tool_diameter / 2 + 0.1 : 0.5;
+  const minBridge = Math.max(rules.min_wall, 1.5);
+  const ports = (analysis.meshes ? detectPorts(analysis, cav, [floorTop, cavTop]) : []).map((pt) => {
+    const ov = portOverrides.get(pt.key) || {};
+    const enabled = ov.enabled ?? (pt.crossing || pt.connectorLike);
+    let style = ov.style || defaultStyle;
+    const a0 = pt.a0 - rules.cutout_clearance_xy;
+    const a1 = pt.a1 + rules.cutout_clearance_xy;
+    let zLo = pt.z0 - rules.cutout_clearance_z;
+    let zHi = pt.z1 + rules.cutout_clearance_z;
+    let clippedBottom = false;
+    if (zLo < floorTop + 0.5) { zLo = floorTop + 0.5; clippedBottom = true; }
+    const bridge = cavTop - zHi;
+    let autoNotch = false;
+    if (style === 'window' && bridge < minBridge) { style = 'notch'; autoNotch = true; }
+    const openHeight = (style === 'notch' ? cavTop : zHi) - zLo;
+    const inner = pt.dir > 0 ? cav.max[pt.axis] : cav.min[pt.axis];
+    const outerPlane = inner + pt.dir * wall;
+    const recess = pt.dir > 0 ? outerPlane - pt.front : pt.front - outerPlane; // > 0: ön yüz duvarın içinde
+    const cornerGap = Math.min(a0 - cav.min[pt.along], cav.max[pt.along] - a1);
+    const r = Math.max(0, Math.min(cutR, (a1 - a0) / 2 - 0.05, openHeight / 2 - 0.05));
+    return { ...pt, enabled, style, autoNotch, clippedBottom, a0, a1, zLo, zHi: style === 'notch' ? cavTop + 1 : zHi,
+      openWidth: a1 - a0, openHeight, bridge, inner, outerPlane, recess, cornerGap, r };
   });
+  const cutouts = ports.filter((pt) => pt.enabled).map((pt) => ({
+    axis: pt.axis, along: pt.along, a0: pt.a0, a1: pt.a1, z0: pt.zLo, z1: pt.zHi, r: pt.r,
+    n0: Math.min(pt.inner - pt.dir * 0.5, pt.outerPlane + pt.dir * 1),
+    n1: Math.max(pt.inner - pt.dir * 0.5, pt.outerPlane + pt.dir * 1),
+  }));
 
   // --- Bağlantı (M2): montaj deliklerinden standoff, kapak borusu ve vidalar ---
   const fasteners = options.fasteners;
@@ -328,6 +348,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   }
 
   // --- DFM kontrolleri ---
+  cat = 'genel';
   if (wall < rules.min_wall) {
     add('error', `Et kalınlığı ${f(wall)} mm, ${rules.label} için en az ${f(rules.min_wall)} mm olmalı.`);
   } else if (wall < rules.recommended_wall_min || wall > rules.recommended_wall_max) {
@@ -339,6 +360,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
     add(rules.process === 'cnc' ? 'error' : 'warn', `İç köşe radyüsü ${f(rIn)} mm, kural değerinin (${f(rules.corner_radius_min)} mm) altında.`);
   }
 
+  cat = 'surec';
   if (rules.process === 'fdm') {
     const nz = rules.process_params.nozzle_diameter;
     const n = wall / nz;
@@ -384,18 +406,60 @@ export function computeDesign(analysis, rules, params, options = {}) {
     }
   }
 
-  for (const port of ports) {
-    add('warn', `${port.name}: ${port.side} duvarından geçiyor (kesit ${f(port.width)} × ${f(port.height)} mm). Port açıklığı M3'te otomatik açılacak.`);
+  // Port açıklıkları
+  cat = 'port';
+  const styleText = (s) => (s === 'notch' ? 'çentik (üstten açık)' : 'pencere');
+  let sideMachining = false;
+  for (const pt of ports) {
+    const focus = { partId: pt.partId };
+    if (!pt.enabled) {
+      if (pt.crossing) add('error', `${pt.name} ${pt.side} duvarından geçiyor ama açıklığı kapalı: gövde montajı yapılamaz.`, null, focus);
+      continue;
+    }
+    add('ok', `${pt.name}: ${pt.side} duvarında ${styleText(pt.style)} açıklık ${f(pt.openWidth)} × ${f(pt.openHeight)} mm.`, null, focus);
+    if (pt.autoNotch) {
+      add('info', `${pt.name}: açıklığın üstünde yalnızca ${f(Math.max(pt.bridge, 0))} mm duvar kalacağı için açıklık üst kenara kadar uzatıldı; kapak üstünü kapatır.`, null, focus);
+    }
+    if (pt.clippedBottom) add('warn', `${pt.name}: açıklık tabana kadar inemeyeceği için alt kısmı kırpıldı.`, null, focus);
+    if (pt.recess > 1.5) {
+      add('warn', `${pt.name}: ön yüzü dış yüzeyden ${f(pt.recess)} mm içeride; fiş gövdesi duvara takılabilir. Açıklığı fiş ölçüsüne göre büyüt veya PCB–duvar boşluğunu azalt.`, null, focus);
+    } else if (pt.recess < -0.05) {
+      add('info', `${pt.name}: ön yüzü dış yüzeyden ${f(-pt.recess)} mm dışarı taşıyor.`, null, focus);
+    }
+    if (pt.cornerGap < rules.min_wall) {
+      add('warn', `${pt.name}: açıklık köşeye çok yakın (${f(Math.max(pt.cornerGap, 0))} mm duvar kalıyor); köşe zayıflar.`, null, focus);
+    }
+    if (rules.process === 'injection') {
+      if (pt.style === 'window') add('warn', `${pt.name}: kapalı pencere kalıpta yan maça (slider) gerektirir; çentik seçilirse gerekmez.`, null, focus);
+    } else if (rules.process === 'fdm' && pt.style === 'window' && pt.openWidth > 10) {
+      add('info', `${pt.name}: pencerenin üst kenarı ${f(pt.openWidth)} mm köprü; baskıda hafif sarkma olabilir.`, null, focus);
+    }
+    if (rules.process === 'cnc') sideMachining = true;
   }
+  if (sideMachining) add('info', `Yan duvar açıklıkları ikinci bağlama veya 4. eksen ister; köşe radyüsü takıma göre R${f(cutR)}.`);
+  if (rules.process === 'injection' && ports.some((pt) => pt.enabled && pt.style === 'notch')) {
+    add('ok', 'Çentik tipi açıklıklar ana kalıp açılma yönünde: yan maça gerekmez.');
+  }
+  for (let i = 0; i < ports.length; i++) {
+    for (let j = i + 1; j < ports.length; j++) {
+      const A = ports[i], B = ports[j];
+      if (!A.enabled || !B.enabled || A.side !== B.side) continue;
+      const gap = Math.max(A.a0, B.a0) - Math.min(A.a1, B.a1);
+      if (gap < rules.min_wall) add('warn', `${A.name} ile ${B.name} açıklıkları arasında ${f(Math.max(gap, 0))} mm duvar kalıyor.`);
+    }
+  }
+
+  cat = 'kapak';
   for (const r of lipRemoved) {
-    add('info', `Kapak dili ${r.side} kenarında kaldırıldı: altında yüksek bileşen var${r.who ? ` (${r.who})` : ''}.`);
+    add('info', `Kapak dili ${r.side} kenarında kaldırıldı: altında yüksek bileşen var${r.who ? ` (${r.who})` : ''}.`, null, r.who ? partIdByName(r.who) : null);
   }
   for (const s of lipShortened) {
-    add('info', `Kapak dili ${s.side} kenarında ${f(s.depth)} mm'ye kısaltıldı${s.who ? ` (${s.who})` : ''}.`);
+    add('info', `Kapak dili ${s.side} kenarında ${f(s.depth)} mm'ye kısaltıldı${s.who ? ` (${s.who})` : ''}.`, null, s.who ? partIdByName(s.who) : null);
   }
   if (lipBars.length === 0) add('warn', 'Kapağı konumlayacak dil hiçbir kenara sığmadı; bileşen üstü boşluğu artırmayı dene.');
 
   // Bağlantı kontrolleri
+  cat = 'baglanti';
   if (!mountHoles.length) {
     add('warn', 'Kartta montaj deliği bulunamadı: PCB tutucu (standoff) üretilmedi, kart muhafaza içinde serbest kalır.');
     if (lidMode === 'screw') add('info', 'Kapak vidası montaj deliklerine bağlı olduğundan kapak yalnızca geçmeyle tutunur.');
@@ -449,6 +513,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       lipBars: lipBars.map((l) => ({ min: l.min, max: l.max })),
       standoffs: standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, z0: s.z0, z1: s.z1 })),
       lidTubes: lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, z0: t.z0, z1: t.z1 })),
+      cutouts,
     },
     ports,
     lipBars,

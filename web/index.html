@@ -28,7 +28,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">M2 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">M3 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -74,7 +74,13 @@
         <div class="seg-full two" id="lid-mode" role="radiogroup" aria-label="Kapak bağlantısı"></div>
 
         <div class="panel-head">
-          <h2 class="panel-title">5 · Muhafaza</h2>
+          <h2 class="panel-title">5 · Port açıklıkları</h2>
+          <span class="muted small" id="ports-summary"></span>
+        </div>
+        <div class="port-list" id="port-list"></div>
+
+        <div class="panel-head">
+          <h2 class="panel-title">6 · Muhafaza</h2>
           <span class="stale-tag hidden" id="stale-tag">parametreler değişti</span>
         </div>
         <div class="note error hidden" id="design-error"></div>
@@ -90,8 +96,11 @@
         </div>
         <h3 class="sub-title hidden" id="bom-title">Bağlantı elemanları</h3>
         <ul class="bom" id="bom-list"></ul>
-        <h3 class="sub-title">DFM kontrolleri</h3>
-        <ul class="notes" id="dfm-list"></ul>
+        <div class="panel-head">
+          <h3 class="sub-title">DFM kontrolleri</h3>
+          <div class="dfm-counts" id="dfm-counts"></div>
+        </div>
+        <div class="dfm" id="dfm-list"></div>
       </section>
 
       <section class="panel hidden" id="parts-panel">
@@ -117,8 +126,8 @@
           <li class="step done"><span class="num">2</span>Üretim yöntemi seç<span class="tag">M1</span></li>
           <li class="step done"><span class="num">3</span>Malzeme seç<span class="tag">M1</span></li>
           <li class="step done"><span class="num">4</span>Gövde + kapak, temel DFM, STEP/STL<span class="tag">M1</span></li>
-          <li class="step active"><span class="num">5</span>Standoff ve vida noktaları<span class="tag now">M2</span></li>
-          <li class="step"><span class="num">6</span>Port açıklıkları, DFM paneli<span class="tag">M3</span></li>
+          <li class="step done"><span class="num">5</span>Standoff ve vida noktaları<span class="tag">M2</span></li>
+          <li class="step active"><span class="num">6</span>Port açıklıkları, DFM paneli<span class="tag now">M3</span></li>
           <li class="step"><span class="num">7</span>IP conta kanalı, PDF teknik resim<span class="tag">M4</span></li>
         </ol>
       </section>
@@ -136,6 +145,8 @@
           <button type="button" data-view="iso">İzometrik</button>
           <button type="button" data-view="top">Üst</button>
           <button type="button" data-view="front">Ön</button>
+          <button type="button" data-view="back">Arka</button>
+          <button type="button" data-view="left">Sol</button>
           <button type="button" data-view="right">Sağ</button>
         </div>
         <button type="button" class="toggle on" id="guides-btn" aria-pressed="true" title="PCB ve zarf kutularını göster/gizle">Kılavuzlar</button>

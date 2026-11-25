@@ -233,6 +233,32 @@ button { font: inherit; color: inherit; }
 .hole-row input { margin: 0; accent-color: var(--accent); }
 .hole-row .pos { font-family: var(--mono); color: var(--muted); font-size: 11.5px; }
 .hole-empty { font-size: 12.5px; padding: 6px 8px; border-radius: 6px; background: var(--warn-weak); }
+.port-list { display: grid; gap: 4px; }
+.port-row {
+  display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 4px 8px;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px;
+}
+.port-row:hover { border-color: var(--accent); }
+.port-row.off { opacity: .65; }
+.port-row .port-main { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.port-row .port-main input { margin: 0; accent-color: var(--accent); flex: none; }
+.port-row .port-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.port-row .port-size { font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.port-row select {
+  font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--text);
+}
+.port-row .port-meta { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--muted); }
+.port-row .pill.side { font-family: var(--mono); }
+.dfm-counts { display: flex; gap: 4px; flex-wrap: wrap; }
+.dfm-count { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--muted); }
+.dfm-count.error { background: var(--danger-weak); color: var(--danger); }
+.dfm-count.warn { background: var(--warn-weak); color: var(--warn); }
+.dfm-count.ok { background: var(--ok-weak); color: var(--ok); }
+.dfm { display: grid; gap: 10px; }
+.dfm-group h4 { margin: 0 0 4px; font-size: 11.5px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.note[data-focus] { cursor: pointer; }
+.note[data-focus]:hover { outline: 1px solid var(--accent); }
 .bom { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .bom li { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; }
 .downloads { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
