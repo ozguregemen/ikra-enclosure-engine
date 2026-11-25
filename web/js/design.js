@@ -78,7 +78,9 @@ export function defaultParams(analysis, rules, options = {}) {
       const d = computeDesign(analysis, rules, params, options);
       let changed = false;
       for (const c of d.checks || []) {
-        if (c.fix && c.fix.value > params[c.fix.key] + 1e-9) { params[c.fix.key] = c.fix.value; changed = true; }
+        if (c.fix && typeof params[c.fix.key] === 'number' && c.fix.value > params[c.fix.key] + 1e-9) {
+          params[c.fix.key] = c.fix.value; changed = true;
+        }
       }
       if (!changed) break;
     }
@@ -97,11 +99,30 @@ export const LID_MODES = [
 
 const METHOD_TEXT = { insert: 'ısıyla gömülen insert', tapped: 'kılavuz çekilmiş diş', self_tap: 'sac vidası (plastik için)' };
 
-/** PCB deliğinden geçebilecek en büyük metrik vida */
-export function pickScrew(holeD, screws) {
+/** PCB deliğinden geçebilecek en büyük metrik vida (allowed: izin verilen boyut adları, isteğe bağlı) */
+export function pickScrew(holeD, screws, allowed = null) {
   let best = null;
-  for (const s of screws) if (s.min_pcb_hole <= holeD + 1e-6 && (!best || s.d > best.d)) best = s;
+  for (const s of screws) {
+    if (allowed && !allowed.includes(s.size)) continue;
+    if (s.min_pcb_hole <= holeD + 1e-6 && (!best || s.d > best.d)) best = s;
+  }
   return best;
+}
+
+/**
+ * Belirli bir boyun bu tasarımda durumu: 'ok' | 'short' (az tutunur) | 'long' (deliğin dibine dayanır).
+ * info: { grip, available, minEngage } (computeDesign().fastenInfo)
+ */
+function lengthStatus(info, L) {
+  const engagement = L - info.grip;
+  if (engagement > info.available - 0.3 + 1e-9) return { status: 'long', engagement };
+  if (engagement < info.minEngage - 1e-9) return { status: 'short', engagement };
+  return { status: 'ok', engagement };
+}
+
+/** Toolbox tipinden seçilen boyutun baş ölçüleri ve boy serisi */
+function typeSize(ttype, size) {
+  return ttype && ttype.sizes ? ttype.sizes[size] || null : null;
 }
 
 function distToBoxXY(box, x, y) {
@@ -302,10 +323,40 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const at = (h) => `(${f(h.x)}; ${f(h.y)})`;
   const available = p.standoffHeight + floor - MIN_FLOOR_UNDER_HOLE;
 
+  // Toolbox seçimi: vida tipi (ISO), boyut ve boy ('auto' = hesapla)
+  const spec = { type: 'iso7045', size: 'auto', length: 'auto', ...(options.screwSpec || {}) };
+  const ttype = (options.toolbox?.types || []).find((t) => t.id === spec.type) || null;
+  const typeSizes = ttype ? Object.keys(ttype.sizes) : null;
+  const countersunk = !!ttype && ttype.head === 'countersunk';
+  const specIssues = new Map();
+  const noteSpec = (level, text, fix = null) => { if (!specIssues.has(text)) specIssues.set(text, [level, text, fix]); };
+  let fastenInfo = null;
+
   if (fasteners) {
     for (const h of usedHoles) {
-      const s = pickScrew(h.d, fasteners.screws);
-      if (!s) { fastenChecks.push(['warn', `Ø${f(h.d)} delik ${at(h)} için tablodaki vidalardan hiçbiri uygun değil.`]); continue; }
+      let s;
+      if (spec.size === 'auto') {
+        s = pickScrew(h.d, fasteners.screws, typeSizes);
+        if (!s) {
+          noteSpec('error', `Ø${f(h.d)} delikten geçen ${ttype ? ttype.code + ' ' : ''}vida boyutu yok; başka bir vida tipi seç.`);
+          continue;
+        }
+      } else {
+        s = fasteners.screws.find((x) => x.size === spec.size);
+        if (!s) continue;
+        if (ttype && !typeSize(ttype, s.size)) {
+          noteSpec('error', `${ttype.code} ${s.size} boyutunda tanımlı değil; listeden başka bir boyut seç.`);
+        }
+        if (s.min_pcb_hole > h.d + 1e-6) {
+          const fit = pickScrew(h.d, fasteners.screws, typeSizes);
+          noteSpec('error', `${s.size} vida Ø${f(h.d)} PCB deliğinden geçmez (en az Ø${f(s.min_pcb_hole)} gerekir).${fit ? ` ${fit.size} seçilebilir.` : ''}`,
+            fit ? { key: 'screwSize', value: fit.size, label: `${fit.size} seç` } : null);
+        }
+      }
+      const ts = typeSize(ttype, s.size);
+      const headD = ts ? ts.dk : s.head_d;
+      const headH = ts ? ts.k : s.head_h;
+      const lengths = ts ? ts.lengths : fasteners.standard_lengths;
       const featureD = method === 'insert' ? s.insert_hole : method === 'tapped' ? s.tap_drill : s.selftap_pilot;
       const required = method === 'insert' ? s.insert_length + 0.5 : rules.thread_engagement_d * s.d + 0.5;
       const minEngage = method === 'insert' ? 0.7 * s.insert_length : rules.thread_engagement_d * s.d;
@@ -338,11 +389,61 @@ export function computeDesign(analysis, rules, params, options = {}) {
         }
       }
 
-      // Vida boyu: baş kapak (veya PCB) üstünde, uç standoff deliğinde
+      // Havşa başlı vida yalnızca kapakta (havşa açılabilen yüzeyde) kullanılabilir
+      if (countersunk) {
+        if (tube) {
+          const dTop = headD + 0.3;
+          const depthC = (dTop - s.clearance) / 2; // 90° havşa
+          tube.countersink = { dTop, depth: depthC };
+          const dAtPlateBottom = dTop - 2 * lidT;
+          if (dAtPlateBottom > tube.od - 0.8) {
+            const needT = Math.ceil(((dTop - tube.od + 0.8) / 2) * 10) / 10;
+            noteSpec('error', `${s.size} havşası (Ø${f(dTop)}, derinlik ${f(depthC)} mm) ${f(lidT)} mm kapağı ve boruyu deler; kapak/et kalınlığı en az ${f(needT)} mm olmalı ya da silindir başlı vida seç.`,
+              { key: 'wall', value: needT, label: `${f(needT)} mm uygula` });
+          } else if (depthC > lidT + 1e-6) {
+            noteSpec('info', `${s.size} havşası ${f(depthC)} mm derin; ${f(lidT)} mm kapağın altında vida borusunun içinde devam ediyor.`);
+          }
+        } else {
+          noteSpec('error', `${ttype.code} havşa başlı vida yalnızca kapak vidası olarak kullanılabilir; PCB yüzeyine havşa açılamaz. Bu delikler için ISO 7045 veya ISO 4762 seç.`,
+            { key: 'screwType', value: 'iso7045', label: 'ISO 7045 seç' });
+        }
+      }
+
+      // Vida boyu: baş kapak (veya PCB) üstünde, uç standoff deliğinde.
+      // Havşa başlıda boy başı da kapsar ve baş kapakla aynı hizada biter: uç yine üst yüz − L'dedir.
       const grip = tube ? zTop - b.bottom : b.thickness;
-      const len = pickLength(fasteners.standard_lengths, grip, available, minEngage);
+      if (!fastenInfo || (tube && !fastenInfo.lidScrew)) {
+        fastenInfo = { grip, available, method, size: s.size, lidScrew: !!tube, minEngage, lengths, floor };
+      }
+      // Seçilen boy kapak vidalarına uygulanır; kapak borusu olmayan (yalnızca PCB) deliklerde boy otomatik kalır
+      const explicitLength = spec.length !== 'auto' && (tube || lidMode !== 'screw');
+      if (spec.length !== 'auto' && !explicitLength) {
+        noteSpec('info', 'Seçilen vida boyu kapak vidalarına uygulandı; üstü dolu (yalnızca PCB) deliklerde boy otomatik seçildi.');
+      }
+      let len;
+      if (!explicitLength) {
+        len = pickLength(lengths, grip, available, minEngage);
+      } else {
+        const L = Number(spec.length);
+        const st = lengthStatus({ grip, available, minEngage }, L);
+        len = { L, engagement: st.engagement, ok: st.status === 'ok', next: null };
+        if (st.status === 'long') {
+          // Seçilen vida korunur: standoff yükseltilerek delik derinleştirilir (otomatik parametrede uygulanır)
+          const shorter = [...lengths].reverse().find((x) => x - grip <= available - 0.3 && x - grip >= minEngage);
+          const needStandoff = Math.ceil((L - grip + 0.3 - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10;
+          noteSpec('error', `${s.size}×${L} vida standoff deliğinin dibine dayanır (bu tasarımda en fazla ${f(grip + available - 0.3)} mm). ` +
+            `PCB altı yükseklik ${f(needStandoff)} mm yapılırsa sığar${shorter ? `; ya da ${s.size}×${shorter} seç` : ''}.`,
+            { key: 'standoffHeight', value: needStandoff, label: `${f(needStandoff)} mm uygula` });
+        } else if (st.status === 'short') {
+          const longer = lengths.find((x) => x - grip >= minEngage && x - grip <= available - 0.3);
+          noteSpec('warn', st.engagement <= 0
+            ? `${s.size}×${L} vida standoff'a ulaşmıyor: kapak + kart ${f(grip)} mm, en az ${f(grip + minEngage)} mm boy gerekir.`
+            : `${s.size}×${L} vida yalnızca ${f(st.engagement)} mm tutunur (en az ${f(minEngage)} mm önerilir).`,
+            longer ? { key: 'screwLength', value: longer, label: `${s.size}×${longer} seç` } : null);
+        }
+      }
       const depth = Math.min(available, Math.max(required, (len.L ? len.L - grip : 0) + 0.5));
-      if (!len.ok) {
+      if (!explicitLength && !len.ok) {
         const needAvail = len.next !== null ? len.next - grip + 0.3 : null;
         const needStandoff = needAvail !== null ? Math.ceil((needAvail - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10 : null;
         const text = (len.L ? `${s.size}×${len.L} vida yalnızca ${f(len.engagement)} mm tutunur (en az ${f(minEngage)} mm önerilir).` : `${s.size} için uygun standart boy yok.`) +
@@ -357,8 +458,14 @@ export function computeDesign(analysis, rules, params, options = {}) {
         lengthIssues.get(key).count++;
       }
       standoffs.push({ x: h.x, y: h.y, od, holeD: featureD, depth, z0: floorTop, z1: b.bottom, screw: s.size });
-      screws.push({ size: s.size, length: len.L, engagement: len.engagement, ok: len.ok, lid: !!tube, x: h.x, y: h.y, head_d: s.head_d, head_h: s.head_h, d: s.d, grip });
+      screws.push({
+        size: s.size, length: len.L, engagement: len.engagement, ok: len.ok, lid: !!tube, x: h.x, y: h.y,
+        head_d: headD, head_h: headH, head: ttype ? ttype.head : 'pan', d: s.d, grip,
+        type: ttype ? ttype.id : null, code: ttype ? ttype.code : null, name: ttype ? ttype.name : 'vida',
+        drive: ttype ? ttype.drive : null, driveSize: ts ? ts.drive_size : null,
+      });
     }
+    for (const [level, text, fix] of specIssues.values()) fastenChecks.push([level, text, fix]);
     for (const di of depthIssues.values()) {
       fastenChecks.push(['error', (di.count > 1 ? `${di.count} delikte: ` : `Delik ${di.where}: `) + di.text, di.fix]);
     }
@@ -376,7 +483,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
     groups.get(key).count++;
   }
   for (const g of groups.values()) {
-    bom.push(`${g.count} × ${g.size}×${g.length ?? '?'} yıldız başlı vida (ISO 7045) — ${g.lid ? 'kapak + PCB' : 'PCB'}`);
+    const drive = g.driveSize ? ` (${g.head === 'pan' ? `yıldız ${g.driveSize}` : `imbus ${g.driveSize} mm`})` : '';
+    bom.push(`${g.count} × ${g.code ? g.code + ' ' : ''}${g.size}×${g.length ?? '?'} ${g.name.toLocaleLowerCase('tr')}${drive} — ${g.lid ? 'kapak + PCB' : 'PCB'}`);
   }
   if (standoffs.length && fasteners) {
     const s = fasteners.screws.find((x) => x.size === standoffs[0].screw);
@@ -396,7 +504,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
     cordLength = 2 * (gL + gW) - 8 * gr + 2 * Math.PI * gr;
     bom.push(`1 × Ø${f(seal.cord_d)} silikon kordon conta, ${Math.ceil(cordLength + 10)} mm (uçlar yapıştırılarak halka yapılır)`);
     const lidCount = screws.filter((s) => s.lid).length;
-    if (lidCount) bom.push(`${lidCount} × ${screws.find((s) => s.lid).size} sızdırmazlık pulu (vida başı altına)`);
+    if (lidCount && !countersunk) bom.push(`${lidCount} × ${screws.find((s) => s.lid).size} sızdırmazlık pulu (vida başı altına)`);
+    if (lidCount && countersunk) bom.push(`Sıvı sızdırmazlık / vida sabitleyici (havşa başlı ${lidCount} kapak vidası için)`);
   }
 
   // --- DFM kontrolleri ---
@@ -568,7 +677,9 @@ export function computeDesign(analysis, rules, params, options = {}) {
       } else {
         add('ok', `Kapak sıkıştırma aralığı ortalama ${f(pitch)} mm.`);
       }
-      add('info', 'Kapak vidaları conta halkasının içinden geçiyor: her vida başının altına sızdırmazlık pulu koy.');
+      add('info', countersunk
+        ? 'Kapak vidaları conta halkasının içinden geçiyor: havşa başlı vidada pul kullanılamaz, havşaya sıvı sızdırmazlık / vida sabitleyici sür (ya da silindir başlı vida + sızdırmazlık pulu seç).'
+        : 'Kapak vidaları conta halkasının içinden geçiyor: her vida başının altına sızdırmazlık pulu koy.');
     }
     for (const [level, text, fix, focus] of ipPortIssues) add(level, text, fix, focus);
     if (ports.some((pt) => pt.enabled)) {
@@ -598,7 +709,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       zTop,
       lipBars: lipBars.map((l) => ({ min: l.min, max: l.max })),
       standoffs: standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, z0: s.z0, z1: s.z1 })),
-      lidTubes: lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, z0: t.z0, z1: t.z1 })),
+      lidTubes: lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, z0: t.z0, z1: t.z1, countersink: t.countersink || null })),
       cutouts,
       groove: grooveGeom,
     },
@@ -611,6 +722,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
     lidTubes,
     screws,
     bom,
+    screwSpec: spec,
+    screwType: ttype ? { id: ttype.id, code: ttype.code, name: ttype.name, head: ttype.head } : null,
+    fastenInfo,
+    usedHoleMinD: usedHoles.length ? Math.min(...usedHoles.map((h) => h.d)) : null,
     fasteningMethod: method,
     checks,
   };

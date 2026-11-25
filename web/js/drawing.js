@@ -382,7 +382,9 @@ function lidSheet(ctx) {
     const [px, py] = pt.toPaper([t.x, t.y, 0]);
     centerMark(out, px, py, (t.holeD / 2) * s);
     balloon(out, px, py, px + (px < (pt.x0 + pt.x1) / 2 ? 6 : -6), py - 5, `K${i + 1}`);
-    rows.push([`K${i + 1}`, d2(t.x - datum[0]), d2(t.y - datum[1]), `Ø${d2(t.holeD)}`, 'boydan boya', `boru Ø${d1(t.od)}`]);
+    rows.push([`K${i + 1}`, d2(t.x - datum[0]), d2(t.y - datum[1]), `Ø${d2(t.holeD)}`,
+      t.countersink ? `havşa Ø${d2(t.countersink.dTop)}` : 'boydan boya',
+      t.countersink ? `90° · boru Ø${d1(t.od)}` : `boru Ø${d1(t.od)}`]);
   });
 
   let y = 24;
@@ -396,7 +398,11 @@ function lidSheet(ctx) {
     `Kapak kalınlığı ${d1(d.params.lidT)} mm. Konumlandırma dili ${d1(d.params.lipT)} mm, gövdeye ${d2(d.params.fit)} mm boşlukla oturur.`,
     'Delik koordinatları gövde ile aynı sıfır noktasına göredir.',
   ];
-  if (d.sealing) n.push('Kapağın alt yüzü conta yüzeyidir: düz ve çiziksiz olmalı. Vida başlarına sızdırmazlık pulu.');
+  const sunk = d.lidTubes.some((t) => t.countersink);
+  if (sunk) n.push('Havşalar 90°; vida başı kapak üst yüzüyle aynı hizada kalır.');
+  if (d.sealing) {
+    n.push(`Kapağın alt yüzü conta yüzeyidir: düz ve çiziksiz olmalı. ${sunk ? 'Havşalara sıvı sızdırmazlık.' : 'Vida başlarına sızdırmazlık pulu.'}`);
+  }
   if (rules.process === 'fdm') n.push('Baskı yönü: kapağın dış yüzü tablaya; borular ve dil yukarı.');
   notes(out, 194, y, 91, 'NOTLAR', n);
 

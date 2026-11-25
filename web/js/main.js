@@ -6,7 +6,7 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.6.1 (V1)';
+const APP_VERSION = '0.7.0 (V1.1)';
 const SAMPLE_URL = 'samples/ornek-kart.step';
 const LARGE_FILE_MB = 50;
 
@@ -82,6 +82,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'f') viewer.fit();
   else if (k === 'h') viewer.setView('iso');
   else if (k === 'g') $('#guides-btn').click();
+  else if (k === 't') $('#toolbox-btn').click();
   else if (KEY_VIEWS[k]) viewer.setView(KEY_VIEWS[k]);
   else return;
   e.preventDefault();

@@ -101,6 +101,7 @@ export class Viewer {
     this.enclosureMaterial = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
     this.enclosureEdgeMaterial = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.55 });
     this.screwMaterial = new THREE.MeshStandardMaterial({ color: 0xb9c0c8, metalness: 0.6, roughness: 0.35 });
+    this.recessMaterial = new THREE.MeshStandardMaterial({ color: 0x2f343a, metalness: 0.3, roughness: 0.6 });
 
     this.highlightMaterial = new THREE.MeshStandardMaterial({
       roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide,
@@ -270,13 +271,7 @@ export class Viewer {
     }
     for (const s of screws) {
       if (!s.length) continue;
-      const shank = new THREE.Mesh(new THREE.CylinderGeometry(s.d / 2, s.d / 2, s.length, 16), this.screwMaterial);
-      shank.rotation.x = Math.PI / 2;
-      shank.position.set(s.x, s.y, s.z - s.length / 2);
-      const head = new THREE.Mesh(new THREE.CylinderGeometry(s.headD / 2, s.headD / 2, s.headH, 24), this.screwMaterial);
-      head.rotation.x = Math.PI / 2;
-      head.position.set(s.x, s.y, s.z + s.headH / 2);
-      (s.lid ? this.enclosure.lid : this.enclosure.base).add(shank, head);
+      (s.lid ? this.enclosure.lid : this.enclosure.base).add(this.makeScrew(s));
     }
     this.explodeOffset = explodeOffset;
     this.applyEnclosureOptions();
@@ -284,9 +279,68 @@ export class Viewer {
     this.render();
   }
 
+  /**
+   * Toolbox vidasının görsel modeli. s.z: baş oturma yüzü (kapak üstü ya da PCB üstü).
+   * head: 'pan' (ISO 7045, yıldız), 'socket' (ISO 4762, imbus), 'countersunk' (ISO 10642, havşa; boy başı kapsar)
+   */
+  makeScrew(s) {
+    const group = new THREE.Group();
+    const r = s.headD / 2;
+    const k = s.headH;
+    const sunk = s.head === 'countersunk';
+    let profile;
+    if (sunk) {
+      profile = [[0, -k], [s.d / 2, -k], [r, 0], [0, 0]];
+    } else if (s.head === 'socket') {
+      const ch = Math.min(0.12 * k, 0.3);
+      profile = [[0, 0], [r, 0], [r, k - ch], [r - ch, k], [0, k]];
+    } else {
+      // Bombe baş: düşük kenar, yuvarlatılmış omuz, düz tepe
+      profile = [[0, 0], [r, 0], [r, 0.35 * k]];
+      for (let i = 1; i <= 6; i++) {
+        const a = (i / 6) * (Math.PI / 2);
+        profile.push([0.55 * r + 0.45 * r * Math.cos(a), 0.35 * k + 0.65 * k * Math.sin(a)]);
+      }
+      profile.push([0, k]);
+    }
+    const head = new THREE.Mesh(
+      new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 32),
+      this.screwMaterial,
+    );
+    head.rotation.x = Math.PI / 2;
+    head.position.set(s.x, s.y, s.z);
+    // Gövde: havşada başın altından, diğerlerinde oturma yüzünden başlar
+    const shankTop = sunk ? s.z - k : s.z;
+    const shankLen = Math.max(0.1, s.length - (sunk ? k : 0));
+    const shank = new THREE.Mesh(new THREE.CylinderGeometry(s.d / 2, s.d / 2, shankLen, 16), this.screwMaterial);
+    shank.rotation.x = Math.PI / 2;
+    shank.position.set(s.x, s.y, shankTop - shankLen / 2);
+    group.add(head, shank);
+
+    // Tahrik izi (yalnızca görsel): yıldız artı, imbus altıgen
+    const topZ = sunk ? s.z : s.z + k;
+    const decalH = 0.04;
+    if (s.head === 'pan') {
+      const len = 0.5 * s.headD;
+      const w = 0.12 * s.headD;
+      for (const rot of [0, Math.PI / 2]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(len, w, decalH), this.recessMaterial);
+        bar.rotation.z = rot;
+        bar.position.set(s.x, s.y, topZ + decalH / 2);
+        group.add(bar);
+      }
+    } else if (s.driveSize) {
+      const hex = new THREE.Mesh(new THREE.CylinderGeometry(s.driveSize / Math.sqrt(3), s.driveSize / Math.sqrt(3), decalH, 6), this.recessMaterial);
+      hex.rotation.x = Math.PI / 2;
+      hex.position.set(s.x, s.y, topZ + decalH / 2);
+      group.add(hex);
+    }
+    return group;
+  }
+
   clearEnclosure() {
     for (const holder of [...this.enclosureGroup.children]) {
-      for (const child of holder.children) child.geometry.dispose();
+      holder.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
       this.enclosureGroup.remove(holder);
     }
     this.enclosure = null;

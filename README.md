@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1 tamam (M0–M4)
+## Şu anki durum: V1.1 (M0–M4 + Toolbox)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -51,11 +51,21 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   diğer görünüşler, genel ölçüler, delik ve açıklık tabloları, süreç tolerans notları, bağlantı elemanları, antet;
   tarayıcıda önizleme ve Türkçe fontlu PDF (jsPDF + svg2pdf.js + DejaVu Sans)
 
+**Toolbox (V1.1)**
+- SolidWorks Toolbox benzeri standart bağlantı elemanı kütüphanesi: ISO › Cıvata ve vidalar
+  - ISO 7045 yıldız başlı bombe vida, ISO 4762 imbus silindir başlı cıvata, ISO 10642 imbus havşa başlı cıvata
+- Vida tipi, boyut (M2–M4) ve boy seçimi; ölçülü önizleme çizimi (dk, k, L, diş) ve "ISO 4762 - M3 × 12" tanımı
+- Her boy için bu karttaki durum canlı hesaplanır: uygun / kısa / standoff uyarlanır. Uzun vida seçilirse
+  PCB altı yükseklik kendiliğinden artar; PCB deliğinden geçmeyen boyutlar kapalıdır
+- Havşa başlıda kapağa 90° havşa açılır (baş kapakla aynı hizada); 3B önizlemede başlar tipine göre çizilir
+- Malzeme listesi, teknik resim delik tablosu ve DFM uyarıları seçilen vidaya göre güncellenir
+- Kısayol `T`; Bağlantı kartında seçili vida görünür
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
 - Sekmeli akış: Analiz → Tasarım (katlanır, özetli kartlar) → Çıktılar; ana eylem ve DFM durumu altta hep görünür
-- Kısayollar: `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt, `G` kılavuzlar (yardım: üst çubuktaki `?`)
+- Kısayollar: `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt, `G` kılavuzlar, `T` Toolbox (yardım: üst çubuktaki `?`)
 
 ## Kural dosyaları
 
@@ -65,6 +75,8 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 kurum standardına göre düzenlenmesi beklenir. Yeni malzeme eklemek için dosyayı oluşturup `web/rules/index.json`'a ekle.
 Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş ölçüleri, standart boylar) `web/rules/fasteners.json`,
 IP seviyelerinin kordon çapı, sıkıştırma, et payı ve kapak sıkıştırma aralığı `web/rules/sealing.json` içindedir.
+Toolbox kütüphanesi `web/rules/toolbox/iso-screws.json`: vida tipi başına baş ölçüleri (dk, k), diş adımı, tahrik ölçüsü
+ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kaydı eklemek yeterli.
 
 ## Yol haritası (V1)
 
@@ -74,7 +86,8 @@ IP seviyelerinin kordon çapı, sıkıştırma, et payı ve kapak sıkıştırma
 | M1 | Kural dosyaları (süreç × malzeme), parametrik alt gövde + kapak, STEP/STL indir |
 | M2 | Montaj deliklerini tanıma, standoff/boss ve vida noktaları |
 | M3 | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
-| **M4** | IP65/66/67 conta kanalı, temel PDF teknik resim |
+| M4 | IP65/66/67 conta kanalı, temel PDF teknik resim |
+| **V1.1** | Toolbox: ISO vidalar (tip, boyut, boy), havşa |
 
 ## Yerelde çalıştırma
 
@@ -113,7 +126,9 @@ web/                  Yayınlanan statik site
   js/drawing.js       Teknik resim paftaları (SVG) ve PDF çıktısı
   js/viewer.js        3B önizleme (three.js)
   js/viewcube.js      Yön küpü
+  js/toolbox.js       Toolbox penceresi ve ölçülü vida önizlemesi
   rules/              Süreç × malzeme kural dosyaları
+  rules/toolbox/      Standart bağlantı elemanı kütüphanesi (ISO vidalar)
   samples/            Örnek STEP dosyası
 tools/
   serve.ps1           Yerel statik sunucu

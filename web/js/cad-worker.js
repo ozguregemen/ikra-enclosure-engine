@@ -8,6 +8,7 @@ import opencascade from 'https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.2
 import {
   setOC,
   drawRoundedRectangle,
+  drawCircle,
   makeBox,
   makeCylinder,
   exportSTEP,
@@ -70,6 +71,20 @@ function cutoutPrism(c) {
   return makeBox(min, max);
 }
 
+/**
+ * 90° havşa: geçiş deliği çapından (alt) üst yüzde dTop çapına genişleyen kesik koni.
+ * Üst yüzün 0,5 mm üstüne kadar uzatılır (temiz boolean). Doğrusal profil ile uçtaki ölçek = üst/alt yarıçap.
+ */
+function countersinkCone(t, zTop) {
+  const rb = t.holeD / 2;
+  const depth = t.countersink.depth;
+  const over = 0.5;
+  const rt = t.countersink.dTop / 2 + over; // 45° yan yüz: 0,5 mm yukarıda yarıçap 0,5 mm büyür
+  return drawCircle(rb)
+    .sketchOnPlane('XY', [t.x, t.y, zTop - depth])
+    .extrude(depth + over, { extrusionProfile: { profile: 'linear', endFactor: rt / rb } });
+}
+
 function buildEnclosure(g) {
   const [cx, cy] = g.center;
   const hBase = g.cavTop - g.z0;
@@ -113,6 +128,7 @@ function buildEnclosure(g) {
   }
   for (const t of tubes) {
     lid = lid.cut(makeCylinder(t.holeD / 2, g.zTop - t.z0 + 1, [t.x, t.y, t.z0 - 0.5], up));
+    if (t.countersink) lid = lid.cut(countersinkCone(t, g.zTop));
   }
   return { base, lid };
 }

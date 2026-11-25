@@ -4,6 +4,7 @@
  */
 import { computeDesign, defaultParams, paramHint, pickScrew, LID_MODES, PARAM_FIELDS } from './design.js';
 import { buildSheets, exportPdf } from './drawing.js';
+import { createToolbox, headIcon, parseDrive } from './toolbox.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -62,6 +63,9 @@ export function createDesignUI({ viewer, setStatus }) {
     drawingId: null,
     sheets: null,
     sheetIdx: 0,
+    toolbox: null, // iso-screws.json
+    toolboxUI: null,
+    screwSpec: { type: 'iso7045', size: 'auto', length: 'auto' },
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -72,17 +76,99 @@ export function createDesignUI({ viewer, setStatus }) {
       if (!res.ok) throw new Error('Kural listesi yüklenemedi.');
       state.index = await res.json();
     }
-    if (!state.fasteners) {
-      const res = await fetch('rules/fasteners.json');
-      if (!res.ok) throw new Error('Vida tablosu yüklenemedi.');
-      state.fasteners = await res.json();
-    }
     if (!state.sealingIndex) {
       const res = await fetch('rules/sealing.json');
       if (!res.ok) throw new Error('Sızdırmazlık kuralları yüklenemedi.');
       state.sealingIndex = await res.json();
     }
+    await loadToolbox();
     return state.index;
+  }
+
+  async function loadToolbox() {
+    if (!state.toolbox) {
+      const res = await fetch('rules/toolbox/iso-screws.json');
+      if (!res.ok) throw new Error('Toolbox kütüphanesi yüklenemedi.');
+      state.toolbox = await res.json();
+    }
+    if (!state.fasteners) {
+      const res = await fetch('rules/fasteners.json');
+      if (!res.ok) throw new Error('Vida tablosu yüklenemedi.');
+      state.fasteners = await res.json();
+    }
+    if (!state.toolboxUI) {
+      state.toolboxUI = createToolbox({
+        dialog: $('#toolbox-dialog'),
+        library: state.toolbox,
+        fasteners: state.fasteners,
+        evaluate: evaluateSpec,
+        onApply: (spec) => setScrewSpec(spec),
+      });
+    }
+  }
+
+  const toolboxTypes = () => (state.toolbox ? state.toolbox.categories.flatMap((c) => c.types) : []);
+
+  /** Toolbox seçimini uygula: kullanıcının elle değiştirmediği parametreler yeni vidaya göre yeniden hesaplanır */
+  function setScrewSpec(spec) {
+    const t = toolboxTypes().find((x) => x.id === spec.type);
+    const next = { type: spec.type, size: spec.size, length: spec.length };
+    if (t && next.size !== 'auto' && !t.sizes[next.size]) next.size = 'auto';
+    if (!state.analysis || !state.rules || !state.params) { state.screwSpec = next; renderScrewPick(); return; }
+    const prev = currentDefaults();
+    state.screwSpec = next;
+    refreshAutoParams(prev);
+    renderFastening();
+    update();
+  }
+
+  /**
+   * Toolbox penceresinin canlı hesabı: seçilen tipe/boyuta göre otomatik boylu tasarım (boy durumları için)
+   * ve tam seçimli tasarım (uygulanınca oluşacak parametrelerle).
+   */
+  function evaluateSpec(spec) {
+    if (!state.analysis || !state.rules || !state.params || !state.analysis.board || state.analysis.board.axes.n !== 'Z') return null;
+    const opts = (sp) => ({ ...designOptions(), screwSpec: sp });
+    const prev = currentDefaults();
+    const adapt = (sp) => {
+      const next = defaultParams(state.analysis, state.rules, opts(sp));
+      const p = { ...state.params };
+      for (const key of Object.keys(next)) if (Math.abs(p[key] - prev[key]) < 1e-9) p[key] = next[key];
+      return p;
+    };
+    const autoSpec = { ...spec, length: 'auto' };
+    const auto = computeDesign(state.analysis, state.rules, adapt(autoSpec), opts(autoSpec));
+    const sel = spec.length === 'auto' ? auto : computeDesign(state.analysis, state.rules, adapt(spec), opts(spec));
+    return {
+      auto,
+      sel,
+      standoffAuto: Math.abs(state.params.standoffHeight - prev.standoffHeight) < 1e-9,
+      standoffNow: state.params.standoffHeight,
+    };
+  }
+
+  function openToolbox() {
+    loadToolbox()
+      .then(() => state.toolboxUI.open(state.screwSpec))
+      .catch((err) => setStatus(err.message, { error: true }));
+  }
+  $('#toolbox-btn').addEventListener('click', openToolbox);
+  $('#screw-pick').addEventListener('click', openToolbox);
+
+  /** Bağlantı kartındaki vida satırı: seçili tip, etkin boyut × boy */
+  function renderScrewPick(d = state.design) {
+    const t = toolboxTypes().find((x) => x.id === state.screwSpec.type);
+    if (!t) return;
+    $('#screw-pick-icon').innerHTML = headIcon(t.head);
+    const groups = new Map();
+    for (const s of d?.screws || []) {
+      const key = `${s.size}×${s.length ?? '?'}`;
+      groups.set(key, (groups.get(key) || 0) + 1);
+    }
+    const list = [...groups.keys()];
+    $('#screw-pick-title').textContent = list.length ? `${t.code} · ${list.join(', ').replace(/×/g, ' × ')}` : t.code;
+    const auto = [state.screwSpec.size === 'auto' ? 'boyut' : null, state.screwSpec.length === 'auto' ? 'boy' : null].filter(Boolean);
+    $('#screw-pick-sub').textContent = `${t.short}` + (auto.length ? ` · ${auto.join(' ve ')} otomatik` : ' · elle seçildi');
   }
 
   async function loadRules() {
@@ -129,6 +215,8 @@ export function createDesignUI({ viewer, setStatus }) {
     selectedHoles: state.selectedHoles,
     portOverrides: state.portOverrides,
     sealing: sealingLevel(),
+    toolbox: { types: toolboxTypes() },
+    screwSpec: state.screwSpec,
   });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
 
@@ -182,7 +270,13 @@ export function createDesignUI({ viewer, setStatus }) {
   $('#dfm-list').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-fix-key]');
     if (!btn || !state.params) return;
-    state.params[btn.dataset.fixKey] = Number(btn.dataset.fixValue);
+    const key = btn.dataset.fixKey;
+    const value = btn.dataset.fixValue;
+    // Toolbox önerileri: vida tipi / boyutu / boyu
+    if (key === 'screwType') { setScrewSpec({ ...state.screwSpec, type: value, length: 'auto' }); return; }
+    if (key === 'screwSize') { setScrewSpec({ ...state.screwSpec, size: value, length: 'auto' }); return; }
+    if (key === 'screwLength') { setScrewSpec({ ...state.screwSpec, length: Number(value) }); return; }
+    state.params[key] = Number(value);
     renderParams();
     update();
   });
@@ -201,9 +295,12 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#holes-summary').textContent = mount.length
       ? `${state.selectedHoles.size}/${mount.length} delik · ${state.lidMode === 'screw' ? 'vidalı kapak' : 'geçme kapak'}`
       : 'montaj deliği yok';
+    const t = toolboxTypes().find((x) => x.id === state.screwSpec.type);
+    const allowed = t ? Object.keys(t.sizes) : null;
     $('#hole-list').innerHTML = mount.length
       ? mount.map((h, k) => {
-        const s = state.fasteners ? pickScrew(h.d, state.fasteners.screws) : null;
+        const s = !state.fasteners ? null
+          : state.screwSpec.size !== 'auto' ? { size: state.screwSpec.size } : pickScrew(h.d, state.fasteners.screws, allowed);
         return `<label class="hole-row"><input type="checkbox" data-hole="${h.index}" ${state.selectedHoles.has(h.index) ? 'checked' : ''}>` +
           `<span>Delik ${k + 1} · Ø${f2(h.d)}${s ? ` · ${s.size}` : ''}</span>` +
           `<span class="pos">${f2(h.x)}; ${f2(h.y)}</span></label>`;
@@ -326,6 +423,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const bom = d.bom || [];
     $('#bom-title').classList.toggle('hidden', !bom.length);
     $('#bom-list').innerHTML = bom.map((line) => `<li>${esc(line)}</li>`).join('');
+    renderScrewPick(d);
 
     const errEl = $('#design-error');
     errEl.classList.toggle('hidden', !d.error);
@@ -342,8 +440,10 @@ export function createDesignUI({ viewer, setStatus }) {
       ? `Et ${f2(d.params.wall)} · PCB altı ${f2(d.params.standoffHeight)} mm`
       : 'geçersiz değer';
     const mountCount = (state.analysis.holes || []).filter((h) => h.mount).length;
+    const sc = d.screws && d.screws[0];
     $('#holes-summary').textContent = mountCount
-      ? `${state.selectedHoles.size}/${mountCount} delik · ${state.lidMode === 'screw' ? 'vidalı kapak' : 'geçme kapak'}`
+      ? `${state.selectedHoles.size}/${mountCount} delik` + (sc ? ` · ${sc.code ? sc.code + ' ' : ''}${sc.size}×${sc.length ?? '?'}` : '') +
+        (state.lidMode === 'screw' ? '' : ' · geçme kapak')
       : 'montaj deliği yok';
     const counts = { error: 0, warn: 0 };
     for (const c of d.checks || []) if (c.level in counts) counts[c.level]++;
@@ -438,6 +538,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.generated = true;
     const screws = d.screws.map((s) => ({
       x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
+      head: s.head, driveSize: parseDrive(s.driveSize),
       z: s.lid ? d.geometry.zTop : state.analysis.board.top,
     }));
     viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws });
@@ -585,6 +686,7 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#design-panel').classList.remove('hidden');
     state.selectedHoles = new Set((state.analysis.holes || []).map((h, i) => (h.mount ? i : -1)).filter((i) => i >= 0));
     state.lidMode = 'screw';
+    state.screwSpec = { ...state.screwSpec, length: 'auto' }; // tip ve boyut korunur; boy yeni karta göre
     state.portOverrides = new Map();
     state.sheets = null;
     state.drawingId = null;
@@ -617,7 +719,11 @@ export function createDesignUI({ viewer, setStatus }) {
       fastening: d.fasteningMethod,
       standoffs: d.standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, screw: s.screw })),
       lidTubes: d.lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, length: t.length })),
-      screws: d.screws.map((s) => ({ size: s.size, length: s.length, engagement: s.engagement, lid: s.lid, x: s.x, y: s.y })),
+      screwSpec: d.screwSpec,
+      screws: d.screws.map((s) => ({
+        standard: s.code, name: s.name, size: s.size, length: s.length, engagement: s.engagement, lid: s.lid, x: s.x, y: s.y,
+        head: s.head, drive: s.drive, driveSize: s.driveSize,
+      })),
       bom: d.bom,
       volumes_mm3: state.result ? state.result.volumes : null,
       checks: d.checks,

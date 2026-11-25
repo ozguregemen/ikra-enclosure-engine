@@ -1,0 +1,59 @@
+{
+  "aciklama": "Toolbox · ISO cıvata ve vidalar. Baş ölçüleri ilgili standardın tablo değerleridir (dk: baş çapı en büyük / havşada teorik, k: baş yüksekliği en büyük, P: ISO 261 kaba diş adımı, drive_size: yıldız uç no. ya da imbus anahtar ölçüsü). Boylar yaygın standart boy serisidir; tedarikçi kataloğuyla doğrulayın. Uzunluklar mm. Geçiş deliği, kılavuz matkabı ve insert ölçüleri boyuta göre fasteners.json'dan gelir.",
+  "standard": "ISO",
+  "categories": [
+    {
+      "id": "screws",
+      "label": "Cıvata ve vidalar",
+      "types": [
+        {
+          "id": "iso7045",
+          "code": "ISO 7045",
+          "name": "Yıldız başlı bombe vida",
+          "short": "Yıldız bombe baş",
+          "head": "pan",
+          "drive": "Yıldız (H, Phillips)",
+          "recess": "H",
+          "length_includes_head": false,
+          "sizes": {
+            "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive_size": "H1", "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+            "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive_size": "H1", "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
+            "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive_size": "H1", "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+            "M4": { "dk": 8.0, "k": 3.1, "P": 0.7, "drive_size": "H2", "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+          }
+        },
+        {
+          "id": "iso4762",
+          "code": "ISO 4762",
+          "name": "İmbus silindir başlı cıvata",
+          "short": "İmbus silindir baş",
+          "head": "socket",
+          "drive": "İç altıgen (imbus)",
+          "length_includes_head": false,
+          "sizes": {
+            "M2": { "dk": 3.8, "k": 2.0, "P": 0.4, "drive_size": "1,5", "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+            "M2.5": { "dk": 4.5, "k": 2.5, "P": 0.45, "drive_size": "2", "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
+            "M3": { "dk": 5.5, "k": 3.0, "P": 0.5, "drive_size": "2,5", "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
+            "M4": { "dk": 7.0, "k": 4.0, "P": 0.7, "drive_size": "3", "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+          }
+        },
+        {
+          "id": "iso10642",
+          "code": "ISO 10642",
+          "name": "İmbus havşa başlı cıvata",
+          "short": "İmbus havşa baş",
+          "head": "countersunk",
+          "drive": "İç altıgen (imbus)",
+          "countersink_angle": 90,
+          "length_includes_head": true,
+          "sizes": {
+            "M3": { "dk": 6.72, "k": 1.86, "P": 0.5, "drive_size": "2", "lengths": [8, 10, 12, 16, 20, 25, 30] },
+            "M4": { "dk": 8.96, "k": 2.48, "P": 0.7, "drive_size": "2,5", "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40] }
+          }
+        }
+      ]
+    },
+    { "id": "nuts", "label": "Somunlar", "soon": true, "types": [] },
+    { "id": "washers", "label": "Pullar", "soon": true, "types": [] }
+  ]
+}
