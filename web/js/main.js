@@ -6,8 +6,8 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.17.0 (V1.11)';
-const SAMPLE_URL = 'samples/ornek-kart.step';
+const APP_VERSION = '0.18.0 (V1.12)';
+
 const LARGE_FILE_MB = 50;
 
 const $ = (sel) => document.querySelector(sel);
@@ -227,19 +227,33 @@ $('#file-input').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
-async function loadSample() {
+// Örnek kartlar: tools/make-sample-step.ps1 ile üretilen basitleştirilmiş modeller (kutu biçimli bileşenler).
+// Kart dış ölçüsü, montaj delikleri ve konnektör konumları üreticinin mekanik çizimlerinden; bkz. README.
+const SAMPLES = [
+  { id: 'ornek-kart', label: 'Örnek kart', sub: '60 × 40 · USB-C, SMA, LED' },
+  { id: 'arduino-uno-r3', label: 'Arduino UNO R3', sub: '68,6 × 53,3 · USB-B, DC jak' },
+  { id: 'raspberry-pi-4b', label: 'Raspberry Pi 4 B', sub: '85 × 56 · USB, RJ45, HDMI' },
+  { id: 'esp32-devkitc', label: 'ESP32-DevKitC', sub: 'modül + pin başlıkları' },
+  { id: 'nucleo-64', label: 'STM32 Nucleo-64', sub: 'ST-LINK, Arduino başlıkları' },
+];
+const sampleById = (id) => SAMPLES.find((s) => s.id === id) || SAMPLES[0];
+
+async function loadSample(id = 'ornek-kart') {
+  const s = sampleById(id);
   setControlsBusy(true);
-  setStatus('Örnek kart indiriliyor…');
+  setStatus(`${s.label} indiriliyor…`);
   try {
-    const res = await fetch(SAMPLE_URL);
+    const res = await fetch(`samples/${s.id}.step`);
     if (!res.ok) throw new Error(res.status);
     const buf = await res.arrayBuffer();
-    loadBuffer(buf, 'ornek-kart.step', buf.byteLength);
+    loadBuffer(buf, `${s.id}.step`, buf.byteLength);
   } catch {
-    showError('Örnek dosya indirilemedi.');
+    showError(`${s.label} örnek dosyası indirilemedi.`);
   }
 }
-document.querySelectorAll('[data-action="sample"]').forEach((b) => b.addEventListener('click', loadSample));
+$('#sample-grid').innerHTML = SAMPLES.map((s) =>
+  `<button type="button" class="sample-btn" data-action="sample" data-sample="${s.id}"><b>${esc(s.label)}</b><span>${esc(s.sub)}</span></button>`).join('');
+document.querySelectorAll('[data-action="sample"]').forEach((b) => b.addEventListener('click', () => loadSample(b.dataset.sample || 'ornek-kart')));
 
 // Pencerenin her yerine sürükle-bırak
 let dragDepth = 0;

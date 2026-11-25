@@ -364,13 +364,21 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const below = analysis.maxBelow ? analysis.maxBelow.value : 0;
   const wall = p.wall;
   const floor = wall * (rules.floor_ratio ?? 1);
-  const lidT = wall;
+  // Kapak ayrı süreç/malzemeden olabilir (ör. CNC alüminyum gövde + akrilik kapak): kapak kuralları lr
+  const lr = options.lidRules || rules;
+  const mixedLid = lr !== rules && lr.id !== rules.id;
+  const lidT = mixedLid ? Math.max(wall, lr.min_wall) : wall;
   // Tolerans ve geçme (malzeme + süreç + kullanıcı düzeltmesi); kapak dili boşluğu kart boyuna göre
   const tol = toleranceOf(rules, options.tolerance);
+  const lidTol = mixedLid ? toleranceOf(lr, options.lidTolerance) : tol;
   const fitSel = { lid: 'normal', screw: 'normal', ...(options.fits || {}) };
   const fitL = Math.max(b.box.max[0] - b.box.min[0], b.box.max[1] - b.box.min[1]) + 2 * p.pcbClearance;
-  const fit = lidGap(tol, fitSel.lid, fitL);
-  const lipT = rules.lid_lip_thickness;
+  // Farklı malzemede: iki malzemenin kapak boşluğu ortalaması + ısıl genleşme farkı (ΔT = 40 K, her yan yarısı)
+  const cteMismatch = mixedLid && rules.cte_um_mk && lr.cte_um_mk ? (Math.abs(rules.cte_um_mk - lr.cte_um_mk) * 1e-6 * fitL * 40) / 2 : 0;
+  const fit = mixedLid
+    ? Math.round(((lidGap(tol, fitSel.lid, fitL) + lidGap(lidTol, fitSel.lid, fitL)) / 2 + cteMismatch) * 100) / 100
+    : lidGap(tol, fitSel.lid, fitL);
+  const lipT = lr.lid_lip_thickness;
   const rIn = Math.max(p.cornerRadius, 0.05);
   const rOut = rIn + wall;
 
@@ -469,10 +477,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
       if (overlaps2D(o.box, s, LIP_COMPONENT_GAP) && o.box.max[2] > topZ) { topZ = o.box.max[2]; who = o.name; }
     }
     const allowed = cavTop - (topZ + LIP_COMPONENT_GAP);
-    const depth = Math.min(rules.lid_lip_depth, allowed);
-    if (depth >= rules.lid_lip_min_depth) {
+    const depth = Math.min(lr.lid_lip_depth, allowed);
+    if (depth >= lr.lid_lip_min_depth) {
       lipBars.push({ side: s.side, min: [s.min[0], s.min[1], cavTop - depth], max: [s.max[0], s.max[1], cavTop], depth });
-      if (depth < rules.lid_lip_depth - 1e-6) lipShortened.push({ side: s.side, depth, who });
+      if (depth < lr.lid_lip_depth - 1e-6) lipShortened.push({ side: s.side, depth, who });
     } else {
       lipRemoved.push({ side: s.side, who });
     }
@@ -553,6 +561,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
     itype = insertTypes.find((t) => t.kind === (method === 'helicoil' ? 'helicoil' : 'heatset')) || null;
   }
   const table = screwTable(fasteners, ttype).map((r) => adjustScrewRow(r, tol, fitSel.screw));
+  // Kapaktaki geçiş delikleri kapak malzemesinin delik telafisiyle (ISO 273 serisi aynı)
+  const lidClr = (s) => (mixedLid ? Math.round((s.clearance - (tol.hole_comp || 0) + (lidTol.hole_comp || 0)) * 100) / 100 : s.clearance);
   const mountHoles = (analysis.holes || []).map((h, i) => ({ ...h, index: i })).filter((h) => h.mount);
   const usedHoles = options.selectedHoles ? mountHoles.filter((h) => options.selectedHoles.has(h.index)) : mountHoles;
   const standoffs = [];
@@ -718,18 +728,23 @@ export function computeDesign(analysis, rules, params, options = {}) {
       }
       const under = obstacles.find((o) => o.box.max[2] > floorTop + 0.01 && o.box.min[2] < b.bottom - 0.01 &&
         distToBoxXY(o.box, h.x, h.y) < od / 2 + FASTENER_OBSTACLE_GAP);
-      if (under) fastenChecks.push(['error', `Standoff ${at(h)}, kartın altındaki ${under.name} ile çakışıyor.`]);
+      if (under) {
+        // Bu noktaya sığabilecek en büyük boss çapı: kullanıcı küçük aralayıcıya geçebilir ya da deliği bırakabilir
+        const dmax = Math.max(0, 2 * (distToBoxXY(under.box, h.x, h.y) - FASTENER_OBSTACLE_GAP));
+        fastenChecks.push(['error', `Standoff ${at(h)} (Ø${f(od)}), kartın altındaki ${under.name} ile çakışıyor; bu noktada en fazla Ø${f(dmax)} boss sığar. Daha küçük vida/aralayıcı seçin ya da bu deliği kullanmayın.`,
+          { key: 'holeOff', value: h.index, label: 'Bu deliği kullanma' }]);
+      }
 
       // Kapak borusu: deliğin üstündeki sütun boşsa kapaktan PCB'ye iner
       let tube = null;
       if (lidMode === 'screw') {
-        const tubeOd = Math.max(rules.boss_min_diameter, s.clearance + 2 * rules.boss_outer_wall);
+        const tubeOd = Math.max(lr.boss_min_diameter, lidClr(s) + 2 * lr.boss_outer_wall);
         const above = obstacles.find((o) => o.box.max[2] > b.top + 0.01 && o.box.min[2] < cavTop &&
           distToBoxXY(o.box, h.x, h.y) < tubeOd / 2 + FASTENER_OBSTACLE_GAP);
         if (above) {
           fastenChecks.push(['info', `Delik ${at(h)} üstünde ${above.name} var: burada kapak borusu yok, yalnızca PCB vidası.`]);
         } else {
-          tube = { x: h.x, y: h.y, od: tubeOd, holeD: s.clearance, z0: b.top + TUBE_GAP, z1: cavTop, length: cavTop - b.top - TUBE_GAP };
+          tube = { x: h.x, y: h.y, od: tubeOd, holeD: lidClr(s), z0: b.top + TUBE_GAP, z1: cavTop, length: cavTop - b.top - TUBE_GAP };
           lidTubes.push(tube);
         }
       }
@@ -738,7 +753,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       if (countersunk) {
         if (tube) {
           const dTop = headD + 0.3;
-          const depthC = (dTop - s.clearance) / 2; // 90° havşa
+          const depthC = (dTop - lidClr(s)) / 2; // 90° havşa
           tube.countersink = { dTop, depth: depthC };
           const dAtPlateBottom = dTop - 2 * lidT;
           if (dAtPlateBottom > tube.od - 0.8) {
@@ -766,7 +781,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       let cbore = null;
       if (spec.headSeat === 'counterbore' && !countersunk) {
         if (tube) {
-          cbore = counterboreFor(ts?.dk_actual ?? headD, headH, wz, tol.hole_comp);
+          cbore = counterboreFor(ts?.dk_actual ?? headD, headH, wz, lidTol.hole_comp);
           tube.counterbore = cbore;
           tube.od = Math.max(tube.od, cbore.d + 1.6);
         } else noteSpec('info', 'Gömme baş yalnızca kapak vidalarına uygulanır; yalnızca PCB vidalarında baş yüzeyde kalır.');
@@ -849,10 +864,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
       if (screwMat && screwMat.rp) {
         const P = ts?.P ?? 0.15 * s.d + 0.05;
         const dw = wz ? wz.d2 : (ts?.dk_actual ?? headD);
-        const dh = tube ? s.clearance : h.d;
+        const dh = tube ? lidClr(s) : h.d;
         const tq = screwTorque({ d: s.d, P, rp: screwMat.rp, mu: screwMat.mu, nu: screwMat.nu || tmodel.nu, dw, dh, countersunk });
         const limits = [{ key: 'screw', T: tq.T }];
-        const pAllow = tube ? rules.bearing_pressure_mpa : tmodel.pcb_bearing_mpa;
+        const pAllow = tube ? lr.bearing_pressure_mpa : tmodel.pcb_bearing_mpa;
         if (pAllow) {
           const A = (Math.PI / 4) * Math.max(0, dw * dw - dh * dh);
           limits.push({ key: tube ? 'bearing_lid' : 'bearing_pcb', T: (tq.kT * pAllow * A) / 1000 });
@@ -947,8 +962,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const headDc = ts ? ts.dk : s.head_d;
       const headHc = ts ? ts.k : s.head_h;
       const headDA = ts?.dk_actual ?? headDc;
-      const cb = cp.spec.headSeat === 'counterbore' && !cSunk ? counterboreFor(headDA, headHc, cwz, tol.hole_comp) : null;
-      const csk = cSunk ? { dTop: headDc + 0.3, depth: (headDc + 0.3 - s.clearance) / 2 } : null;
+      const cb = cp.spec.headSeat === 'counterbore' && !cSunk ? counterboreFor(headDA, headHc, cwz, lidTol.hole_comp) : null;
+      const csk = cSunk ? { dTop: headDc + 0.3, depth: (headDc + 0.3 - lidClr(s)) / 2 } : null;
       // Kapak kalınlığı oyuğa/havşaya yetmezse kapağın altına boss'a oturan bir yastık eklenir
       const padH = Math.max(0, Math.max(cb ? cb.depth : 0, csk ? csk.depth : 0) + 0.8 - lidT);
       const bossTop = cavTop - padH;
@@ -972,9 +987,9 @@ export function computeDesign(analysis, rules, params, options = {}) {
       if (cm && cm.rp) {
         const P = ts?.P ?? 0.15 * s.d + 0.05;
         const dw = cwz ? cwz.d2 : headDA;
-        const tq = screwTorque({ d: s.d, P, rp: cm.rp, mu: cm.mu, nu: cm.nu || tmodel.nu, dw, dh: s.clearance, countersunk: cSunk });
+        const tq = screwTorque({ d: s.d, P, rp: cm.rp, mu: cm.mu, nu: cm.nu || tmodel.nu, dw, dh: lidClr(s), countersunk: cSunk });
         const limits = [{ key: 'screw', T: tq.T }];
-        if (rules.bearing_pressure_mpa) limits.push({ key: 'bearing_lid', T: (tq.kT * rules.bearing_pressure_mpa * (Math.PI / 4) * Math.max(0, dw * dw - s.clearance * s.clearance)) / 1000 });
+        if (lr.bearing_pressure_mpa) limits.push({ key: 'bearing_lid', T: (tq.kT * lr.bearing_pressure_mpa * (Math.PI / 4) * Math.max(0, dw * dw - lidClr(s) * lidClr(s))) / 1000 });
         if (rules.tensile_strength_mpa) {
           const tau = 0.6 * rules.tensile_strength_mpa;
           const S = rules.conductive ? tmodel.metal_safety : tmodel.plastic_safety;
@@ -1003,7 +1018,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
         else if (compHit) fastenChecks.push(['error', `Köşe boss'u (${f(x)}; ${f(y)}) ${compHit.name} ile çakışıyor.`]);
         cornerBosses.push({ x, y, od: cp.od, z0: floorTop, z1: bossTop, holeD: cp.featureD, depth: depthC, wall: [wx, wy], insert: insC,
           countersink: insC && insC.kind === 'helicoil' ? { dTop: insC.csk, depth: (insC.csk - cp.featureD) / 2 } : null });
-        lidHoles.push({ x, y, holeD: s.clearance, countersink: csk, counterbore: cb, pad: padH > 0 ? { od: Math.max(cp.od, (cb ? cb.d : csk ? csk.dTop : 0) + 1.6), h: padH } : null });
+        lidHoles.push({ x, y, holeD: lidClr(s), countersink: csk, counterbore: cb, pad: padH > 0 ? { od: Math.max(cp.od, (cb ? cb.d : csk ? csk.dTop : 0) + 1.6), h: padH } : null });
         screws.push({
           size: s.size, length: Lc, engagement: engC, ok: engC >= cp.minEngage, lid: true, x, y, role: 'corner',
           zSeat: zTop - (cb ? cb.depth : 0), counterbore: cb,
@@ -1264,7 +1279,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const panel = planPanel({
     specs: options.panelParts || [], types: options.toolbox?.panel || [], analysis, rules, p, cav, center, wall, floorTop, cavTop, zTop, z0,
     lidT, rIn, rOut, outer, fit, lipT, lipBars, standoffs, lidTubes, cornerBosses, lidHoles, screws, ports, groove, seal,
-    obstacles, boardObstacles, boardTop: b.top, tol,
+    obstacles, boardObstacles, boardTop: b.top, tol, lidTol,
     rfParts: rfAll.filter((pt) => !portIds.has(pt.id)).length ? rfAll.filter((pt) => !portIds.has(pt.id)) : rfAll,
   });
   bom.push(...panel.bom);
@@ -1292,6 +1307,13 @@ export function computeDesign(analysis, rules, params, options = {}) {
   }
   if (rIn < rules.corner_radius_min - 1e-6) {
     add(rules.process === 'cnc' ? 'error' : 'warn', `İç köşe radyüsü ${f(rIn)} mm, kural değerinin (${f(rules.corner_radius_min)} mm) altında.`);
+  }
+
+  // Kapak ayrı malzemeden
+  if (mixedLid) {
+    add('info', `Kapak ${lr.label} (${{ fdm: 'FDM', cnc: 'CNC', injection: 'enjeksiyon' }[lr.process] || lr.process}), gövde ${rules.label}: kapak kalınlığı ${f(lidT)} mm${lidT > wall + 1e-6 ? ` (kapak malzemesinin en az et kalınlığı)` : ''}; kapak dili boşluğu iki malzemenin ortalaması${cteMismatch > 0.005 ? ` + ısıl genleşme farkı payı ${f(cteMismatch)} mm (ΔT 40 K)` : ''} = ${f(fit)} mm/kenar.`);
+    if (lr.process === 'fdm' && rules.process !== 'fdm') add('info', 'Kapak FDM: dış yüzü tablaya gelecek şekilde basılır; delikler kapak malzemesinin telafisiyle çizildi.');
+    if (lr.process === 'cnc' && rules.process !== 'cnc') add('info', `Kapak CNC (${lr.label}): iç köşe ve dil uçları takım yarıçapına göre işlenir.`);
   }
 
   cat = 'surec';
@@ -1335,6 +1357,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
     const rf = analysis.parts.filter((pt) => !pt.isBoard && isRfName(pt.name)).map((pt) => pt.name);
     if (rf.length && panel.hasRf) {
       add('ok', `Metal muhafaza RF sinyalini keser; kartın RF bileşeni (${rf.slice(0, 2).join(', ')}) panel RF konnektörü üzerinden dış antene bağlanıyor.`);
+    } else if (rf.length && mixedLid && !lr.conductive) {
+      add('info', `Metal gövde RF sinyalini keser, ${lr.label} kapak geçirir: kartın RF bileşeni (${rf.slice(0, 2).join(', ')}) yalnızca kapak yönünde yayın yapar; anteni kapağa yakın tutun.`);
     } else if (rf.length) {
       add('warn', `Metal muhafaza RF sinyalini keser. Kartta RF bileşeni var (${rf.slice(0, 3).join(', ')}): anten için plastik pencere veya dış anten gerekir.`,
         { key: 'panelAdd', value: 'sma-bh', label: 'SMA panel konnektörü ekle' });
@@ -1420,7 +1444,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   if (lidTubes.length) {
     const t = lidTubes[0];
     const ratio = t.length / t.od;
-    if (rules.process === 'cnc' && ratio > 3) {
+    if (lr.process === 'cnc' && ratio > 3) {
       add('warn', `Kapaktaki ${f(t.length)} mm boyundaki borular CNC'de çok malzeme kaldırmayı gerektirir; hazır metal aralayıcı (spacer) kullanmayı düşün.`);
     } else if (ratio > 6) {
       add('warn', `Kapak boruları ince uzun (boy/çap ${f(ratio)}): ${rules.process === 'injection' ? 'maça pimi eğilebilir, dolum zorlaşır' : 'baskıda titreşebilir'}.`);
@@ -1534,6 +1558,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
     fastenInfo,
     usedHoleMinD: usedHoles.length ? Math.min(...usedHoles.map((h) => h.d)) : null,
     fasteningMethod: method,
+    lidMaterial: mixedLid ? { id: lr.id, label: lr.label, process: lr.process, density: lr.density_g_cm3, conductive: !!lr.conductive } : null,
+    lidTolerance: mixedLid ? { ...lidTol, lidGap: fit, fitSel } : null,
     checks,
   };
 }

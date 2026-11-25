@@ -675,3 +675,14 @@ kbd {
 .save-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--border); }
 #open-btn svg, #save-btn svg { fill: none; }
 @media (max-width: 640px) { #open-btn .label, #save-btn .label { display: none; } }
+
+/* ---------- Örnek kartlar ---------- */
+.sample-pick { display: grid; gap: 6px; }
+.sample-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.sample-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.sample-btn { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); font: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+.sample-btn:hover { border-color: var(--accent); background: var(--surface-2); }
+.sample-btn:disabled { opacity: .55; cursor: progress; }
+.sample-btn b { font-size: 13px; }
+.sample-btn span { font-size: 11px; color: var(--muted); }

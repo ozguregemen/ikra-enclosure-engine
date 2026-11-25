@@ -31,7 +31,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">V1.11 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">V1.12 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez; tüm hesap bu tarayıcıda yapılır">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -65,7 +65,10 @@
           <span class="dz-main">STEP dosyasını bırak ya da seç</span>
           <span class="dz-sub">.step / .stp · KiCad, Altium, SolidWorks çıktısı · ya da .ikra.json proje</span>
         </label>
-        <button class="btn block" type="button" data-action="sample">Örnek kartla dene</button>
+        <div class="sample-pick">
+          <span class="sample-title">Örnek kartla dene</span>
+          <div class="sample-grid" id="sample-grid"></div>
+        </div>
         <ol class="howto">
           <li><span class="howto-num">1</span><div><b>Analiz</b><span>PCB, bileşen yükseklikleri, montaj delikleri ve konnektörler bulunur.</span></div></li>
           <li><span class="howto-num">2</span><div><b>Tasarım</b><span>Üretim yöntemi, malzeme, bağlantı ve IP seviyesi seçilir.</span></div></li>
@@ -123,6 +126,13 @@
                   <div class="chips" id="material-chips" role="radiogroup" aria-label="Malzeme"></div>
                   <p class="mat-props" id="mat-props"></p>
                   <ul class="rule-notes muted small" id="rule-notes"></ul>
+                  <h3 class="sub-title">Kapak malzemesi</h3>
+                  <div class="seg-full" id="lid-mat-mode" role="radiogroup" aria-label="Kapak malzemesi"></div>
+                  <div class="lid-mat hidden" id="lid-mat">
+                    <div class="seg-full" id="lid-process-seg" role="radiogroup" aria-label="Kapak üretim yöntemi"></div>
+                    <div class="chips" id="lid-material-chips" role="radiogroup" aria-label="Kapak malzemesi"></div>
+                    <p class="mat-props" id="lid-mat-props"></p>
+                  </div>
                 </div>
               </details>
 
@@ -143,6 +153,7 @@
                   <div class="seg-full three" id="fit-screw" role="radiogroup" aria-label="Vida geçiş deliği serisi"></div>
                   <div class="tol-result" id="tol-result"></div>
                   <h3 class="sub-title">Malzeme toleransları <span class="muted" id="tol-mat"></span></h3>
+                  <div class="seg-full hidden" id="tol-edit" role="radiogroup" aria-label="Düzenlenen malzeme"></div>
                   <div class="tol-grid" id="tol-grid"></div>
                   <p class="muted small" id="tol-note"></p>
                   <button type="button" class="link-btn" id="tol-reset">Malzeme değerlerine dön</button>
@@ -442,6 +453,7 @@
         <li class="step done"><span class="num">14</span>Malzeme kütüphanesi: 8 filament, 15 CNC malzemesi; sıkı/normal/bol geçme<span class="tag">V1.9</span></li>
         <li class="step done"><span class="num">15</span>Proje kaydet / aç (.ikra.json, STEP gömülü ya da ayrı)<span class="tag">V1.10</span></li>
         <li class="step done"><span class="num">16</span>Montaj: taban hizasında kulaklar ya da tabandan içten vida<span class="tag">V1.11</span></li>
+        <li class="step done"><span class="num">17</span>Kapak için ayrı malzeme; Arduino, Raspberry Pi, ESP32, Nucleo örnekleri<span class="tag">V1.12</span></li>
       </ol>
     </div>
   </dialog>

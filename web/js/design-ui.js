@@ -89,6 +89,9 @@ export function createDesignUI({ viewer, setStatus }) {
     preferred: loadPreferred(), // şirket tercihli parça listesi (yalnızca bu tarayıcıda)
     fits: { lid: 'normal', screw: 'normal' }, // geçme sınıfları
     mount: { type: 'none', size: 'M4', count: 4, axis: 'auto', hole: 'round' }, // kutunun bağlanması
+    lidSel: null, // { process, material } — null: kapak gövdeyle aynı malzeme
+    lidRules: null,
+    tolEdit: 'body', // tolerans kartında düzenlenen malzeme: gövde / kapak
     tolOverrides: loadTolOverrides(), // { 'fdm/pla': { general, per_100mm, hole_comp, press, normal, loose } } — kendi yazıcı/atölye değerleri
   };
 
@@ -317,28 +320,43 @@ export function createDesignUI({ viewer, setStatus }) {
 
   /* ---------- Süreç ve malzeme ---------- */
 
-  function renderSelectors() {
-    $('#process-seg').innerHTML = state.index.processes.map((p) =>
-      `<button type="button" role="radio" data-process="${p.id}" aria-checked="${p.id === state.process}">${esc(p.label)}</button>`).join('');
-    const proc = state.index.processes.find((p) => p.id === state.process);
-    // Malzemeler gruplu (index.json "group"): Standart / Mühendislik / Karbon fiber; asetal-naylon / yüksek performans …
+  const processSeg = (cur) => state.index.processes.map((p) =>
+    `<button type="button" role="radio" data-process="${p.id}" aria-checked="${p.id === cur}">${esc(p.label)}</button>`).join('');
+  // Malzemeler gruplu (index.json "group"): Standart / Mühendislik / Karbon fiber; asetal-naylon / yüksek performans …
+  function materialChips(processId, cur) {
+    const proc = state.index.processes.find((p) => p.id === processId);
     let lastGroup = null;
-    $('#material-chips').innerHTML = proc.materials.map((m) => {
+    return proc.materials.map((m) => {
       const head = m.group && m.group !== lastGroup ? `<span class="chip-group">${esc(m.group)}</span>` : '';
       lastGroup = m.group || lastGroup;
-      return `${head}<button type="button" class="chip" role="radio" data-material="${m.id}" aria-checked="${m.id === state.material}" title="${esc(m.title || m.label)}">${esc(m.label)}</button>`;
+      return `${head}<button type="button" class="chip" role="radio" data-material="${m.id}" aria-checked="${m.id === cur}" title="${esc(m.title || m.label)}">${esc(m.label)}</button>`;
     }).join('');
-    const r = state.rules;
-    const props = r ? [
-      r.max_service_temp_c ? `sürekli kullanım ≈ <b>${r.max_service_temp_c} °C</b>${r.hdt_c ? ` (HDT ${r.hdt_c} °C)` : ''}` : null,
-      r.density_g_cm3 ? `yoğunluk <b>${String(r.density_g_cm3).replace('.', ',')}</b> g/cm³` : null,
-      r.tensile_strength_mpa ? `çekme <b>${r.tensile_strength_mpa} MPa</b>${r.process === 'fdm' ? ' (katman yönü dahil)' : ''}` : null,
-      r.cte_um_mk ? `ısıl genleşme ${r.cte_um_mk} µm/m·K` : null,
-      Number.isFinite(r.moisture_pct) ? `su emme %${String(r.moisture_pct).replace('.', ',')}` : null,
-      r.tolerance ? `genel tolerans ±${String(r.tolerance.general).replace('.', ',')} mm` : null,
-    ].filter(Boolean).join(' · ') : '';
-    $('#mat-props').innerHTML = props;
+  }
+  const materialProps = (r) => (r ? [
+    r.max_service_temp_c ? `sürekli kullanım ≈ <b>${r.max_service_temp_c} °C</b>${r.hdt_c ? ` (HDT ${r.hdt_c} °C)` : ''}` : null,
+    r.density_g_cm3 ? `yoğunluk <b>${String(r.density_g_cm3).replace('.', ',')}</b> g/cm³` : null,
+    r.tensile_strength_mpa ? `çekme <b>${r.tensile_strength_mpa} MPa</b>${r.process === 'fdm' ? ' (katman yönü dahil)' : ''}` : null,
+    r.cte_um_mk ? `ısıl genleşme ${r.cte_um_mk} µm/m·K` : null,
+    Number.isFinite(r.moisture_pct) ? `su emme %${String(r.moisture_pct).replace('.', ',')}` : null,
+    r.tolerance ? `genel tolerans ±${String(r.tolerance.general).replace('.', ',')} mm` : null,
+  ].filter(Boolean).join(' · ') : '');
+
+  function renderSelectors() {
+    $('#process-seg').innerHTML = processSeg(state.process);
+    $('#material-chips').innerHTML = materialChips(state.process, state.material);
+    $('#mat-props').innerHTML = materialProps(state.rules);
     $('#rule-notes').innerHTML = (state.rules?.notes || []).map((n) => `<li>${esc(n)}</li>`).join('');
+    // Kapak malzemesi: gövdeyle aynı ya da ayrı süreç/malzeme
+    const diff = !!state.lidSel;
+    $('#lid-mat-mode').innerHTML = [['same', 'Gövdeyle aynı'], ['diff', 'Farklı malzeme']].map(([id, label]) =>
+      `<button type="button" role="radio" data-lidmode="${id}" aria-checked="${(id === 'diff') === diff}">${label}</button>`).join('');
+    $('#lid-mat').classList.toggle('hidden', !diff);
+    if (diff) {
+      $('#lid-process-seg').innerHTML = processSeg(state.lidSel.process);
+      $('#lid-material-chips').innerHTML = materialChips(state.lidSel.process, state.lidSel.material);
+      $('#lid-mat-props').innerHTML = materialProps(state.lidRules) +
+        (state.lidRules?.notes?.length ? `<br><span class="muted">${esc(state.lidRules.notes[0])}</span>` : '');
+    }
   }
 
   $('#process-seg').addEventListener('click', async (e) => {
@@ -353,6 +371,50 @@ export function createDesignUI({ viewer, setStatus }) {
     if (!btn || btn.dataset.material === state.material) return;
     state.material = btn.dataset.material;
     await applyRules();
+  });
+
+  /** Kapak kural dosyası (ayrı malzeme seçiliyse) */
+  async function loadLidRules() {
+    if (!state.lidSel) { state.lidRules = null; return; }
+    const proc = state.index.processes.find((p) => p.id === state.lidSel.process) || state.index.processes[0];
+    const mat = proc.materials.find((m) => m.id === state.lidSel.material) || proc.materials[0];
+    state.lidSel = { process: proc.id, material: mat.id };
+    if (!state.rulesCache.has(mat.file)) {
+      const res = await fetch('rules/' + mat.file);
+      if (!res.ok) throw new Error(`Kural dosyası yüklenemedi: ${mat.file}`);
+      state.rulesCache.set(mat.file, await res.json());
+    }
+    state.lidRules = state.rulesCache.get(mat.file);
+  }
+  async function setLidSel(sel) {
+    const prev = state.rules && state.analysis ? currentDefaults() : null;
+    state.lidSel = sel;
+    try { await loadLidRules(); } catch (err) { setStatus(err.message, { error: true }); return; }
+    if (!state.lidSel) state.tolEdit = 'body';
+    if (prev) refreshAutoParams(prev);
+    renderSelectors();
+    update();
+  }
+  $('#lid-mat-mode').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-lidmode]');
+    if (!btn) return;
+    if (btn.dataset.lidmode === 'same') { if (state.lidSel) setLidSel(null); return; }
+    if (state.lidSel) return;
+    // Varsayılan: aynı süreçte şeffaf/ışık geçiren bir malzeme varsa o (CNC'de PMMA), yoksa aynı malzeme
+    const proc = state.index.processes.find((p) => p.id === state.process);
+    const pick = proc.materials.find((m) => m.id === 'pmma') || proc.materials.find((m) => m.id !== state.material) || proc.materials[0];
+    setLidSel({ process: state.process, material: pick.id });
+  });
+  $('#lid-process-seg').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-process]');
+    if (!btn || !state.lidSel || btn.dataset.process === state.lidSel.process) return;
+    const proc = state.index.processes.find((p) => p.id === btn.dataset.process);
+    setLidSel({ process: proc.id, material: proc.materials[0].id });
+  });
+  $('#lid-material-chips').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-material]');
+    if (!btn || !state.lidSel || btn.dataset.material === state.lidSel.material) return;
+    setLidSel({ ...state.lidSel, material: btn.dataset.material });
   });
 
   const sealingLevel = () => (state.sealingIndex?.levels || []).find((l) => l.id === state.sealing) || null;
@@ -370,6 +432,8 @@ export function createDesignUI({ viewer, setStatus }) {
     panelParts: state.panelParts,
     fits: state.fits,
     tolerance: state.rules ? state.tolOverrides[state.rules.id] || null : null,
+    lidRules: state.lidSel ? state.lidRules : null,
+    lidTolerance: state.lidSel && state.lidRules ? state.tolOverrides[state.lidRules.id] || null : null,
     mount: state.mount,
   });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
@@ -386,6 +450,7 @@ export function createDesignUI({ viewer, setStatus }) {
   async function applyRules() {
     try {
       await loadRules();
+      await loadLidRules();
     } catch (err) {
       setStatus(err.message, { error: true });
       return;
@@ -447,6 +512,7 @@ export function createDesignUI({ viewer, setStatus }) {
       return;
     }
     if (key === 'fitLid') { setFit('lid', value); return; }
+    if (key === 'holeOff') { const prev = currentDefaults(); state.selectedHoles.delete(Number(value)); renderFastening(); refreshAutoParams(prev); update(); return; }
     if (key === 'mountAxis') { setMount({ axis: value }); return; }
     if (key === 'mountType') { setMount({ type: value }); return; }
     if (key === 'mountCount') { setMount({ count: Number(value) }); return; }
@@ -585,18 +651,31 @@ export function createDesignUI({ viewer, setStatus }) {
     ['lid_extra', 'Kapak dili ek payı', 'yan başına; iki yüzeyin baskı/işleme sapması'],
   ];
 
+  const tolRules = () => (state.tolEdit === 'lid' && state.lidSel && state.lidRules ? state.lidRules : state.rules);
+  $('#tol-edit').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-toledit]');
+    if (!b || b.dataset.toledit === state.tolEdit) return;
+    state.tolEdit = b.dataset.toledit;
+    renderTolerance();
+  });
+
   function renderTolerance(d = state.design) {
     if (!state.rules) return;
     const seg = (fid, cur, labels) => FIT_CLASSES.map((c) =>
       `<button type="button" role="radio" data-fit="${c.id}" aria-checked="${cur === c.id}" title="${esc(c.hint)}">${esc(labels ? labels[c.id] : c.label)}</button>`).join('');
     $('#fit-lid').innerHTML = seg('lid', state.fits.lid);
     $('#fit-screw').innerHTML = seg('screw', state.fits.screw, { press: 'İnce', normal: 'Orta', loose: 'Kaba' });
-    const base = toleranceOf(state.rules, null);
-    const ov = state.tolOverrides[state.rules.id] || {};
+    // Düzenlenen malzeme: gövde ya da (ayrıysa) kapak
+    const R = tolRules();
+    $('#tol-edit').classList.toggle('hidden', !state.lidSel || !state.lidRules);
+    $('#tol-edit').innerHTML = state.lidSel && state.lidRules ? [['body', `Gövde · ${state.rules.label}`], ['lid', `Kapak · ${state.lidRules.label}`]].map(([id, label]) =>
+      `<button type="button" role="radio" data-toledit="${id}" aria-checked="${state.tolEdit === id}">${esc(label)}</button>`).join('') : '';
+    const base = toleranceOf(R, null);
+    const ov = state.tolOverrides[R.id] || {};
     const val = (k) => (['press', 'normal', 'loose'].includes(k) ? base.fits[k] : base[k] ?? 0);
-    $('#tol-mat').textContent = `· ${state.rules.label}`;
+    $('#tol-mat').textContent = `· ${R.label}`;
     $('#tol-grid').innerHTML = TOL_FIELDS.map(([k, label, hint]) => {
-      if (k === 'hole_comp' && state.rules.process !== 'fdm' && !Number.isFinite(ov[k])) return '';
+      if (k === 'hole_comp' && R.process !== 'fdm' && !Number.isFinite(ov[k])) return '';
       const changed = Number.isFinite(ov[k]);
       return `<label class="tol-row${changed ? ' changed' : ''}" title="${esc(hint)}"><span>${esc(label)}</span>
         <span class="input-wrap"><input type="text" inputmode="decimal" data-tol="${k}" value="${changed ? inputText(ov[k]) : ''}" placeholder="${inputText(val(k))}"><span class="unit">mm</span></span></label>`;
@@ -640,10 +719,11 @@ export function createDesignUI({ viewer, setStatus }) {
     const v = raw === '' ? null : parseInput(raw);
     if (v !== null && (!Number.isFinite(v) || Math.abs(v) > 5)) { renderTolerance(); return; }
     const prev = currentDefaults();
-    const cur = { ...(state.tolOverrides[state.rules.id] || {}) };
+    const R = tolRules();
+    const cur = { ...(state.tolOverrides[R.id] || {}) };
     if (v === null) delete cur[inp.dataset.tol]; else cur[inp.dataset.tol] = v;
-    state.tolOverrides = { ...state.tolOverrides, [state.rules.id]: cur };
-    if (!Object.keys(cur).length) delete state.tolOverrides[state.rules.id];
+    state.tolOverrides = { ...state.tolOverrides, [R.id]: cur };
+    if (!Object.keys(cur).length) delete state.tolOverrides[R.id];
     saveTolOverrides(state.tolOverrides);
     refreshAutoParams(prev);
     renderTolerance();
@@ -652,7 +732,7 @@ export function createDesignUI({ viewer, setStatus }) {
   $('#tol-reset').addEventListener('click', () => {
     if (!state.rules) return;
     const prev = currentDefaults();
-    delete state.tolOverrides[state.rules.id];
+    delete state.tolOverrides[tolRules().id];
     state.tolOverrides = { ...state.tolOverrides };
     saveTolOverrides(state.tolOverrides);
     refreshAutoParams(prev);
@@ -859,7 +939,7 @@ export function createDesignUI({ viewer, setStatus }) {
 
     // Kart özetleri ve kabuğa (sekme rozeti, durum çipi) bildirim
     const proc = state.index.processes.find((pp) => pp.id === state.process);
-    $('#sum-process').textContent = `${proc.label} · ${state.rules.label}`;
+    $('#sum-process').textContent = `${proc.label} · ${state.rules.label}${state.lidSel && state.lidRules ? ` · kapak ${state.lidRules.label}` : ''}`;
     $('#sum-params').textContent = d.params
       ? `Et ${f2(d.params.wall)} · PCB altı ${f2(d.params.standoffHeight)} mm`
       : 'geçersiz değer';
@@ -888,9 +968,10 @@ export function createDesignUI({ viewer, setStatus }) {
     let massSub = 'oluşturunca hesaplanır';
     if (state.result) {
       const v = state.result.volumes;
-      const grams = ((v.base + v.lid) / 1000) * state.rules.density_g_cm3;
+      const lidDensity = state.lidSel && state.lidRules ? state.lidRules.density_g_cm3 : state.rules.density_g_cm3;
+      const grams = (v.base / 1000) * state.rules.density_g_cm3 + (v.lid / 1000) * lidDensity;
       mass = `${nf0.format(grams)} <span class="unit">g</span>`;
-      massSub = `gövde ${nf1.format(v.base / 1000)} + kapak ${nf1.format(v.lid / 1000)} cm³ · ${state.rules.label}`;
+      massSub = `gövde ${nf1.format(v.base / 1000)} + kapak ${nf1.format(v.lid / 1000)} cm³ · ${state.rules.label}${state.lidSel && state.lidRules ? ` / ${state.lidRules.label}` : ''}`;
     }
     $('#design-stats').innerHTML =
       stat('Dış ölçü (U × G × Y)', dims(d.outer.L, d.outer.W, d.outer.H), `${state.rules.label} · ${processLabel()}${d.mount?.footprint ? ` · kulaklarla ${f2(d.mount.footprint.L)} × ${f2(d.mount.footprint.W)}` : ''}`, 'wide accent') +
@@ -1010,7 +1091,7 @@ export function createDesignUI({ viewer, setStatus }) {
       date: new Date().toISOString().slice(0, 10), version: $('#app-version').textContent.replace(/^Sürüm\s*/, 'Ikra v'),
       bodies: [
         { name: `Gövde (${fileStem()}_govde)`, material: state.rules?.label || '', spec: proc?.label || '' },
-        { name: `Kapak (${fileStem()}_kapak)`, material: state.rules?.label || '', spec: proc?.label || '' },
+        { name: `Kapak (${fileStem()}_kapak)`, material: (state.lidSel && state.lidRules ? state.lidRules.label : state.rules?.label) || '', spec: (state.lidSel ? state.index?.processes.find((p) => p.id === state.lidSel.process)?.label : proc?.label) || '' },
       ],
     };
   };
@@ -1120,12 +1201,15 @@ export function createDesignUI({ viewer, setStatus }) {
         views: msg.views,
         design: d,
         rules: state.rules,
+        lidRules: state.lidSel && state.lidRules ? state.lidRules : null,
         explode: explodeOf(d),
         preferred: state.preferred.items,
         info: {
           project: fileStem(),
           material: state.rules.label,
           process: proc.label,
+          lidMaterial: state.lidSel && state.lidRules ? state.lidRules.label : null,
+          lidProcess: state.lidSel ? state.index.processes.find((p) => p.id === state.lidSel.process)?.label : null,
           ip: d.sealing ? d.sealing.label : 'Yok',
           date: new Date().toISOString().slice(0, 10),
           version: $('#app-version').textContent.replace(/^Sürüm\s*/, 'v'),
@@ -1204,6 +1288,7 @@ export function createDesignUI({ viewer, setStatus }) {
     try {
       await loadIndex();
       await loadRules();
+      await loadLidRules();
     } catch (err) {
       setStatus(err.message, { error: true });
       return;
@@ -1287,6 +1372,8 @@ export function createDesignUI({ viewer, setStatus }) {
       panelParts: state.panelParts,
       fits: state.fits,
       toleranceOverride: state.tolOverrides[state.rules.id] || null,
+      lidMaterial: state.lidSel,
+      lidToleranceOverride: state.lidSel && state.lidRules ? state.tolOverrides[state.lidRules.id] || null : null,
       mount: state.mount,
     };
   }
@@ -1306,6 +1393,13 @@ export function createDesignUI({ viewer, setStatus }) {
       else { state.material = proc.materials[0].id; warnings.push(`"${s.material}" malzemesi bu sürümde yok; ${proc.materials[0].label} seçildi.`); }
     } else if (s.process) warnings.push(`"${s.process}" süreci bu sürümde yok.`);
     await loadRules();
+    // Kapak malzemesi (projede ayrıysa)
+    state.lidSel = s.lidMaterial && s.lidMaterial.process && s.lidMaterial.material ? { ...s.lidMaterial } : null;
+    try { await loadLidRules(); } catch { state.lidSel = null; state.lidRules = null; warnings.push('Projedeki kapak malzemesi bu sürümde yok; kapak gövdeyle aynı malzemeden.'); }
+    if (s.lidToleranceOverride && state.lidRules && Object.keys(s.lidToleranceOverride).length) {
+      state.tolOverrides = { ...state.tolOverrides, [state.lidRules.id]: { ...s.lidToleranceOverride } };
+      saveTolOverrides(state.tolOverrides);
+    }
     const holes = (state.analysis.holes || []).map((h, i) => (h.mount ? i : -1)).filter((i) => i >= 0);
     state.selectedHoles = new Set((s.selectedHoles || []).filter((i) => holes.includes(i)));
     if ((s.selectedHoles || []).length !== state.selectedHoles.size) warnings.push('Bazı montaj delikleri bu kartta bulunamadı.');

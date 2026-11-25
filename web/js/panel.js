@@ -85,7 +85,7 @@ export function planPanel(ctx) {
   const {
     specs = [], types = [], analysis, rules, p, cav, center, wall, floorTop, cavTop, zTop, z0, lidT, rIn, rOut, outer, fit, lipT,
     lipBars = [], standoffs = [], lidTubes = [], cornerBosses = [], lidHoles = [], screws = [], ports = [], groove, seal,
-    obstacles = [], boardObstacles = [], rfParts = [], boardTop, tol = null,
+    obstacles = [], boardObstacles = [], rfParts = [], boardTop, tol = null, lidTol = null,
   } = ctx;
   const out = { items: [], holes: [], spots: [], visuals: [], bom: [], parts: [], checks: [], hasRf: false };
   // Yapılandırılmış malzeme listesi satırı (design.js parts biçimi)
@@ -186,7 +186,8 @@ export function planPanel(ctx) {
   for (const { sp, t } of resolved.filter((x) => x.t.kind === 'lightpipe')) {
     const pd0 = panelData(t, sp);
     // Işık borusu kapağa sıkı geçer: çubuk Ø + malzemenin sıkı geçme boşluğu + FDM delik telafisi
-    const pd = tol ? { ...pd0, hole: { shape: 'round', d: pressHole(pd0.d, tol) } } : pd0;
+    const ltol = lidTol || tol;
+    const pd = ltol ? { ...pd0, hole: { shape: 'round', d: pressHole(pd0.d, ltol) } } : pd0;
     const issues = [];
     const pos = [];
     if (!leds.length) issues.push({ level: 'warn', text: 'kartta adında "LED" geçen bileşen bulunamadı; delik açılmadı' });
@@ -444,7 +445,10 @@ export function planPanel(ctx) {
     // Katı model: delik (+ D düzlüğü) ve lamba
     const r = pd.hole.d / 2;
     if (onLid) {
-      out.holes.push({ part: 'lid', axis: 2, p: [x, y, cavTop - 1], len: lidT + 2, r, flat: pd.hole.shape === 'D' ? { axis: 1, at: y - r + pd.hole.flat } : null });
+      // Kapak ayrı malzemedeyse delik telafisi kapak malzemesinden
+      const lh = lidTol && lidTol !== tol ? { d: compHole(pd0.hole.d, lidTol), flat: pd0.hole.flat ? compHole(pd0.hole.flat, lidTol) : null } : pd.hole;
+      const lrr = lh.d / 2;
+      out.holes.push({ part: 'lid', axis: 2, p: [x, y, cavTop - 1], len: lidT + 2, r: lrr, flat: pd.hole.shape === 'D' ? { axis: 1, at: y - lrr + lh.flat } : null });
       if (spot) out.spots.push({ part: 'lid', axis: 2, p: [x, y, cavTop - 0.5], len: spot.depth + 0.5, r: spot.d / 2 });
     } else {
       const fr = frames[face];

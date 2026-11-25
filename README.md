@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.11 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj)
+## Şu anki durum: V1.12 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj + kapak malzemesi)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -180,6 +180,20 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Kontroller: kulak üstündeki fiş/panel elemanı, ayakla birlikte kullanım, tabandan çıkan vida başı, CNC stok boyu
 - Teknik resimde M# delik satırları, delik aralığı notu ve kulaklı taban izi ölçüsü; malzeme listesinde montaj satırı
 
+**Kapak malzemesi ve örnek kartlar (V1.12)**
+- Üretim kartında "Kapak malzemesi: Gövdeyle aynı / Farklı malzeme": kapak ayrı süreç ve malzemeden seçilebilir
+  (ör. CNC alüminyum gövde + akrilik kapak, FDM gövde + CNC PMMA kapak). Kapak kalınlığı en az kapak malzemesinin et
+  kalınlığı; kapak dili, kapak boruları, kapaktaki geçiş delikleri, havşa/oyuk, ışık borusu ve kapak panel delikleri
+  kapak malzemesinin toleransıyla; kapak dili boşluğu iki malzemenin ortalaması + ısıl genleşme farkı payı (ΔT 40 K);
+  vida başı altı basınç sınırı kapak malzemesinden; kütle iki yoğunlukla; teknik resimde kapak paftası, BOM ve proje
+  dosyası kapak malzemesiyle. Metal gövde + plastik kapakta RF notu kapağı işaret eder
+- Örnek kartlar: Arduino UNO R3, Raspberry Pi 4 B, ESP32-DevKitC, STM32 Nucleo-64 (basitleştirilmiş, kutu biçimli
+  bileşenler; kart ölçüsü, montaj delikleri ve konnektör konumları üretici mekanik çizimlerinden: Arduino A000066 CAD ve
+  veri sayfası, Raspberry Pi 4 mekanik çizimi, Espressif DevKitC V4 boyut çizimi ve WROOM-32E veri sayfası, ST UM1724).
+  Modeller tools/make-sample-step.ps1 ile üretilir, üretici CAD dosyası dağıtılmaz. Resmi çizimde olmayan bileşen
+  yükseklikleri ve PCB kalınlıkları yaklaşıktır (üreteçte işaretli). Standoff bir bileşene çarparsa hata, o noktaya
+  sığacak en büyük boss çapını ve "Bu deliği kullanma" düzeltmesini gösterir
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -223,7 +237,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.8 | M5–M6, montaj STEP'i, montaj paftası (balon + parça listesi), BOM CSV, tercihli parça listesi, Toolbox araması |
 | V1.9 | Malzeme kütüphanesi (8 FDM filamenti, 15 CNC malzemesi), malzemeye özel tolerans ve sıkı/normal/bol geçme, ISO 273 delik serileri |
 | V1.10 | Proje kaydet / aç (.ikra.json): tüm tasarım ayarları, STEP isteğe bağlı gömülü, kart kimliği (SHA-256) kontrolü |
-| **V1.11** | Montaj: taban hizasında montaj kulakları (2/4, yuvarlak ya da uzun delik, M3–M6) ya da tabandan içten vidalı delikler |
+| V1.11 | Montaj: taban hizasında montaj kulakları (2/4, yuvarlak ya da uzun delik, M3–M6) ya da tabandan içten vidalı delikler |
+| **V1.12** | Kapak için ayrı süreç/malzeme (ısıl genleşme farkı dahil), örnek kartlar: Arduino UNO R3, Raspberry Pi 4 B, ESP32-DevKitC, STM32 Nucleo-64 |
 | **V1.7** | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 
 ## Yerelde çalıştırma
@@ -273,10 +288,10 @@ web/                  Yayınlanan statik site
   js/mount.js         Montaj: taban hizasında kulaklar ve tabandan içten vidalı delikler (saf fonksiyonlar)
   rules/              Süreç × malzeme kural dosyaları
   rules/toolbox/      Toolbox kütüphaneleri (ISO vidalar/pullar/somunlar, dişli burçlar/aralayıcılar, panel elemanları)
-  samples/            Örnek STEP dosyası
+  samples/            Örnek STEP dosyaları (ornek-kart, arduino-uno-r3, raspberry-pi-4b, esp32-devkitc, nucleo-64)
 tools/
   serve.ps1           Yerel statik sunucu
-  make-sample-step.ps1  Örnek kart STEP üreteci
+  make-sample-step.ps1  Örnek kart STEP üreteci (-Board all / kart adı)
 ```
 
 ## Kullanılan açık kaynak bileşenler

@@ -417,7 +417,10 @@ function baseSheet(ctx) {
 }
 
 function lidSheet(ctx) {
-  const { views, design: d, rules } = ctx;
+  const { views, design: d } = ctx;
+  // Kapak ayrı malzemeden olabilir: kurallar, tolerans notları ve antet kapak malzemesine göre
+  const rules = ctx.lidRules || ctx.rules;
+  const dl = d.lidTolerance ? { ...d, tolerance: d.lidTolerance } : d;
   const g = d.geometry;
   const datum = [g.center[0] - g.outer.L / 2, g.center[1] - g.outer.W / 2, g.z0];
   const front = prepView('front', views.lid.front);
@@ -479,7 +482,7 @@ function lidSheet(ctx) {
     ], rows) + 8;
   }
   const n = [
-    ...toleranceNotes(rules, d),
+    ...toleranceNotes(rules, dl),
     `Kapak kalınlığı ${d1(d.params.lidT)} mm. Konumlandırma dili ${d1(d.params.lipT)} mm, gövdeye ${d2(d.params.fit)} mm boşlukla oturur.`,
     'Delik koordinatları gövde ile aynı sıfır noktasına göredir.',
   ];
@@ -491,7 +494,7 @@ function lidSheet(ctx) {
   if (rules.process === 'fdm') n.push('Baskı yönü: kapağın dış yüzü tablaya; borular ve dil yukarı.');
   notes(out, 194, y, 91, 'NOTLAR', n);
 
-  titleBlock(out, ctx.info, 'KAPAK', 2, ctx.sheetCount || 2, s);
+  titleBlock(out, { ...ctx.info, material: ctx.info.lidMaterial || ctx.info.material, process: ctx.info.lidProcess || ctx.info.process }, 'KAPAK', 2, ctx.sheetCount || 2, s);
   return { title: 'Kapak', svg: sheetSvg(out), scale: s };
 }
 
