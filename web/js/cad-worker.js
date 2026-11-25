@@ -12,7 +12,22 @@ import {
   makeCylinder,
   exportSTEP,
   measureVolume,
+  drawProjection,
+  ProjectionCamera,
 } from 'https://cdn.jsdelivr.net/npm/replicad@1.2.1/+esm';
+
+// Teknik resim görünüşleri. replicad'de kamera yönü nesneden İZLEYİCİYE doğrudur;
+// xAxis kağıtta sağ, yön × xAxis kağıtta yukarı olacak şekilde seçildi (aynalanma yok).
+const VIEW_CAMERAS = {
+  top: { dir: [0, 0, 1], x: [1, 0, 0] },
+  bottom: { dir: [0, 0, -1], x: [1, 0, 0] },
+  front: { dir: [0, -1, 0], x: [1, 0, 0] },
+  back: { dir: [0, 1, 0], x: [-1, 0, 0] },
+  right: { dir: [1, 0, 0], x: [0, 1, 0] },
+  left: { dir: [-1, 0, 0], x: [0, -1, 0] },
+};
+
+let lastShapes = null;
 
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.2.1/dist/replicad_single.wasm';
 const MESH_OPTS = { tolerance: 0.03, angularTolerance: 0.2 };
@@ -78,6 +93,14 @@ function buildEnclosure(g) {
   for (const c of g.cutouts || []) {
     base = base.cut(cutoutPrism(c));
   }
+  // IP conta kanalı: duvar üstünde, orta çizgi boyunca halka
+  if (g.groove) {
+    const gr = g.groove;
+    const z = g.cavTop - gr.depth;
+    const outerRing = roundedSlab(gr.L + gr.width, gr.W + gr.width, gr.r + gr.width / 2, cx, cy, z, gr.depth + 1);
+    const innerRing = roundedSlab(gr.L - gr.width, gr.W - gr.width, Math.max(gr.r - gr.width / 2, 0.1), cx, cy, z, gr.depth + 1);
+    base = base.cut(outerRing.cut(innerRing));
+  }
 
   // Kapak: düz plaka + kenarlara konumlandırma dili + PCB'ye inen vida boruları
   let lid = roundedSlab(g.outer.L, g.outer.W, g.outer.r, cx, cy, g.cavTop, g.lidT);
@@ -103,7 +126,33 @@ function packMesh(shape) {
   };
 }
 
+function project(shape, view) {
+  const cam = VIEW_CAMERAS[view];
+  const p = drawProjection(shape, new ProjectionCamera([0, 0, 0], cam.dir, cam.x));
+  return { visible: p.visible.toSVGPaths().flat(), hidden: p.hidden.toSVGPaths().flat() };
+}
+
+async function makeDrawing(id) {
+  if (!lastShapes) throw new Error('Önce muhafaza oluşturulmalı.');
+  const t0 = performance.now();
+  const { base, lid } = lastShapes;
+  const views = {
+    base: Object.fromEntries(['top', 'front', 'back', 'right', 'left'].map((v) => [v, project(base, v)])),
+    lid: Object.fromEntries(['top', 'bottom', 'front'].map((v) => [v, project(lid, v)])),
+  };
+  self.postMessage({ id, type: 'drawing', views, ms: performance.now() - t0 });
+}
+
 self.onmessage = async (ev) => {
+  if (ev.data.type === 'drawing') {
+    try {
+      await init();
+      await makeDrawing(ev.data.id);
+    } catch (err) {
+      self.postMessage({ id: ev.data.id, type: 'error', message: (err && err.message) || String(err) });
+    }
+    return;
+  }
   const { id, geometry, names } = ev.data;
   try {
     self.postMessage({ id, type: 'progress', stage: 'engine' });
@@ -112,6 +161,7 @@ self.onmessage = async (ev) => {
 
     const t0 = performance.now();
     const { base, lid } = buildEnclosure(geometry);
+    lastShapes = { base, lid };
     const meshes = { base: packMesh(base), lid: packMesh(lid) };
     const volumes = { base: measureVolume(base), lid: measureVolume(lid) };
 

@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: M3
+## Şu anki durum: V1 tamam (M0–M4)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -41,13 +41,24 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - DFM paneli: kategorilere ayrılmış kontroller (genel, süreç, port, kapak, bağlantı), seviye sayaçları,
   üzerine gelince ilgili bileşenin 3B'de vurgulanması
 
+**IP sızdırmazlık ve teknik resim (M4)**
+- IP65 / IP66 / IP67: duvar üstünde kordon conta kanalı (derinlik = çap × (1 − sıkıştırma), genişlik doluluk
+  sınırına göre); et kalınlığı kanal + iki yan et payına göre otomatik (FDM'de nozul katına yuvarlanır)
+- IP'de port açıklıkları pencere olur ve üstünde kanal için duvar payı bırakılır (gerekirse üst boşluk artırılır)
+- Kontroller: kapak sıkıştırma aralığı, vida başı sızdırmazlık pulu, açık portlar için IP konnektör/rakor,
+  FDM'de katmanlar arası sızma; malzeme listesine kordon boyu ve pullar eklenir
+- Teknik resim: gizli çizgi kaldırmalı izdüşümlerden A4 yatay iki pafta (gövde, kapak); ön/sağ/üst ve port olan
+  diğer görünüşler, genel ölçüler, delik ve açıklık tabloları, süreç tolerans notları, bağlantı elemanları, antet;
+  tarayıcıda önizleme ve Türkçe fontlu PDF (jsPDF + svg2pdf.js + DejaVu Sans)
+
 ## Kural dosyaları
 
 `web/rules/<süreç>/<malzeme>.json` dosyaları süreç × malzeme kural setlerini tutar
 (`min_wall`, `recommended_wall_min/max`, `pcb_clearance_xy`, `lid_fit_clearance`, `corner_radius_min`,
 `draft_angle_min`, `shrink_factor` …). Değerler genel endüstri pratiğine dayanan başlangıç değerleridir;
 kurum standardına göre düzenlenmesi beklenir. Yeni malzeme eklemek için dosyayı oluşturup `web/rules/index.json`'a ekle.
-Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş ölçüleri, standart boylar) `web/rules/fasteners.json` içindedir.
+Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş ölçüleri, standart boylar) `web/rules/fasteners.json`,
+IP seviyelerinin kordon çapı, sıkıştırma, et payı ve kapak sıkıştırma aralığı `web/rules/sealing.json` içindedir.
 
 ## Yol haritası (V1)
 
@@ -56,8 +67,8 @@ Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş 
 | M0 | STEP yükle, 3B göster, PCB ve bileşen analizi |
 | M1 | Kural dosyaları (süreç × malzeme), parametrik alt gövde + kapak, STEP/STL indir |
 | M2 | Montaj deliklerini tanıma, standoff/boss ve vida noktaları |
-| **M3** | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
-| M4 | IP65/66/67 conta kanalı, temel PDF teknik resim |
+| M3 | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
+| **M4** | IP65/66/67 conta kanalı, temel PDF teknik resim |
 
 ## Yerelde çalıştırma
 
@@ -92,7 +103,8 @@ web/                  Yayınlanan statik site
   js/ports.js         Port açıklığı tespiti (ağların duvar düzlemindeki kesiti)
   js/design.js        Muhafaza ölçüleri ve DFM kontrolleri (saf fonksiyonlar)
   js/design-ui.js     Süreç/malzeme/parametre paneli, üretim ve indirme
-  js/cad-worker.js    Katı model üretimi ve STEP/STL çıktısı (Web Worker, replicad)
+  js/cad-worker.js    Katı model üretimi, STEP/STL çıktısı, teknik resim izdüşümleri (Web Worker, replicad)
+  js/drawing.js       Teknik resim paftaları (SVG) ve PDF çıktısı
   js/viewer.js        3B önizleme (three.js)
   rules/              Süreç × malzeme kural dosyaları
   samples/            Örnek STEP dosyası
@@ -107,4 +119,7 @@ tools/
   okuma için [occt-import-js](https://github.com/kovacsv/occt-import-js), modelleme için [replicad](https://replicad.xyz) (MIT) + replicad-opencascadejs
 - [three.js](https://threejs.org) (MIT)
 
-Hepsi jsDelivr CDN'den sabit sürümle yüklenir. CAD modelleme çekirdeği (~6 MB) yalnızca muhafaza oluşturulurken indirilir.
+- [jsPDF](https://github.com/parallax/jsPDF) (MIT), [svg2pdf.js](https://github.com/yWorks/svg2pdf.js) (MIT), [DejaVu fontları](https://dejavu-fonts.github.io) (serbest lisans)
+
+Hepsi jsDelivr CDN'den sabit sürümle yüklenir. CAD modelleme çekirdeği (~6 MB) yalnızca muhafaza oluşturulurken,
+PDF kütüphanesi ve font (~2 MB) yalnızca PDF indirilirken indirilir.

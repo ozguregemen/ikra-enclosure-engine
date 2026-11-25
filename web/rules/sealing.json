@@ -1,0 +1,21 @@
+{
+  "aciklama": "IP sızdırmazlık seviyeleri için yüz contası (face seal) kuralları. Kordon conta, gövde duvarının üstündeki kanala oturur; kapağın düz yüzü sıkıştırır. Kanal derinliği = kordon çapı × (1 − sıkıştırma), kanal genişliği doluluk sınırına göre. Uzunluklar mm. Kurum standardına göre düzenleyin.",
+  "levels": [
+    { "id": "none", "label": "Yok" },
+    {
+      "id": "IP65", "label": "IP65",
+      "desc": "Toz geçirmez, her yönden su jetine karşı korumalı",
+      "cord_d": 1.5, "squeeze": 0.20, "fill_max": 0.85, "land": 1.0, "max_clamp_pitch": 80
+    },
+    {
+      "id": "IP66", "label": "IP66",
+      "desc": "Toz geçirmez, güçlü su jetine karşı korumalı",
+      "cord_d": 2.0, "squeeze": 0.25, "fill_max": 0.85, "land": 1.0, "max_clamp_pitch": 60
+    },
+    {
+      "id": "IP67", "label": "IP67",
+      "desc": "Toz geçirmez, geçici suya daldırmaya (1 m, 30 dk) karşı korumalı",
+      "cord_d": 2.0, "squeeze": 0.25, "fill_max": 0.85, "land": 1.2, "max_clamp_pitch": 50
+    }
+  ]
+}

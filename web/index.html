@@ -28,7 +28,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">M3 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">V1 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -72,6 +72,9 @@
         </div>
         <div class="hole-list" id="hole-list"></div>
         <div class="seg-full two" id="lid-mode" role="radiogroup" aria-label="Kapak bağlantısı"></div>
+        <h3 class="sub-title">Sızdırmazlık (IP)</h3>
+        <div class="seg-full four" id="ip-level" role="radiogroup" aria-label="IP koruma seviyesi"></div>
+        <p class="muted small" id="ip-desc"></p>
 
         <div class="panel-head">
           <h2 class="panel-title">5 · Port açıklıkları</h2>
@@ -93,6 +96,7 @@
           <button type="button" class="btn" id="dl-step">STEP indir (gövde + kapak)</button>
           <button type="button" class="btn" id="dl-stl-base">STL · gövde</button>
           <button type="button" class="btn" id="dl-stl-lid">STL · kapak</button>
+          <button type="button" class="btn wide-btn" id="drawing-btn">Teknik resim (önizle / PDF)</button>
         </div>
         <h3 class="sub-title hidden" id="bom-title">Bağlantı elemanları</h3>
         <ul class="bom" id="bom-list"></ul>
@@ -127,8 +131,8 @@
           <li class="step done"><span class="num">3</span>Malzeme seç<span class="tag">M1</span></li>
           <li class="step done"><span class="num">4</span>Gövde + kapak, temel DFM, STEP/STL<span class="tag">M1</span></li>
           <li class="step done"><span class="num">5</span>Standoff ve vida noktaları<span class="tag">M2</span></li>
-          <li class="step active"><span class="num">6</span>Port açıklıkları, DFM paneli<span class="tag now">M3</span></li>
-          <li class="step"><span class="num">7</span>IP conta kanalı, PDF teknik resim<span class="tag">M4</span></li>
+          <li class="step done"><span class="num">6</span>Port açıklıkları, DFM paneli<span class="tag">M3</span></li>
+          <li class="step active"><span class="num">7</span>IP conta kanalı, PDF teknik resim<span class="tag now">M4</span></li>
         </ol>
       </section>
 
@@ -181,5 +185,17 @@
       </div>
     </main>
   </div>
+
+  <dialog class="drawing-dialog" id="drawing-dialog" aria-label="Teknik resim">
+    <div class="dd-head">
+      <strong>Teknik resim</strong>
+      <div class="seg" id="dd-tabs" role="tablist"></div>
+      <span class="topbar-spacer"></span>
+      <span class="muted small" id="dd-status"></span>
+      <button type="button" class="btn primary" id="dd-pdf">PDF indir</button>
+      <button type="button" class="btn" id="dd-close">Kapat</button>
+    </div>
+    <div class="dd-body" id="dd-body"></div>
+  </dialog>
 </body>
 </html>

@@ -3,6 +3,7 @@
  * Hesap design.js'te, katı model üretimi cad-worker.js'te yapılır.
  */
 import { computeDesign, defaultParams, paramHint, pickScrew, LID_MODES, PARAM_FIELDS } from './design.js';
+import { buildSheets, exportPdf } from './drawing.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -56,6 +57,11 @@ export function createDesignUI({ viewer, setStatus }) {
     lidMode: 'screw',
     selectedHoles: new Set(),
     portOverrides: new Map(),
+    sealingIndex: null,
+    sealing: 'none',
+    drawingId: null,
+    sheets: null,
+    sheetIdx: 0,
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -70,6 +76,11 @@ export function createDesignUI({ viewer, setStatus }) {
       const res = await fetch('rules/fasteners.json');
       if (!res.ok) throw new Error('Vida tablosu yüklenemedi.');
       state.fasteners = await res.json();
+    }
+    if (!state.sealingIndex) {
+      const res = await fetch('rules/sealing.json');
+      if (!res.ok) throw new Error('Sızdırmazlık kuralları yüklenemedi.');
+      state.sealingIndex = await res.json();
     }
     return state.index;
   }
@@ -111,18 +122,21 @@ export function createDesignUI({ viewer, setStatus }) {
     await applyRules();
   });
 
+  const sealingLevel = () => (state.sealingIndex?.levels || []).find((l) => l.id === state.sealing) || null;
   const designOptions = () => ({
     fasteners: state.fasteners,
     lidMode: state.lidMode,
     selectedHoles: state.selectedHoles,
     portOverrides: state.portOverrides,
+    sealing: sealingLevel(),
   });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
 
-  /** Bağlantı seçimi değişince, kullanıcı elle değiştirmediyse PCB altı yüksekliği yeni varsayılana çek */
-  function refreshAutoStandoff(prevDefaults) {
-    if (Math.abs(state.params.standoffHeight - prevDefaults.standoffHeight) < 1e-9) {
-      state.params.standoffHeight = currentDefaults().standoffHeight;
+  /** Bağlantı/IP seçimi değişince, kullanıcının elle değiştirmediği parametreleri yeni varsayılana çek */
+  function refreshAutoParams(prevDefaults) {
+    const next = currentDefaults();
+    for (const key of Object.keys(next)) {
+      if (Math.abs(state.params[key] - prevDefaults[key]) < 1e-9) state.params[key] = next[key];
     }
     renderParams();
   }
@@ -198,6 +212,13 @@ export function createDesignUI({ viewer, setStatus }) {
       : '<div class="hole-empty">Kartta montaj deliği bulunamadı. PCB tutucu üretilemez; kart kenarı tutucuları sonraki sürümlerde.</div>';
     $('#lid-mode').innerHTML = LID_MODES.map((m) =>
       `<button type="button" role="radio" data-lid="${m.id}" aria-checked="${m.id === state.lidMode}">${esc(m.label)}</button>`).join('');
+    const levels = state.sealingIndex?.levels || [];
+    $('#ip-level').innerHTML = levels.map((l) =>
+      `<button type="button" role="radio" data-ip="${l.id}" aria-checked="${l.id === state.sealing}">${esc(l.label)}</button>`).join('');
+    const lvl = sealingLevel();
+    $('#ip-desc').textContent = lvl && lvl.id !== 'none'
+      ? `${lvl.desc}. Duvar üstünde Ø${f2(lvl.cord_d)} kordon conta kanalı açılır; kapak vidaları contayı sıkıştırır.`
+      : 'Sızdırmazlık yok: kapak doğrudan gövdeye oturur.';
   }
 
   $('#hole-list').addEventListener('change', (e) => {
@@ -206,7 +227,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const idx = Number(cb.dataset.hole);
     const prev = currentDefaults();
     if (cb.checked) state.selectedHoles.add(idx); else state.selectedHoles.delete(idx);
-    refreshAutoStandoff(prev);
+    refreshAutoParams(prev);
     update();
   });
   $('#lid-mode').addEventListener('click', (e) => {
@@ -215,7 +236,16 @@ export function createDesignUI({ viewer, setStatus }) {
     const prev = currentDefaults();
     state.lidMode = btn.dataset.lid;
     renderFastening();
-    refreshAutoStandoff(prev);
+    refreshAutoParams(prev);
+    update();
+  });
+  $('#ip-level').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ip]');
+    if (!btn || btn.dataset.ip === state.sealing) return;
+    const prev = currentDefaults();
+    state.sealing = btn.dataset.ip;
+    renderFastening();
+    refreshAutoParams(prev);
     update();
   });
 
@@ -259,7 +289,7 @@ export function createDesignUI({ viewer, setStatus }) {
 
   /* ---------- DFM paneli ---------- */
 
-  const DFM_CATS = [['genel', 'Genel'], ['surec', 'Süreç'], ['port', 'Port açıklıkları'], ['kapak', 'Kapak'], ['baglanti', 'Bağlantı']];
+  const DFM_CATS = [['genel', 'Genel'], ['surec', 'Süreç'], ['ip', 'Sızdırmazlık (IP)'], ['port', 'Port açıklıkları'], ['kapak', 'Kapak'], ['baglanti', 'Bağlantı']];
   const LEVEL_RANK = { error: 0, warn: 1, info: 2, ok: 3 };
   const LEVEL_LABEL = [['error', 'hata'], ['warn', 'uyarı'], ['ok', 'uygun'], ['info', 'bilgi']];
 
@@ -375,6 +405,7 @@ export function createDesignUI({ viewer, setStatus }) {
 
   function onWorkerMessage(ev) {
     const msg = ev.data;
+    if (state.drawingId !== null && msg.id === state.drawingId) { onDrawing(msg); return; }
     if (msg.id !== state.pendingId) return;
     if (msg.type === 'progress') {
       if (msg.stage === 'engine' && state.firstBuild) setStatus('CAD çekirdeği yükleniyor… (ilk seferde ~6 MB)');
@@ -422,6 +453,83 @@ export function createDesignUI({ viewer, setStatus }) {
     if (state.result) download(state.result.files.stlLid, `${fileStem()}_kapak.stl`, 'model/stl');
   });
 
+  /* ---------- Teknik resim ---------- */
+
+  const dialog = $('#drawing-dialog');
+
+  function requestDrawing() {
+    if (!state.result) return;
+    if (state.pendingId !== null) { setStatus('Muhafaza güncelleniyor, birazdan tekrar dene.', { error: true }); return; }
+    state.drawingId = ++state.seq;
+    $('#drawing-btn').disabled = true;
+    $('#drawing-btn').textContent = 'Teknik resim hazırlanıyor…';
+    getWorker().postMessage({ type: 'drawing', id: state.drawingId });
+  }
+
+  function onDrawing(msg) {
+    state.drawingId = null;
+    $('#drawing-btn').disabled = false;
+    $('#drawing-btn').textContent = 'Teknik resim (önizle / PDF)';
+    if (msg.type === 'error') { setStatus('Teknik resim üretilemedi: ' + msg.message, { error: true }); return; }
+    const d = state.result.design;
+    const proc = state.index.processes.find((p) => p.id === state.process);
+    try {
+      state.sheets = buildSheets({
+        views: msg.views,
+        design: d,
+        rules: state.rules,
+        info: {
+          project: fileStem(),
+          material: state.rules.label,
+          process: proc.label,
+          ip: d.sealing ? d.sealing.label : 'Yok',
+          date: new Date().toISOString().slice(0, 10),
+          version: $('#app-version').textContent.replace(/^Sürüm\s*/, 'v'),
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      setStatus('Teknik resim çizilemedi: ' + err.message, { error: true });
+      return;
+    }
+    state.sheetIdx = 0;
+    renderSheet();
+    $('#dd-status').textContent = `${state.sheets.length} pafta · ${Math.round(msg.ms)} ms`;
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function renderSheet() {
+    $('#dd-tabs').innerHTML = state.sheets.map((s, i) =>
+      `<button type="button" role="tab" data-sheet="${i}" aria-selected="${i === state.sheetIdx}">${i + 1} · ${esc(s.title)} (${s.scale >= 1 ? s.scale + ':1' : '1:' + Math.round(1 / s.scale)})</button>`).join('');
+    $('#dd-body').innerHTML = state.sheets[state.sheetIdx].svg;
+  }
+
+  $('#drawing-btn').addEventListener('click', requestDrawing);
+  $('#dd-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sheet]');
+    if (!b) return;
+    state.sheetIdx = Number(b.dataset.sheet);
+    renderSheet();
+  });
+  $('#dd-close').addEventListener('click', () => dialog.close());
+  $('#dd-pdf').addEventListener('click', async () => {
+    if (!state.sheets) return;
+    const btn = $('#dd-pdf');
+    btn.disabled = true;
+    btn.textContent = 'PDF hazırlanıyor…';
+    $('#dd-status').textContent = 'İlk seferde PDF kütüphanesi ve Türkçe font (~2 MB) indirilir.';
+    try {
+      await exportPdf(state.sheets, `${fileStem()}_ikra_teknik-resim.pdf`);
+      $('#dd-status').textContent = 'PDF indirildi.';
+    } catch (err) {
+      console.error(err);
+      $('#dd-status').textContent = 'PDF oluşturulamadı: ' + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'PDF indir';
+    }
+  });
+
   /* ---------- 3B görünüm anahtarları ---------- */
 
   document.querySelectorAll('[data-enc]').forEach((btn) => {
@@ -459,6 +567,8 @@ export function createDesignUI({ viewer, setStatus }) {
     state.selectedHoles = new Set((state.analysis.holes || []).map((h, i) => (h.mount ? i : -1)).filter((i) => i >= 0));
     state.lidMode = 'screw';
     state.portOverrides = new Map();
+    state.sheets = null;
+    state.drawingId = null;
     state.params = currentDefaults();
     renderSelectors();
     renderParams();
@@ -484,6 +594,7 @@ export function createDesignUI({ viewer, setStatus }) {
         openWidth: p.openWidth, openHeight: p.openHeight, recess: p.recess,
       })),
       lidMode: state.lidMode,
+      sealing: d.sealing,
       fastening: d.fasteningMethod,
       standoffs: d.standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, screw: s.screw })),
       lidTubes: d.lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, length: t.length })),

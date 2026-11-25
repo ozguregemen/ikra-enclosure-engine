@@ -224,6 +224,24 @@ button { font: inherit; color: inherit; }
 .link-btn { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; }
 .link-btn:hover { text-decoration: underline; }
 .seg-full.two { grid-template-columns: repeat(2, 1fr); }
+.seg-full.four { grid-template-columns: repeat(4, 1fr); }
+.downloads .wide-btn { grid-column: 1 / -1; }
+
+/* Teknik resim önizleme */
+.drawing-dialog {
+  width: min(1180px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+  padding: 0; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+}
+.drawing-dialog::backdrop { background: rgba(10, 14, 18, .55); }
+.dd-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.dd-head .seg button[aria-selected="true"] { color: var(--accent); font-weight: 600; }
+.dd-body { padding: 14px; background: var(--surface-2); overflow: auto; }
+.dd-body svg { display: block; width: 100%; height: auto; background: #fff; box-shadow: var(--shadow); }
 .hole-list { display: grid; gap: 2px; }
 .hole-row {
   display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px;

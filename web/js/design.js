@@ -33,9 +33,16 @@ export const PARAM_FIELDS = [
 
 export function paramHint(key, rules, analysis, defaults = null) {
   switch (key) {
-    case 'wall': return `kural: ${f(rules.recommended_wall_min)}–${f(rules.recommended_wall_max)} (en az ${f(rules.min_wall)})`;
+    case 'wall': {
+      const auto = defaults && defaults.wall > rules.default_wall + 1e-6 ? ` · IP conta kanalı için ${f(defaults.wall)} seçildi` : '';
+      return `kural: ${f(rules.recommended_wall_min)}–${f(rules.recommended_wall_max)} (en az ${f(rules.min_wall)})${auto}`;
+    }
     case 'pcbClearance': return `kural: ${f(rules.pcb_clearance_xy)}`;
-    case 'topClearance': return `kural: ${f(rules.component_clearance_z)}`;
+    case 'topClearance': {
+      const auto = defaults && defaults.topClearance > rules.component_clearance_z + 1e-6
+        ? ` · port üstünde conta kanalına yer açmak için ${f(defaults.topClearance)} seçildi` : '';
+      return `kural: ${f(rules.component_clearance_z)}${auto}`;
+    }
     case 'standoffHeight': {
       const below = analysis.maxBelow ? analysis.maxBelow.value : 0;
       const base = Math.max(rules.min_standoff_height, below + rules.under_board_clearance);
@@ -65,12 +72,15 @@ export function defaultParams(analysis, rules, options = {}) {
     standoffHeight: round2(Math.max(rules.min_standoff_height, below + rules.under_board_clearance)),
     cornerRadius: rules.corner_radius_min,
   };
-  if (options.fasteners && analysis.board && (analysis.holes || []).some((h) => h.mount)) {
-    for (let i = 0; i < 4; i++) {
+  // Hesabın önerdiği (yalnızca artıran) düzeltmeleri uygula: insert derinliği, vida boyu, IP et kalınlığı...
+  if (analysis.board && analysis.board.axes.n === 'Z') {
+    for (let i = 0; i < 6; i++) {
       const d = computeDesign(analysis, rules, params, options);
-      const fixes = (d.checks || []).filter((c) => c.fix && c.fix.key === 'standoffHeight' && c.fix.value > params.standoffHeight + 1e-9);
-      if (!fixes.length) break;
-      params.standoffHeight = Math.max(...fixes.map((c) => c.fix.value));
+      let changed = false;
+      for (const c of d.checks || []) {
+        if (c.fix && c.fix.value > params[c.fix.key] + 1e-9) { params[c.fix.key] = c.fix.value; changed = true; }
+      }
+      if (!changed) break;
     }
   }
   return params;
@@ -149,6 +159,23 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const rIn = Math.max(p.cornerRadius, 0.05);
   const rOut = rIn + wall;
 
+  // --- IP sızdırmazlık (M4): duvar üstünde kordon conta kanalı ---
+  const seal = options.sealing && options.sealing.id !== 'none' ? options.sealing : null;
+  let groove = null;
+  if (seal) {
+    const depth = Math.round(seal.cord_d * (1 - seal.squeeze) * 100) / 100;
+    const area = (Math.PI * seal.cord_d * seal.cord_d) / 4;
+    const width = Math.ceil(Math.max(area / (seal.fill_max * depth), seal.cord_d * 1.1) * 20) / 20;
+    let rimNeed = Math.ceil((width + 2 * seal.land) * 10) / 10;
+    if (rules.process === 'fdm') {
+      // FDM'de et kalınlığı nozul çapının katı olmalı: bir üst kata yuvarla
+      const nz = rules.process_params.nozzle_diameter;
+      rimNeed = Math.round(Math.ceil(rimNeed / nz - 1e-9) * nz * 100) / 100;
+    }
+    groove = { width, depth, fill: area / (width * depth), rimNeed };
+  }
+  const ipPortIssues = [];
+
   // --- Yatay ölçüler: PCB sınır kutusu + boşluk ---
   let clr = p.pcbClearance;
   if (rIn > CORNER_MIN_GAP) {
@@ -218,7 +245,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
   // --- Port açıklıkları (M3): duvardan geçen veya duvara dayalı konnektörler ---
   // Enjeksiyonda üstten açık çentik varsayılır: yan duvardaki kapalı pencere kalıpta yan maça ister.
   const portOverrides = options.portOverrides || new Map();
-  const defaultStyle = rules.process === 'injection' ? 'notch' : 'window';
+  // IP'de çentik conta kanalını keseceği için varsayılan her süreçte pencere
+  const defaultStyle = seal ? 'window' : rules.process === 'injection' ? 'notch' : 'window';
   const cutR = rules.process === 'cnc' ? rules.process_params.tool_diameter / 2 + 0.1 : 0.5;
   const minBridge = Math.max(rules.min_wall, 1.5);
   const ports = (analysis.meshes ? detectPorts(analysis, cav, [floorTop, cavTop]) : []).map((pt) => {
@@ -233,7 +261,17 @@ export function computeDesign(analysis, rules, params, options = {}) {
     if (zLo < floorTop + 0.5) { zLo = floorTop + 0.5; clippedBottom = true; }
     const bridge = cavTop - zHi;
     let autoNotch = false;
-    if (style === 'window' && bridge < minBridge) { style = 'notch'; autoNotch = true; }
+    if (seal && enabled) {
+      // Pencerenin üstünde conta kanalı + et payı kadar duvar kalmalı
+      const need = groove.depth + seal.land;
+      if (style === 'notch') {
+        ipPortIssues.push(['error', `${pt.name}: çentik açıklık duvar üstündeki conta kanalını keser; ${seal.label} için pencere seçilmeli.`, null, { partId: pt.partId }]);
+      } else if (bridge < need - 1e-6) {
+        const extra = Math.ceil((need - bridge) * 10) / 10;
+        ipPortIssues.push(['error', `${pt.name}: açıklığın üstünde ${f(Math.max(bridge, 0))} mm duvar kalıyor; conta kanalı için en az ${f(need)} mm gerekir.`,
+          { key: 'topClearance', value: Math.round((p.topClearance + extra) * 10) / 10, label: `üst boşluğu ${f(p.topClearance + extra)} mm yap` }, { partId: pt.partId }]);
+      }
+    } else if (style === 'window' && bridge < minBridge) { style = 'notch'; autoNotch = true; }
     const openHeight = (style === 'notch' ? cavTop : zHi) - zLo;
     const inner = pt.dir > 0 ? cav.max[pt.axis] : cav.min[pt.axis];
     const outerPlane = inner + pt.dir * wall;
@@ -347,12 +385,29 @@ export function computeDesign(analysis, rules, params, options = {}) {
     if (method === 'self_tap') bom.push(`Vidalar plastik için sac vidası tipinde seçilmeli (ön delik Ø${f(s.selftap_pilot)})`);
   }
 
+  // Conta kanalı geometrisi: duvarın orta çizgisi boyunca yuvarlatılmış halka
+  let grooveGeom = null;
+  let cordLength = 0;
+  if (seal) {
+    const gL = cavL + wall;
+    const gW = cavW + wall;
+    const gr = rIn + wall / 2;
+    grooveGeom = { L: gL, W: gW, r: gr, width: groove.width, depth: groove.depth };
+    cordLength = 2 * (gL + gW) - 8 * gr + 2 * Math.PI * gr;
+    bom.push(`1 × Ø${f(seal.cord_d)} silikon kordon conta, ${Math.ceil(cordLength + 10)} mm (uçlar yapıştırılarak halka yapılır)`);
+    const lidCount = screws.filter((s) => s.lid).length;
+    if (lidCount) bom.push(`${lidCount} × ${screws.find((s) => s.lid).size} sızdırmazlık pulu (vida başı altına)`);
+  }
+
   // --- DFM kontrolleri ---
   cat = 'genel';
   if (wall < rules.min_wall) {
     add('error', `Et kalınlığı ${f(wall)} mm, ${rules.label} için en az ${f(rules.min_wall)} mm olmalı.`);
+  } else if (seal && wall > rules.recommended_wall_max && wall <= groove.rimNeed + 0.5 && rules.process !== 'injection') {
+    add('info', `Et kalınlığı ${f(wall)} mm: ${seal.label} conta kanalı için önerilen aralığın (${f(rules.recommended_wall_max)} mm) üstüne çıkarıldı.`);
   } else if (wall < rules.recommended_wall_min || wall > rules.recommended_wall_max) {
-    add('warn', `Et kalınlığı ${f(wall)} mm, önerilen aralığın (${f(rules.recommended_wall_min)}–${f(rules.recommended_wall_max)} mm) dışında.`);
+    add('warn', `Et kalınlığı ${f(wall)} mm, önerilen aralığın (${f(rules.recommended_wall_min)}–${f(rules.recommended_wall_max)} mm) dışında.` +
+      (seal && rules.process === 'injection' ? ' Enjeksiyonda kalın duvar çöküntü ve uzun soğuma süresi demek; IP için duvar yerine çevresel flanş (sonraki sürüm) daha uygun.' : ''));
   } else {
     add('ok', `Et kalınlığı ${f(wall)} mm, önerilen aralıkta.`);
   }
@@ -494,6 +549,37 @@ export function computeDesign(analysis, rules, params, options = {}) {
     add('info', 'Kapak vidasız: yalnızca konumlandırma diliyle tutunur.');
   }
 
+  // Sızdırmazlık (IP) kontrolleri
+  cat = 'ip';
+  if (seal) {
+    if (wall < groove.rimNeed - 1e-6) {
+      add('error', `${seal.label} conta kanalı (${f(groove.width)} × ${f(groove.depth)} mm) ve iki yanındaki ${f(seal.land)} mm et payı için et kalınlığı en az ${f(groove.rimNeed)} mm olmalı.`,
+        { key: 'wall', value: groove.rimNeed, label: `${f(groove.rimNeed)} mm uygula` });
+    } else {
+      add('ok', `Conta kanalı ${f(groove.width)} × ${f(groove.depth)} mm: Ø${f(seal.cord_d)} kordon %${Math.round(seal.squeeze * 100)} sıkışır, kanal doluluğu %${Math.round(groove.fill * 100)}.`);
+    }
+    const lidScrews = screws.filter((s) => s.lid).length;
+    if (!lidScrews) {
+      add('error', `${seal.label} için kapak contayı sıkıştıracak vidalarla bağlanmalı; şu an vidalı kapak yok (montaj deliği veya "Vidalı" kapak bağlantısı gerekir).`);
+    } else {
+      const pitch = cordLength / lidScrews;
+      if (pitch > seal.max_clamp_pitch) {
+        add('warn', `${lidScrews} kapak vidası conta boyunca ortalama ${f(pitch)} mm aralık bırakıyor (${seal.label} için ≤ ${seal.max_clamp_pitch} mm önerilir). Kapak kenarlarda yeterince sıkışmayabilir; kenar vidası (sonraki sürüm) veya daha kalın kapak gerekir.`);
+      } else {
+        add('ok', `Kapak sıkıştırma aralığı ortalama ${f(pitch)} mm.`);
+      }
+      add('info', 'Kapak vidaları conta halkasının içinden geçiyor: her vida başının altına sızdırmazlık pulu koy.');
+    }
+    for (const [level, text, fix, focus] of ipPortIssues) add(level, text, fix, focus);
+    if (ports.some((pt) => pt.enabled)) {
+      add('warn', `Açık port var: ${seal.label} için konnektörlerin IP sınıflı panel tipi olması ya da port contası / kablo rakoru kullanılması gerekir.`);
+    }
+    if (rules.process === 'fdm') {
+      add('info', 'FDM parçada katmanlar arasından sızma olabilir: en az 5 çevre, %100 dış katman ve gerekirse iç yüzeye vernik/epoksi önerilir.');
+    }
+    add('info', `${seal.label}: ${seal.desc}. Seviye, IEC 60529 testiyle doğrulanmalıdır.`);
+  }
+
   return {
     ok: !checks.some((c) => c.level === 'error'),
     rulesId: rules.id,
@@ -514,7 +600,9 @@ export function computeDesign(analysis, rules, params, options = {}) {
       standoffs: standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, z0: s.z0, z1: s.z1 })),
       lidTubes: lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, z0: t.z0, z1: t.z1 })),
       cutouts,
+      groove: grooveGeom,
     },
+    sealing: seal ? { id: seal.id, label: seal.label, cord_d: seal.cord_d, squeeze: seal.squeeze, groove, cordLength } : null,
     ports,
     lipBars,
     lipRemoved,
