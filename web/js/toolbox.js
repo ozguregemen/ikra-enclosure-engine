@@ -8,6 +8,7 @@ import {
   libraryTypes, screwTable, driveText, designation, isTapping, resolveScrewMaterial, resolveWasherMaterial, washerSizeFor, torqueLimitText,
 } from './design.js';
 import { headProfile, headTop, driveOutline, driveSection } from './screw-shapes.js';
+import { panelData, panelTitle, holeText, FACE_LABEL } from './panel.js';
 
 const NUM = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
 const n = (v) => NUM.format(v);
@@ -278,6 +279,113 @@ export function standoffFigure(so, z, L, d) {
   return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="Aralayıcı ölçü çizimi">${out.join('')}</svg>`;
 }
 
+/* ---------- Panel elemanı simgesi ve ölçülü çizimi ---------- */
+
+export function panelIcon(kind) {
+  const svg = (body) => `<svg class="head-icon" viewBox="0 0 28 26" aria-hidden="true">${body}</svg>`;
+  switch (kind) {
+    case 'rf': return svg('<path d="M9 5.5h10l4.5 7.5-4.5 7.5H9L4.5 13z"/><path style="fill:var(--surface-2)" d="M14 8.6a4.4 4.4 0 1 0 0 8.8a4.4 4.4 0 0 0 0-8.8z"/><circle cx="14" cy="13" r="1.4"/>');
+    case 'gland': return svg('<path d="M6 15h16v3H6z"/><path d="M8 15c0-6 2.5-10 6-10s6 4 6 10z"/><path style="fill:var(--surface-2)" d="M12 5.8h4v3h-4z"/><path class="hi-thread" d="M9 18v5M12 18v5M16 18v5M19 18v5"/>');
+    case 'vent': return svg('<path d="M5 15h18v3H5z"/><path d="M7 15V9a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6z"/><path class="hi-thread" d="M10 9.5v3M14 9.5v3M18 9.5v3M9 18v5M14 18v5M19 18v5"/>');
+    case 'lightpipe': return svg('<path d="M3 6h22v3H3z"/><path style="opacity:.55" d="M11.5 3h5v15h-5z"/><path d="M9 20h10v3H9z"/>');
+    case 'foot': return svg('<path d="M3 5h22v3H3z"/><path d="M7 8h14v5c0 3-3 6-7 6s-7-3-7-6z"/>');
+    default: return svg('<path d="M4 4h20v18H4z"/><path style="fill:var(--surface-2)" d="M14 7.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11z"/>');
+  }
+}
+
+/** Panel elemanı: delik (D-düzlük) ve somun dış hattı önden; yandan duvar kesiti, en kalın panel, iç/dış boy */
+export function panelFigure(pd) {
+  const VW = 320;
+  const VH = 270;
+  const out = [];
+  if (pd.kind === 'foot') {
+    const s = Math.min(180 / pd.d, 22);
+    const cx = 160;
+    const y0 = 100;
+    const R = (pd.d / 2) * s;
+    const h = pd.h * s;
+    out.push(`<rect class="tf-section" x="40" y="${y0 - 16}" width="240" height="16"/>`);
+    out.push(`<path class="tf-part" style="fill:#2a2c30" d="M${cx - R} ${y0}H${cx + R}V${y0 + h * 0.45}Q${cx + R} ${y0 + h} ${cx + R * 0.62} ${y0 + h}H${cx - R * 0.62}Q${cx - R} ${y0 + h} ${cx - R} ${y0 + h * 0.45}z"/>`);
+    out.push(`<line class="tf-thin" x1="30" y1="${y0 + h}" x2="290" y2="${y0 + h}"/>`);
+    arrowLine(out, cx - R, y0 + h + 22, cx + R, y0 + h + 22);
+    out.push(`<text class="tf-txt" x="${cx}" y="${y0 + h + 38}" text-anchor="middle">Ø${n(pd.d)}</text>`);
+    arrowLine(out, cx + R + 18, y0, cx + R + 18, y0 + h);
+    out.push(`<text class="tf-txt" x="${cx + R + 24}" y="${y0 + h / 2 + 4}">h ${n(pd.h)}</text>`);
+    out.push(`<text class="tf-cap" x="44" y="${y0 - 22}">taban</text>`);
+    out.push('<text class="tf-cap" x="8" y="14">Yandan (kutu altı)</text>');
+    return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="Lastik ayak ölçü çizimi">${out.join('')}</svg>`;
+  }
+  if (pd.kind === 'lightpipe') {
+    const s = 9;
+    const cx = 160;
+    const lidY = 60;
+    const lidT = 2 * s;
+    const ledY = 200;
+    const r = (pd.d / 2) * s;
+    out.push(`<rect class="tf-section" x="40" y="${lidY}" width="${cx - r - 40}" height="${lidT}"/><rect class="tf-section" x="${cx + r}" y="${lidY}" width="${280 - cx - r}" height="${lidT}"/>`);
+    out.push(`<rect class="tf-part" style="fill:color-mix(in srgb, #bfe4ff 55%, transparent)" x="${cx - r}" y="${lidY}" width="${2 * r}" height="${ledY - 4 - lidY}"/>`);
+    out.push(`<rect class="tf-part" style="fill:#f4f2ec" x="${cx - 14}" y="${ledY}" width="28" height="10"/><rect class="tf-section" x="40" y="${ledY + 10}" width="240" height="12"/>`);
+    out.push(`<line class="tf-center" x1="${cx}" y1="${lidY - 14}" x2="${cx}" y2="${ledY + 26}"/>`);
+    arrowLine(out, cx - r, lidY - 16, cx + r, lidY - 16);
+    out.push(`<text class="tf-txt" x="${cx}" y="${lidY - 21}" text-anchor="middle">Ø${n(pd.d)} · delik Ø${n(pd.hole.d)}</text>`);
+    arrowLine(out, cx + r + 30, lidY, cx + r + 30, ledY - 4);
+    out.push(`<text class="tf-txt" x="${cx + r + 36}" y="${(lidY + ledY) / 2}">L</text>`);
+    out.push(`<text class="tf-cap" x="44" y="${lidY - 4}">kapak</text><text class="tf-cap" x="${cx + 18}" y="${ledY + 8}">LED</text><text class="tf-cap" x="44" y="${ledY + 36}">PCB</text>`);
+    out.push('<text class="tf-cap" x="8" y="14">Kesit: kapak → LED</text>');
+    return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="Işık borusu çizimi">${out.join('')}</svg>`;
+  }
+  // Ön görünüş (sol): delik ve somun dış hattı
+  const h = pd.hole;
+  const E = pd.e || h.d + 3;
+  const s = Math.min(100 / E, 14);
+  const cx = 82;
+  const cy = 120;
+  const r = (h.d / 2) * s;
+  if (pd.af) {
+    const R = (pd.af / Math.sqrt(3)) * s;
+    const hex = Array.from({ length: 6 }, (_, i) => `${(cx + R * Math.cos((Math.PI / 3) * i + Math.PI / 6)).toFixed(2)},${(cy + R * Math.sin((Math.PI / 3) * i + Math.PI / 6)).toFixed(2)}`).join(' ');
+    out.push(`<polygon class="tf-thin tf-hid" points="${hex}"/>`);
+  }
+  if (h.shape === 'D') {
+    const yf = (h.flat - h.d / 2) * s; // merkezden düzlüğe (yukarı)
+    const xh = Math.sqrt(Math.max(r * r - yf * yf, 0));
+    out.push(`<path class="tf-hole" d="M${cx - xh} ${cy - yf}H${cx + xh}A${r} ${r} 0 1 1 ${cx - xh} ${cy - yf}z"/>`);
+    arrowLine(out, cx + r + 14, cy + r, cx + r + 14, cy - yf);
+    out.push(`<path class="tf-ext" d="M${cx + xh + 2} ${cy - yf}H${cx + r + 17}M${cx + 2} ${cy + r}H${cx + r + 17}"/>`);
+    out.push(`<text class="tf-txt" x="${cx + r + 19}" y="${cy + (r - yf) / 2 + 4}">${n(h.flat)}</text>`);
+  } else {
+    out.push(`<circle class="tf-hole" cx="${cx}" cy="${cy}" r="${r}"/>`);
+  }
+  out.push(`<line class="tf-center" x1="${cx - r - 8}" y1="${cy}" x2="${cx + r + 8}" y2="${cy}"/><line class="tf-center" x1="${cx}" y1="${cy - r - 8}" x2="${cx}" y2="${cy + r + 8}"/>`);
+  const yD = cy + Math.max(r, ((pd.af || 0) / 2) * s * 1.16) + 18;
+  arrowLine(out, cx - r, yD, cx + r, yD);
+  out.push(`<path class="tf-ext" d="M${cx - r} ${cy + 2}V${yD + 3}M${cx + r} ${cy + 2}V${yD + 3}"/>`);
+  out.push(`<text class="tf-txt" x="${cx}" y="${yD + 15}" text-anchor="middle">Ø${n(h.d)}</text>`);
+  if (pd.af) out.push(`<text class="tf-cap" x="${cx}" y="${yD + 30}" text-anchor="middle">somun SW ${n(pd.af)}</text>`);
+  out.push('<text class="tf-cap" x="8" y="14">Delik (önden)</text>');
+
+  // Yan kesit (sağ): duvar, dış ve iç boy
+  const sx = 222;
+  const top = 34;
+  const inner = pd.inner || 8;
+  const outerL = pd.outer || 8;
+  const ks = Math.min(200 / (outerL + inner + 4), 7);
+  const wt = Math.max(2, Math.min(pd.panelMax || 2, 4)) * ks;
+  const wy = top + outerL * ks;
+  const bodyR = Math.min(36, (E / 2) * ks);
+  out.push(`<rect class="tf-section" x="${sx - 46}" y="${wy}" width="92" height="${wt}"/>`);
+  out.push(`<rect class="tf-part" x="${sx - bodyR * 0.62}" y="${top}" width="${bodyR * 1.24}" height="${wy - top}"/>`);
+  out.push(`<rect class="tf-part" x="${sx - bodyR * 0.45}" y="${wy + wt}" width="${bodyR * 0.9}" height="${inner * ks}"/>`);
+  if (pd.af) out.push(`<rect class="tf-washer" x="${sx - bodyR}" y="${wy + wt}" width="${bodyR * 2}" height="${Math.min(2.5 * ks, inner * ks * 0.4)}"/>`);
+  arrowLine(out, sx + 52, top, sx + 52, wy);
+  out.push(`<text class="tf-txt" x="${sx + 56}" y="${(top + wy) / 2 + 4}">${n(outerL)}</text>`);
+  arrowLine(out, sx + 52, wy + wt, sx + 52, wy + wt + inner * ks);
+  out.push(`<text class="tf-txt" x="${sx + 56}" y="${wy + wt + (inner * ks) / 2 + 4}">${n(inner)}</text>`);
+  if (pd.panelMax) out.push(`<text class="tf-cap" x="${sx - 48}" y="${wy + wt + 14}" text-anchor="start">et ≤ ${n(pd.panelMax)}</text>`);
+  out.push(`<text class="tf-cap" x="${sx - 46}" y="${top + 10}">dış</text><text class="tf-cap" x="${sx - 46}" y="${wy + wt + inner * ks}">iç</text>`);
+  return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="${esc(pd.code)} ölçü çizimi">${out.join('')}</svg>`;
+}
+
 /* ---------- Dişli burç simgesi ve kesit çizimi ---------- */
 
 export function insertIcon(kind) {
@@ -395,9 +503,11 @@ const METHOD_LABEL = {
  * evaluate(screwSpec, insertSpec) → null (kart yok) ya da { auto, sel, standoffAuto, standoffNow, ruleMethod, helicoilD }
  * onApply(screwSpec, insertSpec): seçim uygulanınca
  */
-export function createToolbox({ dialog, libraries, fasteners, materials = [], evaluate, onApply }) {
+export function createToolbox({ dialog, libraries, fasteners, materials = [], evaluate, evaluatePanel = null, onApply }) {
   const q = (sel) => dialog.querySelector(sel);
-  const [screwLib, insertLib] = libraries;
+  const [screwLib, insertLib, panelLib] = libraries;
+  const panelTypes = panelLib ? libraryTypes(panelLib, 'panel') : [];
+  const panelById = (id) => panelTypes.find((x) => x.id === id) || panelTypes[0];
   const types = libraryTypes(screwLib, 'screws');
   const washerTypes = libraryTypes(screwLib, 'washers');
   const washerById = (id) => washerTypes.find((w) => w.id === id) || null;
@@ -433,7 +543,10 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       corner: normalize(extra.corner || { ...screwSpec, size: 'auto', length: 'auto' }),
       group: cornerMode && extra.group === 'corner' ? 'corner' : 'pcb', cornerMode,
       washerView: screwSpec.washer && screwSpec.washer !== 'none' ? screwSpec.washer : 'iso7089',
+      panel: (extra.panel || []).map((x) => ({ ...x, custom: x.custom ? { ...x.custom } : undefined })),
+      panelView: null,
     };
+    if (view === 'panel') setPanelView(extra.panelType || panelTypes[0]?.id);
     render();
     if (!dialog.open) dialog.showModal();
     q('.tb-item[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -472,15 +585,99 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       <button type="button" class="tb-item" role="treeitem" data-standoff="${t.id}" aria-selected="${draft.view === 'standoff' && t.id === draft.insert.standoff}" title="${esc(t.name)}">
         ${insertIcon('standoff')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'standoff' && draft.insert.standoff === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
+    const panelItem = (t) => {
+      const count = draft.panel.filter((x) => x.type === t.id).length;
+      return `
+      <button type="button" class="tb-item" role="treeitem" data-panel="${t.id}" aria-selected="${draft.view === 'panel' && draft.panelView?.type === t.id}" title="${esc(t.name)}">
+        ${panelIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${count ? ` · ${count} eklendi` : ''}</span></span>
+      </button>`;
+    };
     q('#tb-tree').innerHTML = lib(screwLib, (cat) => (cat.id === 'washers' ? washerItem : cat.id === 'nuts' ? nutItem : screwItem), types.length + washerTypes.length + nutTypes.length) +
-      (insertLib ? lib(insertLib, (cat) => (cat.id === 'standoffs' ? standoffItem : insertItem), insertTypes.length + standoffTypes.length) : '');
+      (insertLib ? lib(insertLib, (cat) => (cat.id === 'standoffs' ? standoffItem : insertItem), insertTypes.length + standoffTypes.length) : '') +
+      (panelLib ? lib(panelLib, () => panelItem, panelTypes.length) : '');
+  }
+
+  /* ---------- Panel elemanları ---------- */
+
+  function setPanelView(typeId) {
+    const t = panelById(typeId);
+    if (!t) return;
+    const existing = ['lightpipe', 'foot'].includes(t.kind) ? draft.panel.find((x) => x.type === t.id) : null;
+    draft.panelView = {
+      type: t.id, size: existing?.size || t.defaultSize || (t.sizes ? Object.keys(t.sizes)[0] : null), face: 'auto',
+      custom: t.kind === 'custom' ? { ...t.custom } : undefined,
+    };
+    draft.view = 'panel';
+  }
+
+  const newUid = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const LEVEL_ORDER = { error: 0, warn: 1, info: 2, ok: 3 };
+
+  function renderPanel() {
+    const pv = draft.panelView;
+    const t = panelById(pv.type);
+    const pd = panelData(t, { size: pv.size, custom: pv.custom });
+    const ev = evaluatePanel ? evaluatePanel(draft.panel) : null;
+    q('#tb-figure').innerHTML = panelFigure(pd);
+    q('#tb-designation').textContent = `${panelTitle(pd)}${pd.hole && pd.kind !== 'lightpipe' ? ' · delik ' + holeText(pd.hole) : ''}`;
+    const sizes = t.sizes ? Object.keys(t.sizes) : [];
+    const single = ['lightpipe', 'foot'].includes(t.kind);
+    const faces = (t.faces || []).flatMap((fc) => (fc === 'wall' ? ['-Y', '+X', '+Y', '-X'] : fc === 'lid' ? ['lid'] : []));
+    const rows = [
+      ['Parça', t.name],
+      pd.hole && t.kind !== 'lightpipe' ? ['Delik', `${holeText(pd.hole)}${pd.hole.shape === 'D' ? ' (düzlük üstte; dönmeyi önler)' : ''}`] : null,
+      pd.af ? ['Somun anahtar ağzı', `SW ${n(pd.af)} (köşeden köşeye ${n(Math.round(pd.e * 10) / 10)})`] : null,
+      pd.panelMax ? ['En kalın panel', `${n(pd.panelMax)} mm (fazlası yerel inceltilir)`] : null,
+      pd.inner ? ['İçeride kalan', `${n(pd.inner)} mm${t.kind === 'rf' ? ' (gövde + kablo bükme payı)' : ''}`] : null,
+      pd.outer ? ['Dışarıda kalan', `${n(pd.outer)} mm`] : null,
+      pd.clamp ? ['Kablo dış çapı', `Ø${n(pd.clamp[0])}–${n(pd.clamp[1])} mm`] : null,
+      t.kind === 'lightpipe' ? ['Çubuk / delik', `Ø${n(pd.d)} / Ø${n(pd.hole.d)}`] : null,
+      t.kind === 'foot' ? ['Çap × yükseklik', `Ø${n(pd.d)} × ${n(pd.h)} mm`] : null,
+    ].filter(Boolean);
+    const sizeChips = sizes.length ? `<section class="tb-group"><h4>Boyut</h4><div class="chips">${sizes.map((s) =>
+      `<button type="button" class="chip" data-psize="${esc(s)}" aria-checked="${s === pv.size}">${esc(s)}${t.sizes[s].clamp ? ` <span class="chip-sub">Ø${n(t.sizes[s].clamp[0])}–${n(t.sizes[s].clamp[1])}</span>` : ''}</button>`).join('')}</div></section>` : '';
+    const CF = [['d', 'Delik Ø'], ['flat', 'Düzlük (0 = yuvarlak)'], ['af', 'Somun SW'], ['panelMax', 'En kalın panel'], ['inner', 'İçeride kalan'], ['outer', 'Dışarıda kalan']];
+    const customInputs = t.kind === 'custom' ? `<section class="tb-group"><h4>Veri sayfasından ölçüler <span class="muted">(mm)</span></h4>
+      <div class="tb-cf">${CF.map(([k, label]) => `<label><span>${label}</span><input type="text" inputmode="decimal" data-pcf="${k}" value="${String(pv.custom[k] ?? '').replace('.', ',')}"></label>`).join('')}</div></section>` : '';
+    const faceChips = single ? `<p class="small muted">${t.kind === 'lightpipe' ? 'Konum otomatik: kartta adında "LED" geçen her bileşenin üstüne kapakta delik.' : 'Konum otomatik: tabanın dört köşesi.'}</p>`
+      : `<div class="chips">${['auto', ...faces].map((fc) => `<button type="button" class="chip" data-pface="${fc}" aria-checked="${pv.face === fc}">${fc === 'auto' ? 'Otomatik' : esc(FACE_LABEL[fc])}</button>`).join('')}</div>`;
+    const itemsById = new Map((ev?.panel?.items || []).map((it) => [it.uid, it]));
+    const list = draft.panel.map((x) => {
+      const tt = panelById(x.type);
+      const it = itemsById.get(x.uid);
+      const lvl = it ? (it.autoFail ? 'error' : it.issues.reduce((m, q2) => (LEVEL_ORDER[q2.level] < LEVEL_ORDER[m] ? q2.level : m), 'ok')) : 'ok';
+      const where = it ? (it.kind === 'lightpipe' ? `${it.positions.length} LED` : it.kind === 'foot' ? 'taban köşeleri' : FACE_LABEL[it.face]) : '';
+      const msg = it ? (it.autoFail ? 'sığmadı' : it.issues.find((q2) => q2.level === 'error')?.text || it.issues.find((q2) => q2.level === 'warn')?.text || 'uygun') : '';
+      return `<li class="tb-pl-row"><span class="tb-pl-dot ${lvl}"></span>${panelIcon(tt.kind)}<span class="tb-pl-text"><strong>${esc(it?.title || panelTitle(panelData(tt, x)))}</strong><span class="muted">${esc(where)}${msg ? ' · ' + esc(msg) : ''}</span></span>
+        <button type="button" class="icon-btn" data-prem="${x.uid}" title="Kaldır" aria-label="Kaldır">×</button></li>`;
+    }).join('');
+    const already = single && draft.panel.some((x) => x.type === t.id);
+    q('#tb-props').innerHTML = `
+      ${sizeChips}
+      ${customInputs}
+      <section class="tb-group">
+        <h4>Yerleşim</h4>
+        ${faceChips}
+        <button type="button" class="btn primary tb-add" data-padd="${t.id}">${already ? 'Boyutu güncelle' : '+ Kutuya ekle'}</button>
+        <p class="small muted">Konum, hesapla çakışmayan en uygun yere konur${t.kind === 'rf' ? ' (karttaki RF bileşenine en yakın duvar)' : ''}; Tasarım › Panel elemanları kartından elle değiştirilebilir.</p>
+      </section>
+      <section class="tb-group">
+        <h4>Bu kutuda <span class="muted">(${draft.panel.length})</span></h4>
+        ${draft.panel.length ? `<ul class="tb-pl">${list}</ul>` : '<p class="small muted">Henüz panel elemanı eklenmedi.</p>'}
+      </section>
+      <section class="tb-group">
+        <h4>Özellikler</h4>
+        <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
+        <p class="muted small">${esc(t.note || '')}</p>
+      </section>`;
   }
 
   function render() {
     renderTree();
     if (draft.view === 'insert' && draft.insert.type === 'nut') draft.view = 'nut';
     if (draft.view === 'insert' && draft.insert.type === 'standoff') draft.view = 'standoff';
-    if (draft.view === 'nut') renderNut();
+    if (draft.view === 'panel' && draft.panelView) renderPanel();
+    else if (draft.view === 'nut') renderNut();
     else if (draft.view === 'standoff') renderStandoff();
     else if (draft.view === 'insert') renderInsert();
     else if (draft.view === 'washer') renderWasher();
@@ -914,6 +1111,8 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       renderTree();
       return;
     }
+    const pnl = e.target.closest('[data-panel]');
+    if (pnl) { setPanelView(pnl.dataset.panel); render(); return; }
     const nutEl = e.target.closest('[data-nut]');
     if (nutEl) { draft.insert = { ...draft.insert, type: 'nut', nut: nutEl.dataset.nut }; draft.view = 'nut'; render(); return; }
     const soEl = e.target.closest('[data-standoff]');
@@ -938,6 +1137,29 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   q('#tb-props').addEventListener('click', (e) => {
     const view = e.target.closest('[data-view]');
     if (view) { draft.view = view.dataset.view; render(); return; }
+    // Panel elemanları: boyut, yüz, ekle, kaldır
+    const psize = e.target.closest('[data-psize]');
+    if (psize) { draft.panelView.size = psize.dataset.psize; render(); return; }
+    const pface = e.target.closest('[data-pface]');
+    if (pface) { draft.panelView.face = pface.dataset.pface; render(); return; }
+    const padd = e.target.closest('[data-padd]');
+    if (padd) {
+      const pv = draft.panelView;
+      const t = panelById(pv.type);
+      const single = ['lightpipe', 'foot'].includes(t.kind);
+      const ex = single ? draft.panel.find((x) => x.type === t.id) : null;
+      if (ex) ex.size = pv.size;
+      else {
+        draft.panel.push({
+          uid: newUid(), type: t.id, size: pv.size, face: pv.face === 'auto' ? null : pv.face, u: null, v: null,
+          custom: t.kind === 'custom' ? { ...pv.custom } : undefined,
+        });
+      }
+      render();
+      return;
+    }
+    const prem = e.target.closest('[data-prem]');
+    if (prem) { draft.panel = draft.panel.filter((x) => x.uid !== prem.dataset.prem); render(); return; }
     const wlink = e.target.closest('[data-washer]');
     if (wlink) { draft.washerView = wlink.dataset.washer; draft.view = 'washer'; render(); return; }
     const wmat = e.target.closest('[data-wmat]');
@@ -963,8 +1185,16 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     if (chip.dataset.wsel) { active().washer = chip.dataset.wsel; if (chip.dataset.wsel !== 'none') draft.washerView = chip.dataset.wsel; }
     render();
   });
+  // Özel delik ölçüleri: odak kaybolmasın diye değer değişince (blur/Enter) yeniden çizilir
+  q('#tb-props').addEventListener('change', (e) => {
+    const inp = e.target.closest('[data-pcf]');
+    if (!inp || !draft.panelView?.custom) return;
+    const v = Number(String(inp.value).trim().replace(',', '.'));
+    if (Number.isFinite(v) && v >= 0) draft.panelView.custom[inp.dataset.pcf] = v;
+    render();
+  });
   q('#tb-apply').addEventListener('click', () => {
-    onApply({ ...draft.screw }, { ...draft.insert }, draft.cornerMode ? { ...draft.corner } : undefined);
+    onApply({ ...draft.screw }, { ...draft.insert }, draft.cornerMode ? { ...draft.corner } : undefined, draft.panel.map((x) => ({ ...x })));
     dialog.close();
   });
   q('#tb-cancel').addEventListener('click', () => dialog.close());

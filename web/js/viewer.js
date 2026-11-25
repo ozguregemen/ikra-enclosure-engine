@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './viewcube.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildScrew, buildInsert, buildWasher, buildNut, buildStandoff, createFastenerMaterials } from './fastener-meshes.js';
+import { buildScrew, buildInsert, buildWasher, buildNut, buildStandoff, buildPanelPart, createFastenerMaterials } from './fastener-meshes.js';
 
 // Kameranın hedeften bakan yönü (izleyicinin bulunduğu taraf)
 const VIEW_DIRS = {
@@ -254,7 +254,7 @@ export class Viewer {
    * meshes: { base: {position, normal, index}, lid: {...} } — cad-worker çıktısı
    * screws: [{x, y, z (baş alt yüzü), d, headD, headH, length, lid}] — yalnızca görsel
    */
-  setEnclosure(meshes, { explodeOffset = 20, screws = [], inserts = [] } = {}) {
+  setEnclosure(meshes, { explodeOffset = 20, screws = [], inserts = [], panel = [] } = {}) {
     this.clearEnclosure();
     this.enclosure = {};
     for (const key of ['base', 'lid']) {
@@ -312,6 +312,14 @@ export class Viewer {
       const g = buildInsert(b, mats);
       g.position.set(b.x, b.y, b.z);
       this.enclosure.base.add(g);
+    }
+    // Panel elemanları: yerel +Z dışa bakan yöne çevrilip dış yüz noktasına oturtulur
+    const zAxis = new THREE.Vector3(0, 0, 1);
+    for (const v of panel) {
+      const g = buildPanelPart(v, mats);
+      g.quaternion.setFromUnitVectors(zAxis, new THREE.Vector3(...v.dir).normalize());
+      g.position.set(...v.anchor);
+      (v.part === 'lid' ? this.enclosure.lid : this.enclosure.base).add(g);
     }
     this.explodeOffset = explodeOffset;
     this.applyEnclosureOptions();

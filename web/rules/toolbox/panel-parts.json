@@ -1,0 +1,75 @@
+{
+  "aciklama": "Toolbox · panel elemanları (mm). Üreticiye özel parçalardır; değerler tipik başlangıç değerleridir, seçtiğiniz parçanın veri sayfasıyla doğrulayın. hole: duvar/kapak deliği (D: çap d + düzlüğe kadar ölçü flat; yuvarlak: d). af: somun/gövde anahtar ağzı (köşeden köşeye ≈ 1,155·af). panelMax: parçanın oturabildiği en kalın et (fazlası lamba ile yerel inceltilir). inner: içeride kalan boy (gövde + kablo payı). outer: dışarıda kalan boy. SMA/RP-SMA: 1/4\"-36 UNS diş, 5/16\" somun; yaygın önerilen kesim Ø6,5 mm ve 0,235\" (5,97) düzlük; panelMax 2,7 mm Würth WR-SMA arkadan somunlu tipten (uzun dişli tiplerde daha fazla). Rakor sıkma aralıkları Lapp SKINTOP ST-M listesinden; geçiş deliği = diş çapı + 0,5; anahtar ağzı ve panelMax yaklaşık.",
+  "standard": "Panel elemanları",
+  "categories": [
+    {
+      "id": "panel",
+      "label": "Panel elemanları",
+      "groups": [
+        {
+          "id": "rf",
+          "label": "RF konnektörler",
+          "types": [
+            { "id": "sma-bh", "kind": "rf", "code": "SMA panel", "name": "SMA dişi panel konnektörü (arkadan somunlu, pigtail)", "short": "SMA dişi, panel",
+              "faces": ["wall"], "hole": { "shape": "D", "d": 6.5, "flat": 6.1 }, "af": 7.94, "panelMax": 2.7, "inner": 12, "outer": 9,
+              "note": "Kart tarafına u.FL/IPEX–SMA pigtail kablo ile bağlanır; içeride kablo bükme payı bırakılır. IP için O-ringli (IP67) panel tipi seçin." },
+            { "id": "rpsma-bh", "kind": "rf", "code": "RP-SMA panel", "name": "RP-SMA dişi panel konnektörü (arkadan somunlu, pigtail)", "short": "RP-SMA dişi, panel",
+              "faces": ["wall"], "hole": { "shape": "D", "d": 6.5, "flat": 6.1 }, "af": 7.94, "panelMax": 2.7, "inner": 12, "outer": 9,
+              "note": "Wi-Fi antenleri genelde RP-SMA'dır; SMA ile karıştırmayın (merkez pin ters). Delik ve somun SMA ile aynıdır." }
+          ]
+        },
+        {
+          "id": "glands",
+          "label": "Kablo rakorları",
+          "types": [
+            { "id": "gland", "kind": "gland", "code": "Rakor", "name": "Kablo rakoru, plastik, metrik ×1,5 (IP68, kontra somunlu)", "short": "Kablo rakoru", "defaultSize": "M16",
+              "faces": ["wall", "lid"],
+              "sizes": {
+                "M12": { "hole": 12.5, "af": 15, "panelMax": 4, "inner": 7, "outer": 14, "clamp": [3.5, 7] },
+                "M16": { "hole": 16.5, "af": 19, "panelMax": 4, "inner": 7, "outer": 17, "clamp": [4.5, 10] },
+                "M20": { "hole": 20.5, "af": 24, "panelMax": 4, "inner": 8, "outer": 20, "clamp": [7, 13] },
+                "M25": { "hole": 25.5, "af": 29, "panelMax": 5, "inner": 9, "outer": 24, "clamp": [9, 17] }
+              },
+              "note": "İçte kontra somunla sıkılır (anahtar payı gerekir); dıştaki conta düz ve temiz bir yüzeye oturmalı." }
+          ]
+        },
+        {
+          "id": "vents",
+          "label": "Havalandırma",
+          "types": [
+            { "id": "vent-m12", "kind": "vent", "code": "Basınç dengeleme", "name": "Basınç dengeleme elemanı, membranlı, vidalı M12×1,5 (IP67/IP68)", "short": "Basınç dengeleme M12",
+              "faces": ["wall", "lid"], "hole": { "shape": "round", "d": 12.5 }, "af": 15, "outerD": 18, "panelMax": 4, "inner": 7, "outer": 9,
+              "note": "Dış ortamdaki sızdırmaz kutuda sıcaklık değişince oluşan basınç farkını dengeler, contanın su emmesini ve yoğuşmayı azaltır. Membran aşağı ya da yana bakacak şekilde (yağmur almayan) duvara takın." }
+          ]
+        },
+        {
+          "id": "lightpipes",
+          "label": "Işık boruları",
+          "types": [
+            { "id": "lightpipe", "kind": "lightpipe", "code": "Işık borusu", "name": "Yuvarlak ışık borusu, kapaktan LED'e (akrilik/PC)", "short": "LED ışık borusu",
+              "faces": ["auto"], "sizes": { "Ø3": { "d": 3, "hole": 3.1 }, "Ø5": { "d": 5, "hole": 5.1 } },
+              "note": "Kartta adında LED geçen her bileşenin üstüne kapakta delik açılır; boru boyu LED üstünden kapak yüzeyine hesaplanır." }
+          ]
+        },
+        {
+          "id": "feet",
+          "label": "Ayaklar",
+          "types": [
+            { "id": "bumper", "kind": "foot", "code": "Lastik ayak", "name": "Yapışkanlı lastik ayak (tabanın dört köşesi)", "short": "Lastik ayak", "defaultSize": "Ø12,7×3,5",
+              "faces": ["auto"], "sizes": { "Ø8×2": { "d": 8, "h": 2 }, "Ø12,7×3,5": { "d": 12.7, "h": 3.5 }, "Ø20×6": { "d": 20, "h": 6 } },
+              "note": "Tabandan çıkan vida başı veya somun varsa ayak yüksekliği onlardan büyük olmalı." }
+          ]
+        },
+        {
+          "id": "custom",
+          "label": "Özel",
+          "types": [
+            { "id": "custom-hole", "kind": "custom", "code": "Özel delik", "name": "Özel panel deliği (veri sayfasından: N, BNC, TNC, M8/M12 sensör, buton…)", "short": "Özel delik",
+              "faces": ["wall", "lid"], "custom": { "d": 10, "flat": 0, "af": 14, "panelMax": 5, "inner": 10, "outer": 10 },
+              "note": "Delik çapı, düzlük (D-delik; 0 = yuvarlak), somun anahtar ağzı, en kalın panel ve içte kalan boyu parçanın veri sayfasından girin." }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -19,6 +19,7 @@ const isRfName = (name) => RF_SUBSTR.test(name) ||
   String(name).toLowerCase().split(/[^a-z0-9]+/).some((t) => RF_TOKENS.has(t));
 
 import { detectPorts } from './ports.js';
+import { planPanel } from './panel.js';
 
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
 const f = (v) => nf.format(Math.round(v * 100) / 100);
@@ -40,7 +41,7 @@ export function paramHint(key, rules, analysis, defaults = null) {
     case 'pcbClearance': return `kural: ${f(rules.pcb_clearance_xy)}`;
     case 'topClearance': {
       const auto = defaults && defaults.topClearance > rules.component_clearance_z + 1e-6
-        ? ` · port üstünde conta kanalına yer açmak için ${f(defaults.topClearance)} seçildi` : '';
+        ? ` · port üstü conta kanalı ya da panel elemanı için ${f(defaults.topClearance)} seçildi` : '';
       return `kural: ${f(rules.component_clearance_z)}${auto}`;
     }
     case 'standoffHeight': {
@@ -1224,6 +1225,17 @@ export function computeDesign(analysis, rules, params, options = {}) {
     if (lidCount && countersunk) bom.push(`Sıvı sızdırmazlık / vida sabitleyici (havşa başlı ${lidCount} kapak vidası için)`);
   }
 
+  // --- Panel elemanları (Toolbox Paket D): RF konnektör, rakor, basınç dengeleme, ışık borusu, ayak, özel delik ---
+  const rfAll = analysis.parts.filter((pt) => !pt.isBoard && isRfName(pt.name));
+  const portIds = new Set(ports.filter((pt) => pt.enabled).map((pt) => pt.partId));
+  const panel = planPanel({
+    specs: options.panelParts || [], types: options.toolbox?.panel || [], analysis, rules, p, cav, center, wall, floorTop, cavTop, zTop, z0,
+    lidT, rIn, rOut, outer, fit, lipT, lipBars, standoffs, lidTubes, cornerBosses, lidHoles, screws, ports, groove, seal,
+    obstacles, boardObstacles, boardTop: b.top,
+    rfParts: rfAll.filter((pt) => !portIds.has(pt.id)).length ? rfAll.filter((pt) => !portIds.has(pt.id)) : rfAll,
+  });
+  bom.push(...panel.bom);
+
   // --- DFM kontrolleri ---
   cat = 'genel';
   if (wall < rules.min_wall) {
@@ -1279,8 +1291,11 @@ export function computeDesign(analysis, rules, params, options = {}) {
 
   if (rules.conductive) {
     const rf = analysis.parts.filter((pt) => !pt.isBoard && isRfName(pt.name)).map((pt) => pt.name);
-    if (rf.length) {
-      add('warn', `Metal muhafaza RF sinyalini keser. Kartta RF bileşeni var (${rf.slice(0, 3).join(', ')}): anten için plastik pencere veya dış anten gerekir.`);
+    if (rf.length && panel.hasRf) {
+      add('ok', `Metal muhafaza RF sinyalini keser; kartın RF bileşeni (${rf.slice(0, 2).join(', ')}) panel RF konnektörü üzerinden dış antene bağlanıyor.`);
+    } else if (rf.length) {
+      add('warn', `Metal muhafaza RF sinyalini keser. Kartta RF bileşeni var (${rf.slice(0, 3).join(', ')}): anten için plastik pencere veya dış anten gerekir.`,
+        { key: 'panelAdd', value: 'sma-bh', label: 'SMA panel konnektörü ekle' });
     } else {
       add('info', 'Metal muhafaza iletkendir: PCB ile duvar arasındaki boşluğu ve topraklamayı kontrol et.');
     }
@@ -1374,6 +1389,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
     add('info', 'Kapak vidasız: yalnızca konumlandırma diliyle tutunur.');
   }
 
+  // Panel elemanları
+  cat = 'panel';
+  for (const [level, text, fix, focus] of panel.checks) add(level, text, fix, focus);
+
   // Sızdırmazlık (IP) kontrolleri
   cat = 'ip';
   if (seal) {
@@ -1433,7 +1452,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
       lidHoles,
       cutouts,
       groove: grooveGeom,
+      panelHoles: panel.holes,
+      panelSpots: panel.spots,
     },
+    panel: { items: panel.items, visuals: panel.visuals },
     sealing: seal ? { id: seal.id, label: seal.label, cord_d: seal.cord_d, squeeze: seal.squeeze, groove, cordLength } : null,
     ports,
     lipBars,

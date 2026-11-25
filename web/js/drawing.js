@@ -261,7 +261,9 @@ function baseSheet(ctx) {
   const { views, design: d, rules } = ctx;
   const g = d.geometry;
   const datum = [g.center[0] - g.outer.L / 2, g.center[1] - g.outer.W / 2, g.z0];
-  const portSides = new Set(d.ports.filter((p) => p.enabled).map((p) => p.side));
+  const panelItems = d.panel?.items || [];
+  const wallPanel = panelItems.filter((it) => SIDE_VIEW[it.face] && Number.isFinite(it.x));
+  const portSides = new Set([...d.ports.filter((p) => p.enabled).map((p) => p.side), ...wallPanel.map((it) => it.face)]);
   const elevKeys = ['front', 'right', ...(portSides.has('+Y') ? ['back'] : []), ...(portSides.has('-X') ? ['left'] : [])];
   const elevs = elevKeys.map((k) => prepView(k, views.base[k]));
   const top = prepView('top', views.base.top);
@@ -330,6 +332,22 @@ function baseSheet(ctx) {
       p.style === 'notch' ? 'Çentik' : `Pencere${p.r > 0.01 ? ` R${d1(p.r)}` : ''}`]);
   });
 
+  // Panel elemanları (Toolbox Paket D) — ilgili duvar görünüşünde merkez işareti + balon
+  const panelRows = [];
+  wallPanel.forEach((it, i) => {
+    const vk = SIDE_VIEW[it.face];
+    const label = `E${i + 1}`;
+    if (placed[vk]) {
+      const [px, py] = placed[vk].toPaper([it.x, it.y, it.z]);
+      centerMark(out, px, py, (it.hole.d / 2) * s);
+      balloon(out, px, py, px + 7, py - 7, label);
+    }
+    const along = it.face[1] === 'X' ? 1 : 0;
+    panelRows.push([label, it.face, `${along === 0 ? 'X' : 'Y'} ${d1((along === 0 ? it.x : it.y) - datum[along])}`, d1(it.z - g.z0),
+      it.hole.shape === 'D' ? `D Ø${d1(it.hole.d)}×${d1(it.hole.flat)}` : `Ø${d1(it.hole.d)}`,
+      `${it.title}${it.spot ? ` · ${it.spot.side === 'inner' ? 'iç' : 'dış'} lamba Ø${d1(it.spot.d)}×${d1(it.spot.depth)}` : ''}`]);
+  });
+
   // Sağ sütun: tablolar ve notlar
   const colX = 194;
   let y = 24;
@@ -343,11 +361,17 @@ function baseSheet(ctx) {
       { label: 'No', w: 8 }, { label: 'Duvar', w: 10 }, { label: 'Konum', w: 15 }, { label: 'Z', w: 10 }, { label: 'G × Y', w: 22 }, { label: 'Tip', w: 27 },
     ], portRows) + 8;
   }
+  if (panelRows.length) {
+    y = table(out, colX, y, 'PANEL DELİKLERİ', [
+      { label: 'No', w: 8 }, { label: 'Duvar', w: 10 }, { label: 'Konum', w: 15 }, { label: 'Z', w: 10 }, { label: 'Delik', w: 20 }, { label: 'Parça', w: 29 },
+    ], panelRows) + 8;
+  }
   const n = [
     ...toleranceNotes(rules),
     `Et kalınlığı ${d1(d.params.wall)} mm, taban ${d1(d.params.floor)} mm, iç köşe R${d1(d.params.rIn)}, dış köşe R${d1(d.params.rOut)}.`,
     `Açıklık konumu duvar boyunca sıfır noktasından, Z gövde altından ölçülür; açıklıklar konnektör + ${d1(rules.cutout_clearance_xy)} mm boşlukla.`,
   ];
+  if (panelRows.length) n.push('Panel delikleri (E): merkez konumu duvar boyunca sıfır noktasından, Z gövde altından; D-deliklerde düzlük üstte. Lamba, parçanın panel kalınlığı sınırı için yerel et inceltmedir.');
   if (d.sealing) {
     const sg = d.sealing.groove;
     n.push(`Conta kanalı ${d2(sg.width)} × ${d2(sg.depth)} mm, duvar üstünde orta eksende; Ø${d1(d.sealing.cord_d)} kordon (%${Math.round(d.sealing.squeeze * 100)} sıkışma), ${d.sealing.label}.`);
@@ -404,6 +428,22 @@ function lidSheet(ctx) {
       hh.countersink ? `havşa Ø${d2(hh.countersink.dTop)}` : hh.counterbore ? `oyuk Ø${d1(hh.counterbore.d)}` : 'boydan boya',
       `köşe vidası${hh.pad ? ` · yastık ${d1(hh.pad.h)}` : ''}`]);
   });
+
+  // Panel elemanları kapakta (rakor, basınç elemanı, özel delik) ve ışık boruları
+  let ei = 0;
+  for (const it of d.panel?.items || []) {
+    if (it.face !== 'lid') continue;
+    const pts = it.kind === 'lightpipe' ? (it.positions || []).map((q) => ({ x: q.x, y: q.y, note: `${it.title}, L ${d1(q.L)}` }))
+      : Number.isFinite(it.x) ? [{ x: it.x, y: it.y, note: `${it.title}${it.spot ? ` · iç lamba Ø${d1(it.spot.d)}×${d1(it.spot.depth)}` : ''}` }] : [];
+    for (const q of pts) {
+      const label = `${it.kind === 'lightpipe' ? 'L' : 'E'}${++ei}`;
+      const [px, py] = pt.toPaper([q.x, q.y, 0]);
+      centerMark(out, px, py, (it.hole.d / 2) * s);
+      balloon(out, px, py, px + (px < (pt.x0 + pt.x1) / 2 ? 6 : -6), py + 5, label);
+      rows.push([label, d2(q.x - datum[0]), d2(q.y - datum[1]),
+        it.hole.shape === 'D' ? `D Ø${d1(it.hole.d)}` : `Ø${d2(it.hole.d)}`, it.hole.shape === 'D' ? `düzlük ${d1(it.hole.flat)}` : 'boydan boya', q.note]);
+    }
+  }
 
   let y = 24;
   if (rows.length) {

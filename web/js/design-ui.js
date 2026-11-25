@@ -4,7 +4,8 @@
  */
 import { computeDesign, defaultParams, paramHint, pickScrew, screwTable, libraryTypes, LID_MODES, PARAM_FIELDS } from './design.js';
 import { buildSheets, exportPdf } from './drawing.js';
-import { createToolbox, headIcon, insertIcon } from './toolbox.js';
+import { createToolbox, headIcon, insertIcon, panelIcon } from './toolbox.js';
+import { FACE_LABEL, holeText } from './panel.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -71,6 +72,8 @@ export function createDesignUI({ viewer, setStatus }) {
     fmaterials: null, // fastener-materials.json
     inserts: null, // inserts.json
     insertSpec: { type: 'auto', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' },
+    panelLib: null, // panel-parts.json
+    panelParts: [], // [{ uid, type, size, face, u, v, custom }] — null = otomatik
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -100,14 +103,16 @@ export function createDesignUI({ viewer, setStatus }) {
     if (!state.inserts) state.inserts = await getJson('rules/toolbox/inserts.json', 'Toolbox burç kütüphanesi yüklenemedi.');
     if (!state.fmaterials) state.fmaterials = await getJson('rules/toolbox/fastener-materials.json', 'Bağlantı elemanı malzemeleri yüklenemedi.');
     if (!state.fasteners) state.fasteners = await getJson('rules/fasteners.json', 'Vida tablosu yüklenemedi.');
+    if (!state.panelLib) state.panelLib = await getJson('rules/toolbox/panel-parts.json', 'Toolbox panel elemanları yüklenemedi.');
     if (!state.toolboxUI) {
       state.toolboxUI = createToolbox({
         dialog: $('#toolbox-dialog'),
-        libraries: [state.toolbox, state.inserts],
+        libraries: [state.toolbox, state.inserts, state.panelLib],
         materials: state.fmaterials.materials,
         fasteners: state.fasteners,
         evaluate: evaluateSpec,
-        onApply: (spec, ispec, cspec) => setToolboxSpec(spec, ispec, cspec),
+        evaluatePanel,
+        onApply: (spec, ispec, cspec, panel) => setToolboxSpec(spec, ispec, cspec, panel),
       });
     }
   }
@@ -130,9 +135,10 @@ export function createDesignUI({ viewer, setStatus }) {
   const insertTypes = () => libraryTypes(state.inserts, 'inserts');
   const standoffTypes = () => libraryTypes(state.inserts, 'standoffs');
   const nutTypes = () => libraryTypes(state.toolbox, 'nuts');
+  const panelTypes = () => (state.panelLib ? libraryTypes(state.panelLib, 'panel') : []);
 
   /** Toolbox seçimini uygula: kullanıcının elle değiştirmediği parametreler yeni vida/burca göre yeniden hesaplanır */
-  function setToolboxSpec(spec, ispec = state.insertSpec, cspec = state.cornerSpec) {
+  function setToolboxSpec(spec, ispec = state.insertSpec, cspec = state.cornerSpec, panel = undefined) {
     const next = normalizeSpec(spec);
     state.cornerSpec = normalizeSpec(cspec);
     const nextIns = {
@@ -142,12 +148,14 @@ export function createDesignUI({ viewer, setStatus }) {
     if (!state.analysis || !state.rules || !state.params) {
       state.screwSpec = next;
       state.insertSpec = nextIns;
+      if (panel) state.panelParts = panel;
       renderScrewPick();
       return;
     }
     const prev = currentDefaults();
     state.screwSpec = next;
     state.insertSpec = nextIns;
+    if (panel) state.panelParts = panel;
     refreshAutoParams(prev);
     // Toolbox'ta aralayıcı boyu seçildiyse PCB altı yükseklik bu boy olur
     if (nextIns.type === 'standoff' && ispec.standoffLen) { state.params.standoffHeight = Number(ispec.standoffLen); renderParams(); }
@@ -186,13 +194,25 @@ export function createDesignUI({ viewer, setStatus }) {
     };
   }
 
-  function openToolbox(view = 'screw', group = 'pcb') {
+  /** Toolbox panel görünümünün canlı hesabı: taslak panel listesiyle (otomatik yükseltmeler dahil) tasarım */
+  function evaluatePanel(list) {
+    if (!state.analysis || !state.rules || !state.params || !state.analysis.board || state.analysis.board.axes.n !== 'Z') return null;
+    const opts = { ...designOptions(), panelParts: list };
+    const prev = currentDefaults();
+    const next = defaultParams(state.analysis, state.rules, opts);
+    const p = { ...state.params };
+    for (const key of Object.keys(next)) if (Math.abs(p[key] - prev[key]) < 1e-9) p[key] = next[key];
+    return computeDesign(state.analysis, state.rules, p, opts);
+  }
+
+  function openToolbox(view = 'screw', group = 'pcb', panelType = null) {
     loadToolbox()
       .then(() => state.toolboxUI.open(state.screwSpec, state.insertSpec, view, {
-        corner: state.cornerSpec, group, cornerMode: state.lidMode === 'corner',
+        corner: state.cornerSpec, group, cornerMode: state.lidMode === 'corner', panel: state.panelParts, panelType,
       }))
       .catch((err) => setStatus(err.message, { error: true }));
   }
+  $('#panel-add').addEventListener('click', () => openToolbox('panel', 'pcb', state.panelParts.length ? null : 'sma-bh'));
   $('#toolbox-btn').addEventListener('click', () => openToolbox('screw'));
   $('#screw-pick').addEventListener('click', () => openToolbox('screw', 'pcb'));
   $('#corner-pick').addEventListener('click', () => openToolbox('screw', 'corner'));
@@ -312,9 +332,10 @@ export function createDesignUI({ viewer, setStatus }) {
     selectedHoles: state.selectedHoles,
     portOverrides: state.portOverrides,
     sealing: sealingLevel(),
-    toolbox: { types: toolboxTypes(), inserts: insertTypes(), washers: washerTypes(), nuts: nutTypes(), standoffs: standoffTypes(), materials: state.fmaterials?.materials || [], model: state.fmaterials?.model || null },
+    toolbox: { types: toolboxTypes(), inserts: insertTypes(), washers: washerTypes(), nuts: nutTypes(), standoffs: standoffTypes(), panel: panelTypes(), materials: state.fmaterials?.materials || [], model: state.fmaterials?.model || null },
     screwSpec: state.screwSpec,
     insertSpec: state.insertSpec,
+    panelParts: state.panelParts,
   });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
 
@@ -381,6 +402,30 @@ export function createDesignUI({ viewer, setStatus }) {
     if (key === 'lidMode') { const prev = currentDefaults(); state.lidMode = value; renderFastening(); refreshAutoParams(prev); update(); return; }
     if (key === 'cornerAxis') { const prev = currentDefaults(); state.cornerAxis = value; refreshAutoParams(prev); update(); return; }
     if (key === 'screwMaterial') { setScrewSpec({ ...state.screwSpec, material: value }); return; }
+    if (key === 'panelAdd') {
+      const t = panelTypes().find((x) => x.id === value);
+      if (!t) return;
+      changePanel(() => {
+        if (['lightpipe', 'foot'].includes(t.kind) && state.panelParts.some((x) => x.type === t.id)) return;
+        state.panelParts = [...state.panelParts, { uid: newPanelUid(), type: t.id, size: t.defaultSize || (t.sizes ? Object.keys(t.sizes)[0] : null), face: null, u: null, v: null, custom: t.kind === 'custom' ? { ...t.custom } : undefined }];
+      });
+      return;
+    }
+    if (key === 'setParam') {
+      const [pk, pv] = String(value).split(':');
+      if (!(pk in state.params)) return;
+      state.params[pk] = Number(pv);
+      renderParams();
+      update();
+      return;
+    }
+    if (key === 'panelAuto') {
+      const [uid, mode] = String(value).split(':');
+      changePanel(() => {
+        state.panelParts = state.panelParts.map((x) => (x.uid === uid ? { ...x, u: null, v: null, face: mode === 'all' ? null : x.face } : x));
+      });
+      return;
+    }
     state.params[key] = Number(value);
     renderParams();
     update();
@@ -489,9 +534,103 @@ export function createDesignUI({ viewer, setStatus }) {
   });
   $('#port-list').addEventListener('mouseleave', () => viewer.highlight(null));
 
+  /* ---------- Panel elemanları (Toolbox Paket D) ---------- */
+
+  const newPanelUid = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const LVL = { error: 0, warn: 1, info: 2, ok: 3 };
+  const PANEL_FACES = ['-Y', '+X', '+Y', '-X'];
+
+  /** Panel listesini değiştir: otomatik parametreler (ör. üst boşluk) yeni listeye göre güncellenir */
+  function changePanel(mutate) {
+    if (!state.rules || !state.analysis) { mutate(); return; }
+    const prev = currentDefaults();
+    mutate();
+    refreshAutoParams(prev);
+    update();
+  }
+
+  function renderPanelCard(d) {
+    const items = new Map((d?.panel?.items || []).map((it) => [it.uid, it]));
+    const types = panelTypes();
+    const n2 = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '' : String(Math.round(v * 100) / 100).replace('.', ','));
+    $('#panel-summary').textContent = state.panelParts.length ? `${state.panelParts.length} eleman` : 'yok';
+    $('#panel-list').innerHTML = state.panelParts.length ? state.panelParts.map((sp) => {
+      const t = types.find((x) => x.id === sp.type);
+      if (!t) return '';
+      const it = items.get(sp.uid);
+      const lvl = it ? (it.autoFail ? 'error' : it.issues.reduce((m, q) => (LVL[q.level] < LVL[m] ? q.level : m), 'ok')) : 'ok';
+      const single = ['lightpipe', 'foot'].includes(t.kind);
+      const sizes = t.sizes ? Object.keys(t.sizes) : [];
+      const faces = (t.faces || []).flatMap((fc) => (fc === 'wall' ? PANEL_FACES : fc === 'lid' ? ['lid'] : []));
+      const sizeSel = sizes.length ? `<label class="pp-f"><span>Boyut</span><select data-pp="size">${sizes.map((s) => `<option value="${esc(s)}" ${s === (it?.size || sp.size) ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>` : '';
+      let fields = sizeSel;
+      if (!single) {
+        const face = it?.face || sp.face || '-Y';
+        const lid = face === 'lid';
+        const uLab = lid ? 'X' : it?.uAxis || (face[1] === 'X' ? 'Y' : 'X');
+        const vLab = lid ? 'Y' : 'Z';
+        fields += `<label class="pp-f"><span>Yüz</span><select data-pp="face"><option value="">Otomatik${!sp.face && it ? ` (${esc(FACE_LABEL[it.face])})` : ''}</option>` +
+          faces.map((fc) => `<option value="${fc}" ${sp.face === fc ? 'selected' : ''}>${esc(FACE_LABEL[fc])}</option>`).join('') + '</select></label>' +
+          `<label class="pp-f num" title="${lid ? 'Kavite merkezinden X' : `Duvar boyunca kavite merkezinden ${uLab}`}"><span>${uLab}</span><input type="text" inputmode="decimal" data-pp="u" value="${n2(sp.u)}" placeholder="${n2(it?.u)}"></label>` +
+          `<label class="pp-f num" title="${lid ? 'Kavite merkezinden Y' : 'Gövde alt yüzünden yükseklik'}"><span>${vLab}</span><input type="text" inputmode="decimal" data-pp="v" value="${n2(sp.v)}" placeholder="${n2(it?.v)}"></label>`;
+      }
+      let custom = '';
+      if (t.kind === 'custom') {
+        const c = { ...t.custom, ...(sp.custom || {}) };
+        custom = `<div class="pp-custom">${[['d', 'Delik Ø'], ['flat', 'Düzlük'], ['af', 'Somun SW'], ['panelMax', 'Maks. et'], ['inner', 'İç boy']].map(([k, label]) =>
+          `<label class="pp-f num"><span>${label}</span><input type="text" inputmode="decimal" data-pp="c-${k}" value="${n2(c[k])}"></label>`).join('')}</div>`;
+      }
+      const first = it ? (it.autoFail ? { level: 'error', text: 'çakışmasız yer bulunamadı (DFM kontrollerine bak)' } : it.issues.find((q) => q.level === 'error') || it.issues.find((q) => q.level === 'warn')) : null;
+      const info = !it ? '' : it.kind === 'lightpipe' ? `${it.positions.length} LED · L ${[...new Set(it.positions.map((q) => n2(q.L)))].join(' / ')} mm`
+        : it.kind === 'foot' ? `taban köşeleri · Ø${n2(it.pd.d)} × ${n2(it.pd.h)}`
+          : `${holeText(it.hole)}${it.spot ? ` · lamba Ø${n2(it.spot.d)} × ${n2(it.spot.depth)}` : ''}${it.pigtail ? ` · pigtail ${it.pigtail} mm` : ''}` +
+            `${it.wallNeed ? ` · duvara almak için üst boşluk ${n2(it.wallNeed)} mm` : ''}`;
+      return `<div class="pp-row" data-uid="${sp.uid}">
+        <div class="pp-head"><span class="tb-pl-dot ${lvl}"></span>${panelIcon(t.kind)}<span class="pp-title">${esc(it?.title || t.code)}</span>
+          <button type="button" class="icon-btn" data-pp-del title="Kaldır" aria-label="Kaldır">×</button></div>
+        ${fields ? `<div class="pp-fields">${fields}</div>` : ''}${custom}
+        <div class="pp-msg small ${first ? 't-' + (first.level === 'error' ? 'err' : 'warn') : 'muted'}">${esc(first ? first.text : info)}</div>
+      </div>`;
+    }).join('') : '<div class="hole-empty">Panel elemanı yok. SMA/RP-SMA, kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak veya veri sayfasından özel delik ekleyebilirsin.</div>';
+  }
+
+  $('#panel-list').addEventListener('change', (e) => {
+    const el = e.target.closest('[data-pp]');
+    const row = e.target.closest('[data-uid]');
+    if (!el || !row) return;
+    const uid = row.dataset.uid;
+    const key = el.dataset.pp;
+    const raw = String(el.value).trim();
+    const numeric = key === 'u' || key === 'v' || key.startsWith('c-');
+    const num = raw === '' ? null : Number(raw.replace(',', '.'));
+    if (numeric && num !== null && !Number.isFinite(num)) return;
+    changePanel(() => {
+      state.panelParts = state.panelParts.map((sp) => {
+        if (sp.uid !== uid) return sp;
+        if (key === 'size') return { ...sp, size: el.value };
+        if (key === 'face') return { ...sp, face: el.value || null, u: null, v: null };
+        if (key === 'u' || key === 'v') {
+          // Konum yazılınca yüz de sabitlenir (otomatik seçilmiş yüzde kalır)
+          // Tek koordinat yazılınca diğeri de o anki (otomatik) değerinde sabitlenir: konum tamamen elle olur
+          const it = state.design?.panel?.items?.find((x) => x.uid === uid);
+          const other = key === 'u' ? 'v' : 'u';
+          return { ...sp, [key]: num, [other]: sp[other] ?? (num === null ? null : it?.[other] ?? null), face: sp.face || it?.face || null };
+        }
+        if (key.startsWith('c-') && num !== null) return { ...sp, custom: { ...(sp.custom || {}), [key.slice(2)]: num } };
+        return sp;
+      });
+    });
+  });
+  $('#panel-list').addEventListener('click', (e) => {
+    const del = e.target.closest('[data-pp-del]');
+    if (!del) return;
+    const uid = del.closest('[data-uid]').dataset.uid;
+    changePanel(() => { state.panelParts = state.panelParts.filter((sp) => sp.uid !== uid); });
+  });
+
   /* ---------- DFM paneli ---------- */
 
-  const DFM_CATS = [['genel', 'Genel'], ['surec', 'Süreç'], ['ip', 'Sızdırmazlık (IP)'], ['port', 'Port açıklıkları'], ['kapak', 'Kapak'], ['baglanti', 'Bağlantı']];
+  const DFM_CATS = [['genel', 'Genel'], ['surec', 'Süreç'], ['ip', 'Sızdırmazlık (IP)'], ['port', 'Port açıklıkları'], ['panel', 'Panel elemanları'], ['kapak', 'Kapak'], ['baglanti', 'Bağlantı']];
   const LEVEL_RANK = { error: 0, warn: 1, info: 2, ok: 3 };
   const LEVEL_LABEL = [['error', 'hata'], ['warn', 'uyarı'], ['ok', 'uygun'], ['info', 'bilgi']];
 
@@ -531,6 +670,7 @@ export function createDesignUI({ viewer, setStatus }) {
     renderScrewPick(d);
     renderInsertPick(d);
     renderCornerPick(d);
+    renderPanelCard(d);
 
     const errEl = $('#design-error');
     errEl.classList.toggle('hidden', !d.error);
@@ -584,7 +724,9 @@ export function createDesignUI({ viewer, setStatus }) {
       stat('Bağlantı', `${d.screws.length} <span class="unit">vida</span>`,
         d.standoffs.length ? `${d.standoffs.length} standoff · ${d.lidTubes.length} kapak borusu` : 'montaj deliği yok') +
       stat('Port açıklığı', `${d.geometry.cutouts.length}`,
-        d.geometry.cutouts.length ? d.ports.filter((p) => p.enabled).map((p) => `${p.side} ${p.style === 'notch' ? 'çentik' : 'pencere'}`).join(' · ') : 'yok');
+        d.geometry.cutouts.length ? d.ports.filter((p) => p.enabled).map((p) => `${p.side} ${p.style === 'notch' ? 'çentik' : 'pencere'}`).join(' · ') : 'yok') +
+      stat('Panel elemanı', `${(d.panel?.items || []).length}`,
+        (d.panel?.items || []).length ? d.panel.items.map((it) => it.title).slice(0, 3).join(' · ') : 'yok');
   }
 
   const processLabel = () => state.index.processes.find((p) => p.id === state.process).label;
@@ -650,7 +792,7 @@ export function createDesignUI({ viewer, setStatus }) {
       z: s.zSeat ?? (s.lid ? d.geometry.zTop : state.analysis.board.top),
     }));
     const inserts = [...d.standoffs, ...(d.cornerBosses || [])].filter((s) => s.insert).map((s) => ({ x: s.x, y: s.y, z: s.z1, ...s.insert }));
-    viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws, inserts });
+    viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws, inserts, panel: d.panel?.visuals || [] });
     const first = state.firstBuild;
     if (first) viewer.setView('iso');
     state.firstBuild = false;
@@ -799,6 +941,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.insertSpec = { ...state.insertSpec, variant: 'auto' };
     if (state.cornerSpec) state.cornerSpec = { ...state.cornerSpec, length: 'auto' };
     state.cornerAxis = 'auto'; // köşe payı ekseni karta göre yeniden seçilir
+    state.panelParts = state.panelParts.map((sp) => ({ ...sp, u: null, v: null })); // panel elemanları korunur, konumları yeni karta göre
     state.portOverrides = new Map();
     state.sheets = null;
     state.drawingId = null;
@@ -834,6 +977,10 @@ export function createDesignUI({ viewer, setStatus }) {
       screwSpec: d.screwSpec,
       insertSpec: d.insertSpec,
       inserts: d.standoffs.map((s) => s.insert).filter(Boolean),
+      panelParts: (d.panel?.items || []).map((it) => ({
+        type: it.type, title: it.title, size: it.size, face: it.face, u: it.u ?? null, v: it.v ?? null, hole: it.hole || null, spot: it.spot || null,
+        positions: it.positions || null, issues: it.issues.map((q) => ({ level: q.level, text: q.text })),
+      })),
       screws: d.screws.map((s) => ({
         standard: s.code, name: s.name, size: s.size, length: s.length, engagement: s.engagement, lid: s.lid, x: s.x, y: s.y,
         head: s.head, drive: s.driveText, designation: s.designation, material: s.material?.label || null,

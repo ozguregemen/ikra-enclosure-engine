@@ -106,6 +106,25 @@ function nutPocketShape(st) {
   return makeBox(min, max);
 }
 
+/**
+ * Panel elemanı deliği: eksen boyunca silindir; D-delikte düzlük çizgisinin ötesi kutuyla kırpılır (silindir ∩ kutu).
+ * h: { axis (0|1|2), p: başlangıç noktası, len, r, flat: { axis, at } | null }
+ */
+function panelHoleShape(h) {
+  const dir = [0, 0, 0];
+  dir[h.axis] = 1;
+  let s = makeCylinder(h.r, h.len, h.p, dir);
+  if (h.flat) {
+    const min = h.p.map((v) => v - h.r - 1);
+    const max = h.p.map((v) => v + h.r + 1);
+    min[h.axis] = h.p[h.axis] - 1;
+    max[h.axis] = h.p[h.axis] + h.len + 1;
+    max[h.flat.axis] = h.flat.at;
+    s = s.intersect(makeBox(min, max));
+  }
+  return s;
+}
+
 function buildEnclosure(g) {
   const [cx, cy] = g.center;
   const hBase = g.cavTop - g.z0;
@@ -154,6 +173,13 @@ function buildEnclosure(g) {
   for (const c of g.cutouts || []) {
     base = base.cut(cutoutPrism(c));
   }
+  // Panel elemanları: lamba (yerel et inceltme) ve D/yuvarlak delikler
+  for (const sp of (g.panelSpots || []).filter((x) => x.part === 'base')) {
+    const dir = [0, 0, 0];
+    dir[sp.axis] = 1;
+    base = base.cut(makeCylinder(sp.r, sp.len, sp.p, dir));
+  }
+  for (const h of (g.panelHoles || []).filter((x) => x.part === 'base')) base = base.cut(panelHoleShape(h));
   // IP conta kanalı: duvar üstünde, orta çizgi boyunca halka
   if (g.groove) {
     const gr = g.groove;
@@ -187,6 +213,9 @@ function buildEnclosure(g) {
     if (hh.countersink) lid = lid.cut(countersinkCone({ x: hh.x, y: hh.y, holeD: hh.holeD, countersink: hh.countersink }, g.zTop));
     if (hh.counterbore) lid = lid.cut(makeCylinder(hh.counterbore.d / 2, hh.counterbore.depth + 0.5, [hh.x, hh.y, g.zTop - hh.counterbore.depth], up));
   }
+  // Panel elemanları kapakta: rakor / basınç elemanı / özel delik, ışık borusu delikleri ve iç lamba
+  for (const sp of (g.panelSpots || []).filter((x) => x.part === 'lid')) lid = lid.cut(makeCylinder(sp.r, sp.len, sp.p, up));
+  for (const h of (g.panelHoles || []).filter((x) => x.part === 'lid')) lid = lid.cut(panelHoleShape(h));
   return { base, lid };
 }
 

@@ -596,3 +596,35 @@ kbd {
   .spinner { animation-duration: 2s; }
   .card > summary::before { transition: none; }
 }
+
+/* ---------- Panel elemanları (Toolbox Paket D) ---------- */
+.t-err { color: var(--danger); }
+.panel-list { display: grid; gap: 6px; margin-bottom: 8px; }
+.pp-row { padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12.5px; display: grid; gap: 6px; }
+.pp-row:hover { border-color: var(--accent); }
+.pp-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.pp-head .head-icon { width: 22px; height: 20px; flex: none; }
+.pp-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-head .icon-btn { width: 26px; height: 26px; font-size: 16px; line-height: 1; box-shadow: none; }
+.pp-fields, .pp-custom { display: flex; flex-wrap: wrap; gap: 6px; }
+.pp-f { display: grid; gap: 2px; font-size: 11px; color: var(--muted); }
+.pp-f select, .pp-f input { font: inherit; font-size: 12px; color: var(--text); padding: 3px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); min-width: 0; }
+.pp-f select { max-width: 170px; }
+.pp-f.num input { width: 62px; font-family: var(--mono); }
+.pp-f input::placeholder { color: var(--muted); opacity: .9; font-style: italic; }
+.pp-msg { line-height: 1.35; }
+.tb-pl-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ok); }
+.tb-pl-dot.warn { background: var(--warn); }
+.tb-pl-dot.error { background: var(--danger); }
+.tb-pl-dot.info { background: var(--accent); }
+.tb-pl { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.tb-pl-row { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12.5px; }
+.tb-pl-row .head-icon { width: 22px; height: 20px; flex: none; }
+.tb-pl-text { flex: 1; min-width: 0; display: grid; }
+.tb-pl-text strong, .tb-pl-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-pl-text span { font-size: 11.5px; }
+.tb-pl-row .icon-btn { width: 26px; height: 26px; font-size: 16px; box-shadow: none; }
+.tb-add { margin: 8px 0 4px; }
+.tb-cf { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+.tb-cf label { display: grid; gap: 2px; font-size: 11.5px; color: var(--muted); }
+.tb-cf input { font: 12.5px var(--mono); padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }

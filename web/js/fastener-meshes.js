@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { headProfile, headTop, driveOutline } from './screw-shapes.js';
 
 const TAU = Math.PI * 2;
+const HEX_E_VIS = 2 / Math.sqrt(3);
 const COARSE_P = { M2: 0.4, 'M2.5': 0.45, M3: 0.5, M4: 0.7 };
 export const pitchFor = (size, d) => COARSE_P[size] ?? Math.max(0.35, 0.15 * d);
 
@@ -34,6 +35,14 @@ export function createFastenerMaterials(envMap = null) {
     brassInner: new THREE.MeshStandardMaterial({ color: 0xb08a3c, metalness: 1.0, roughness: 0.4, side: THREE.BackSide, ...common }),
     wire: new THREE.MeshStandardMaterial({ color: 0xc9ced4, metalness: 1.0, roughness: 0.25, ...common }),
     finishes,
+    // Panel elemanları
+    gold: new THREE.MeshStandardMaterial({ color: 0xe2b858, metalness: 1.0, roughness: 0.22, ...common }),
+    ptfe: new THREE.MeshStandardMaterial({ color: 0xf4f2ec, metalness: 0.0, roughness: 0.5, side: THREE.DoubleSide }),
+    plasticDark: new THREE.MeshStandardMaterial({ color: 0x3b3e44, metalness: 0.0, roughness: 0.55, side: THREE.DoubleSide }),
+    plasticGray: new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.0, roughness: 0.5, side: THREE.DoubleSide }),
+    rubber: new THREE.MeshStandardMaterial({ color: 0x1d1e21, metalness: 0.0, roughness: 0.92 }),
+    cable: new THREE.MeshStandardMaterial({ color: 0x6b6f75, metalness: 0.0, roughness: 0.6 }),
+    clear: new THREE.MeshPhysicalMaterial({ color: 0xe8f6ff, metalness: 0.0, roughness: 0.08, transparent: true, opacity: 0.55, clearcoat: 1, ...common }),
   };
 }
 
@@ -419,4 +428,127 @@ export function buildStandoff(b, mats) {
   group.add(threadedBore(b.dIn, P, b.L - fd, b.L, fm.recess));
   if (b.ends === 'mf' && b.male) group.add(threadedRod(b.dIn, P, -b.male, 0.05, fm.body));
   return group;
+}
+
+/* ---------- Panel elemanları ---------- */
+
+/** Düz delikli disk/halka (z = 0 düzleminde, normal +Z) */
+function ring(rIn, rOut, z, mat, flip = false) {
+  const g = new THREE.RingGeometry(rIn, rOut, 48);
+  if (flip) g.rotateX(Math.PI);
+  g.translate(0, 0, z);
+  return new THREE.Mesh(g, mat);
+}
+
+/**
+ * Panel elemanı 3B modeli (yalnızca görsel). Yerel koordinat: +Z dışa doğru, z = 0 dış yüz, z = −t iç yüz.
+ * v: { kind, t, d, h, L, pd: { af, e, eo, holeD, outer, inner, size, clamp } }
+ */
+export function buildPanelPart(v, mats) {
+  const g = new THREE.Group();
+  const pd = v.pd || {};
+  const t = v.t || 2;
+  if (v.kind === 'foot') {
+    // Lastik ayak: kubbeli alt yüz; z = 0 tabana yapışan yüz, z = h yere basan yüz
+    const R = v.d / 2;
+    const h = v.h;
+    const pts = [[0, 0], [R, 0], [R, h * 0.45]];
+    for (let i = 1; i <= 8; i++) {
+      const a = (i / 8) * (Math.PI / 2);
+      pts.push([R * 0.62 + R * 0.38 * Math.cos(a), h * 0.45 + h * 0.55 * Math.sin(a)]);
+    }
+    pts.push([0, h]);
+    g.add(new THREE.Mesh(lathe(pts, 40), mats.rubber));
+    return g;
+  }
+  if (v.kind === 'lightpipe') {
+    const r = v.d / 2;
+    const pipe = new THREE.Mesh(lathe([[0, -v.L], [r * 0.9, -v.L], [r, -v.L + 0.2], [r, -0.15], [r * 0.85, 0], [0, 0]], 32), mats.clear);
+    g.add(pipe);
+    return g;
+  }
+  if (v.kind === 'rf') {
+    // SMA / RP-SMA dişi panel konnektörü, arkadan somunlu: içte altıgen flanş, dışta tırtıllı pul + somun, 1/4"-36 dişli gövde
+    const af = pd.af || 7.94;
+    const dT = 6.35;
+    const P = 25.4 / 36;
+    const outer = pd.outer || 9;
+    const nutH = 2.4;
+    const ws = 0.45;
+    const washer = new THREE.Mesh(lathe([[dT / 2 + 0.05, 0], [af * 0.56, 0], [af * 0.56, ws], [dT / 2 + 0.05, ws], [dT / 2 + 0.05, 0]], 36), mats.gold);
+    g.add(washer);
+    const nut = holedPrism(hexPoints(af), dT / 2 + 0.02, nutH, mats.gold, 0.2);
+    nut.position.z = ws;
+    g.add(nut);
+    g.add(threadedRod(dT, P, -t - 0.2, outer, mats.gold));
+    // Ön yüz: gövde ağzı, PTFE yalıtkan ve dişi kontak
+    g.add(ring(2.1, dT / 2 - 0.35, outer, mats.gold));
+    g.add(ring(0.55, 2.1, outer - 0.6, mats.ptfe));
+    const bore = new THREE.Mesh(lathe([[2.1, outer], [2.1, outer - 0.6]], 32), mats.gold);
+    g.add(bore);
+    g.add(new THREE.Mesh(lathe([[0, outer - 1.6], [0.55, outer - 1.6], [0.55, outer - 0.75], [0, outer - 0.75]], 20), mats.gold));
+    // İç taraf: altıgen flanş, gövde, sıkma yüksüğü ve koaksiyel kablo
+    const flange = holedPrism(hexPoints(af), 0.5, 2, mats.gold, 0.2);
+    flange.position.z = -t - 2;
+    g.add(flange);
+    g.add(new THREE.Mesh(lathe([[0, -t - 6.5], [3.0, -t - 6.5], [3.0, -t - 2], [0, -t - 2]], 32), mats.gold));
+    g.add(new THREE.Mesh(lathe([[0, -t - 10], [1.7, -t - 10], [1.7, -t - 6.5], [0, -t - 6.5]], 24), mats.gold));
+    const cableL = Math.max(2, (pd.inner || 12) - 10);
+    g.add(new THREE.Mesh(lathe([[0, -t - 10 - cableL], [0.65, -t - 10 - cableL], [0.65, -t - 10], [0, -t - 10]], 16), mats.cable));
+    return g;
+  }
+  if (v.kind === 'gland' || v.kind === 'vent') {
+    const d = pd.size && /^M\d+/.test(pd.size) ? Number(pd.size.slice(1)) : 12;
+    const af = pd.af || d * 1.2;
+    const P = 1.5;
+    const mat = v.kind === 'vent' ? mats.plasticGray : mats.plasticDark;
+    const outer = pd.outer || d;
+    // Dış: altıgen gövde + (rakorda) kubbeli sıkma başlığı / (basınç elemanında) yuvarlak kapak
+    const hexH = Math.min(4, outer * 0.3);
+    const body = holedPrism(hexPoints(af), d * 0.35, hexH, mat, 0.3);
+    g.add(body);
+    if (v.kind === 'gland') {
+      const R = (af * HEX_E_VIS) / 2 * 0.98;
+      const rc = Math.max(1.2, (pd.clamp ? pd.clamp[1] : d * 0.5) / 2);
+      const z1 = hexH;
+      const z2 = outer;
+      const pts = [[rc, z1], [R, z1], [R, z1 + (z2 - z1) * 0.55]];
+      for (let i = 1; i <= 8; i++) {
+        const a = (i / 8) * (Math.PI / 2);
+        pts.push([rc + (R - rc) * Math.cos(a), z1 + (z2 - z1) * 0.55 + (z2 - z1) * 0.45 * Math.sin(a)]);
+      }
+      g.add(new THREE.Mesh(lathe(pts, 48), mat));
+      // Sızdırmazlık lastiği (kablo girişi)
+      g.add(new THREE.Mesh(lathe([[rc * 0.55, z2 - 2.5], [rc, z2 - 2.5], [rc, z2 - 0.2], [rc * 0.55, z2 - 0.2], [rc * 0.55, z2 - 2.5]], 32), mats.rubber));
+    } else {
+      const Rc = (pd.eo || af + 3) / 2;
+      const z2 = outer;
+      g.add(new THREE.Mesh(lathe([[0, hexH], [Rc - 0.8, hexH], [Rc, hexH + 0.8], [Rc, z2 - 0.6], [Rc - 0.6, z2], [0, z2]], 48), mat));
+      for (let k = 0; k < 6; k++) {
+        const slot = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, (z2 - hexH) * 0.45), mats.rubber);
+        const a = (k / 6) * TAU;
+        slot.position.set(Math.cos(a) * (Rc - 0.25), Math.sin(a) * (Rc - 0.25), hexH + (z2 - hexH) * 0.4);
+        slot.rotation.z = a + Math.PI / 2;
+        g.add(slot);
+      }
+    }
+    // İç: metrik diş + kontra somun
+    const inner = pd.inner || 7;
+    g.add(threadedRod(d, P, -t - inner + 0.5, 0, mat));
+    const nutH = Math.min(inner - 1, Math.max(3, d * 0.28));
+    const nut = holedPrism(hexPoints(af), d / 2 + 0.02, nutH, mat, 0.3);
+    nut.position.z = -t - nutH;
+    g.add(nut);
+    return g;
+  }
+  // Özel delik: dışta somun (varsa) + delik çapında gövde
+  const r = Math.max(0.5, (pd.holeD || 6) / 2 - 0.15);
+  const outer = pd.outer || 8;
+  const inner = pd.inner || 8;
+  g.add(new THREE.Mesh(lathe([[0, -t - inner], [r, -t - inner], [r, outer], [0, outer]], 36), mats.finishes.stainless.body));
+  if (pd.af) {
+    const nut = holedPrism(hexPoints(pd.af), r + 0.02, Math.min(3, outer * 0.4), mats.finishes.stainless.body, 0.2);
+    g.add(nut);
+  }
+  return g;
 }

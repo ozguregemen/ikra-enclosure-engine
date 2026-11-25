@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.6 (M0–M4 + Toolbox)
+## Şu anki durum: V1.7 (M0–M4 + Toolbox)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -117,6 +117,24 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Tornavida/anahtar erişimi: yalnızca PCB vidasının başının üstünde bileşen varsa uyarı
 - IP'de kapak sıkıştırma aralığı yetmezse köşe vidaları önerisi; teknik resimde C# köşe delikleri
 
+**Panel elemanları (V1.7)** — Toolbox › Panel elemanları ve Tasarım › Panel elemanları kartı
+- SMA / RP-SMA dişi panel konnektörü (arkadan somunlu, u.FL pigtail): Ø6,5 D-delik (6,1 düzlük üstte, dönmeyi önler),
+  5/16" somun; otomatik yerleşimde karttaki RF bileşenine en yakın duvar seçilir, pigtail boyu (50/100/150… mm) önerilir
+- Kablo rakoru M12/M16/M20/M25 ×1,5 (kablo sıkma aralığı Lapp SKINTOP ST-M), kontra somun için anahtar payı;
+  basınç dengeleme elemanı M12×1,5 (IP67/68 dış ortam kutusunda önerilir, membran yönü uyarısı)
+- Işık borusu Ø3/Ø5: kartta adında "LED" geçen her bileşenin üstüne kapakta delik, boru boyu hesaplanır;
+  kart kenarındaki LED'de (boru duvar üstüne biniyorsa) delik açılmaz, uyarılır
+- Lastik ayak (taban köşeleri): tabandan çıkan vida başı/somundan yüksek olmalı; yoksa ayak önerisi
+- Özel delik: veri sayfasından delik Ø, düzlük, somun SW, en kalın panel, iç boy (N, BNC, TNC, M8/M12 sensör, buton…)
+- Yerleşim: yüz ve konum boş bırakılırsa çakışmayan en uygun yere konur (bileşenler, PCB, kapak dili, standoff,
+  köşe boss'u, port açıklıkları, diğer panel elemanları, conta kanalı, taban/köşe mesafesi); duvara sığmayan rakor
+  kapağa alınır ve duvar için gereken üst boşluk önerilir. Elle konumda çakışma varsa "otomatik konuma al" önerisi
+- Et kalınlığı parçanın en kalın panel sınırını aşarsa yerel lamba (FDM/enjeksiyon: içten, CNC: dıştan) açılır
+- Katı modelde D/yuvarlak delikler ve lambalar; 3B'de SMA, rakor, basınç elemanı, ışık borusu, ayak modelleri;
+  malzeme listesi ve teknik resimde "PANEL DELİKLERİ" tablosu (E#) ile kapakta E#/L# satırları
+- Değerler tipik başlangıç değerleridir (SMA kesimi Würth/Amphenol yaygın değerleri; rakor anahtar ağzı ve en kalın
+  panel yaklaşık): seçilen parçanın veri sayfasıyla doğrulanmalıdır
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -153,7 +171,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.3 | Dişli burçlar: ısıyla gömülen insert, Helicoil; CNC'ye PEEK ve PTFE |
 | V1.4 | Pullar, vida malzemesi/kaplaması, sıkma torku önerisi |
 | V1.5 | Somun cebi (altıgen/kare), hazır altıgen aralayıcılar |
-| **V1.6** | Köşe kapak vidaları, ayrı vida grupları, gömme baş, tornavida erişimi |
+| V1.6 | Köşe kapak vidaları, ayrı vida grupları, gömme baş, tornavida erişimi |
+| **V1.7** | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 
 ## Yerelde çalıştırma
 
@@ -194,9 +213,10 @@ web/                  Yayınlanan statik site
   js/viewcube.js      Yön küpü
   js/toolbox.js       Toolbox penceresi ve ölçülü vida önizlemesi
   js/screw-shapes.js  Vida başı ve tahrik izi geometrisi (3B ve çizim ortak)
-  js/fastener-meshes.js  Dişli vida, insert ve Helicoil 3B modelleri (three.js)
+  js/fastener-meshes.js  Dişli vida, insert, Helicoil ve panel elemanı 3B modelleri (three.js)
+  js/panel.js         Panel elemanları: yerleşim, çakışma/kenar kontrolleri, D-delik ve lamba (saf fonksiyonlar)
   rules/              Süreç × malzeme kural dosyaları
-  rules/toolbox/      Standart bağlantı elemanı kütüphanesi (ISO vidalar, dişli burçlar)
+  rules/toolbox/      Toolbox kütüphaneleri (ISO vidalar/pullar/somunlar, dişli burçlar/aralayıcılar, panel elemanları)
   samples/            Örnek STEP dosyası
 tools/
   serve.ps1           Yerel statik sunucu
