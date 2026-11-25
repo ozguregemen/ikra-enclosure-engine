@@ -10,6 +10,7 @@ import { loadPreferred, savePreferred, parsePreferredCsv, matchPreferred, bomCsv
 import { assemblyItems } from './assembly.js';
 import { FIT_CLASSES, toleranceOf } from './fits.js';
 import { MOUNT_TYPES, MOUNT_SIZES } from './mount.js';
+import { runDesignLoop, baseParams, AUTO_KEYS } from './dfm/loop.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -95,6 +96,9 @@ export function createDesignUI({ viewer, setStatus }) {
     lidRules: null,
     tolEdit: 'body', // tolerans kartında düzenlenen malzeme: gövde / kapak
     tolOverrides: loadTolOverrides(), // { 'fdm/pla': { general, per_100mm, hole_comp, press, normal, loose } } — kendi yazıcı/atölye değerleri
+    locks: new Set(), // kullanıcının parametre kutusuna yazdığı (kilitli) anahtarlar: tasarım döngüsü bunları değiştirmez
+    waivers: {}, // { bulguId: { reason, date } } — kullanıcı muafiyetleri (proje dosyasına yazılır)
+    loop: null, // son tasarım döngüsü sonucu (dfm/loop.js)
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -440,14 +444,23 @@ export function createDesignUI({ viewer, setStatus }) {
     edgeHold: state.edgeHold,
     encloseOverrides: state.encloseOverrides,
   });
+  // Kilitsiz varsayılanlar: kural dosyası + tasarım döngüsünün otomatik düzeltmeleri (dfm/loop.js; sonuçlar önbellekte)
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
+  /** Kullanıcının yazdığı (kilitli) parametreler */
+  const lockedParams = () => {
+    const out = {};
+    for (const key of state.locks) if (state.params && key in state.params) out[key] = state.params[key];
+    return out;
+  };
+  /** Tasarım döngüsü: üret → incele → güvenli düzeltmeleri uygula → yeniden incele (kilitli değerler korunur) */
+  const runLoop = () => runDesignLoop(state.analysis, state.rules, { userParams: lockedParams(), waivers: state.waivers, maxIter: 8 }, designOptions());
 
-  /** Bağlantı/IP seçimi değişince, kullanıcının elle değiştirmediği parametreleri yeni varsayılana çek */
+  /** Bağlantı/IP seçimi değişince kilitsiz parametreler döngünün yeni sonucuna çekilir (prevDefaults: eski çağrılarla uyum için) */
   function refreshAutoParams(prevDefaults) {
-    const next = currentDefaults();
-    for (const key of Object.keys(next)) {
-      if (Math.abs(state.params[key] - prevDefaults[key]) < 1e-9) state.params[key] = next[key];
-    }
+    void prevDefaults;
+    if (!state.analysis || !state.rules || !state.params) return;
+    const next = runLoop().params;
+    for (const key of Object.keys(next)) if (!state.locks.has(key)) state.params[key] = next[key];
     renderParams();
   }
 
@@ -486,6 +499,7 @@ export function createDesignUI({ viewer, setStatus }) {
     if (!input) return;
     const key = input.dataset.key;
     state.params[key] = parseInput(input.value);
+    state.locks.add(key); // kullanıcının yazdığı değer kilitlenir: döngü değiştirmez
     const def = currentDefaults()[key];
     input.classList.toggle('changed', !(Math.abs(state.params[key] - def) < 1e-9));
     update();
@@ -525,7 +539,19 @@ export function createDesignUI({ viewer, setStatus }) {
       const [pk, pv] = String(value).split(':');
       if (!(pk in state.params)) return;
       state.params[pk] = Number(pv);
+      state.locks.add(pk); // kullanıcı kararı: kilitli
       renderParams();
+      update();
+      return;
+    }
+    if (key === 'portStyle' || key === 'portEnable') {
+      // Port açıklığı: "partId|kenar|stil" (çentik/pencere) ya da "partId|kenar" (açıklığı aç)
+      const parts = String(value).split('|');
+      const pkey = `${parts[0]}|${parts[1]}`;
+      const ov = { ...(state.portOverrides.get(pkey) || {}) };
+      if (key === 'portStyle') ov.style = parts[2];
+      else ov.enabled = true;
+      state.portOverrides.set(pkey, ov);
       update();
       return;
     }
@@ -536,12 +562,16 @@ export function createDesignUI({ viewer, setStatus }) {
       });
       return;
     }
+    if (!AUTO_KEYS.includes(key) || !Number.isFinite(Number(value))) return;
+    // Sayısal parametre önerisi: değer uygulanır ve kilitlenir (döngü bu değeri korur, diğerlerini yeniden yakınsatır)
     state.params[key] = Number(value);
+    state.locks.add(key);
     renderParams();
     update();
   });
   $('#params-reset').addEventListener('click', () => {
     if (!state.rules) return;
+    state.locks = new Set();
     state.params = currentDefaults();
     renderParams();
     update();
@@ -976,7 +1006,21 @@ export function createDesignUI({ viewer, setStatus }) {
 
   function update() {
     if (!state.analysis || !state.rules) return;
-    const d = computeDesign(state.analysis, state.rules, state.params, designOptions());
+    // Tasarım döngüsü: kilitli değerlerle üret, incele, güvenli düzeltmeleri uygula ve yeniden incele; gösterilen tasarım son turunki
+    const loop = runLoop();
+    state.loop = loop;
+    for (const fld of PARAM_FIELDS) {
+      if (state.locks.has(fld.key) || !Number.isFinite(loop.params[fld.key])) continue;
+      state.params[fld.key] = loop.params[fld.key];
+    }
+    // Parametre kutuları: kilitsizler döngünün değerini gösterir (yazılan kutuya dokunulmaz); kilitliler "değişti" işaretli
+    for (const fld of PARAM_FIELDS) {
+      const el = document.getElementById(`p-${fld.key}`);
+      if (!el) continue;
+      if (!state.locks.has(fld.key) && document.activeElement !== el) el.value = inputText(state.params[fld.key]);
+      el.classList.toggle('changed', state.locks.has(fld.key));
+    }
+    const d = loop.design;
     state.design = d;
     renderPorts(d);
     const bom = d.bom || [];
@@ -997,7 +1041,14 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#generate-btn').disabled = !d.ok;
 
     renderStats();
-    renderChecks(d.checks || []);
+    // DFM listesi döngünün bulgularından (aynı görünüm; muaf bulgular bilgi olarak, bilinmeyen kategoriler Genel altında)
+    const knownCats = new Set(DFM_CATS.map(([id]) => id));
+    renderChecks(loop.findings.map((fd) => ({
+      ...fd,
+      cat: knownCats.has(fd.cat) ? fd.cat : 'genel',
+      level: fd.waived ? 'info' : fd.level,
+      text: fd.waived ? `${fd.text} (muaf tutuldu: ${fd.waived.reason})` : fd.text,
+    })));
 
     // Kart özetleri ve kabuğa (sekme rozeti, durum çipi) bildirim
     const proc = state.index.processes.find((pp) => pp.id === state.process);
@@ -1011,9 +1062,7 @@ export function createDesignUI({ viewer, setStatus }) {
       ? `${state.selectedHoles.size}/${mountCount} delik` + (sc ? ` · ${sc.code ? sc.code + ' ' : ''}${sc.size}×${sc.length === null || sc.length === undefined ? '?' : String(sc.length).replace('.', ',')}` : '') +
         (state.lidMode === 'screw' ? '' : state.lidMode === 'corner' ? ' · köşe vidalı kapak' : ' · geçme kapak')
       : 'montaj deliği yok';
-    const counts = { error: 0, warn: 0 };
-    for (const c of d.checks || []) if (c.level in counts) counts[c.level]++;
-    if (d.error) counts.error++;
+    const counts = { error: loop.counts.error, warn: loop.counts.warn };
     document.dispatchEvent(new CustomEvent('ikra:checks', { detail: counts }));
 
     if (state.generated) {
@@ -1375,6 +1424,8 @@ export function createDesignUI({ viewer, setStatus }) {
     state.encloseOverrides = new Map();
     state.sheets = null;
     state.drawingId = null;
+    state.locks = new Set(); // yeni kart: kilitler ve muafiyetler sıfırlanır (proje açılırsa importState geri yükler)
+    state.waivers = {};
     state.params = currentDefaults();
     renderSelectors();
     renderParams();
@@ -1448,6 +1499,8 @@ export function createDesignUI({ viewer, setStatus }) {
       mount: state.mount,
       edgeHold: state.edgeHold,
       encloseOverrides: [...state.encloseOverrides.entries()],
+      locks: [...state.locks],
+      waivers: { ...state.waivers },
     };
   }
 
@@ -1494,10 +1547,19 @@ export function createDesignUI({ viewer, setStatus }) {
       state.tolOverrides = { ...state.tolOverrides, [state.rules.id]: { ...s.toleranceOverride } };
       saveTolOverrides(state.tolOverrides);
     }
-    // Parametreler: projedeki değerler aynen (eksik alan kural varsayılanından)
+    // Parametreler: kilitli değerler projedeki gibi, kilitsizler tasarım döngüsünden (eksik alan kural varsayılanından)
+    state.waivers = s.waivers && typeof s.waivers === 'object' && !Array.isArray(s.waivers) ? { ...s.waivers } : {};
     const def = currentDefaults();
     state.params = { ...def };
     for (const fld of PARAM_FIELDS) if (Number.isFinite(s.params?.[fld.key])) state.params[fld.key] = s.params[fld.key];
+    if (Array.isArray(s.locks)) {
+      state.locks = new Set(s.locks.filter((k) => PARAM_FIELDS.some((fld) => fld.key === k) && Number.isFinite(s.params?.[k])));
+    } else {
+      // Kilit bilgisi olmayan (eski) proje: kural varsayılanından ve döngünün otomatik değerinden farklı olanlar elle girilmiş sayılır
+      const base = baseParams(state.analysis, state.rules);
+      state.locks = new Set(PARAM_FIELDS.map((fld) => fld.key).filter((k) => Number.isFinite(s.params?.[k]) &&
+        Math.abs(s.params[k] - base[k]) > 1e-6 && Math.abs(s.params[k] - def[k]) > 1e-6));
+    }
     state.sheets = null;
     renderSelectors();
     renderParams();

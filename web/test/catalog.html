@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DFM katalog testi</title>
+<style>
+  :root { --bg: #fff; --fg: #1d1f24; --muted: #667; --ok: #1a7f37; --bad: #c62828; --line: #dde; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #15171b; --fg: #e8e8ea; --muted: #99a; --ok: #4cc26b; --bad: #ff6b6b; --line: #333; } }
+  body { background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; margin: 16px; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .sum { margin: 8px 0 16px; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .muted { color: var(--muted); }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>DFM kural kataloğu ve tasarım döngüsü testi</h1>
+<p class="muted">Katalog alanları, kaynak bağlantıları, kaynak kodda geçen kural kimlikleri ve sentetik bir kart üzerinde
+  tasarım döngüsü (yakınsama, kilitler, muafiyet, katı model sonrası inceleme) denetlenir. Başsız çalıştırma: <code>tools/testpage.ps1</code>.</p>
+<div class="sum" id="sum">Çalışıyor…</div>
+<table><thead><tr><th>Sonuç</th><th>Test</th><th>Ayrıntı</th></tr></thead><tbody id="rows"></tbody></table>
+<script type="module">
+import { RULES, ruleInfo, CATEGORIES, LEVELS, PROCESSES } from '../js/dfm/catalog.js';
+import { findingsFromChecks, reviewBuild, summarize, fingerprint } from '../js/dfm/review.js';
+import { runDesignLoop, baseParams, AUTO_KEYS } from '../js/dfm/loop.js';
+import { defaultParams, libraryTypes } from '../js/design.js';
+
+const results = [];
+const check = (name, pass, detail = '') => results.push({ name, pass: !!pass, detail: String(detail).slice(0, 600) });
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+// ---------- 1) Katalog yapısı ----------
+const CORE = ['GEN-WALL-MIN', 'GEN-WALL-RANGE', 'GEN-CORNER-MIN', 'GEN-STANDOFF-BELOW', 'FDM-WALL-NOZZLE', 'FDM-CORNER-NOZZLE', 'FDM-BRIDGE',
+  'FDM-INSERT-DEPTH', 'FDM-PRINT-ORIENT', 'FDM-WARP', 'CNC-CORNER-TOOL', 'CNC-CORNER-DEPTH', 'CNC-POCKET-DEPTH', 'CNC-TAP-DEPTH', 'CNC-SETUPS',
+  'INJ-DRAFT', 'INJ-CORNER-RADIUS', 'INJ-UNIFORM-WALL', 'INJ-BOSS-WALL', 'INJ-LIP-RATIO', 'INJ-SIDE-ACTION', 'IP-RIM', 'IP-GROOVE-RADIUS',
+  'IP-CLAMP-PITCH', 'RF-KEEPOUT-METAL', 'RF-METAL-BODY', 'RF-LOSSY-MATERIAL', 'GEO-TREAT', 'GEO-BUILD'];
+const PREFIXES = ['GEN', 'FDM', 'CNC', 'INJ', 'PORT', 'LID', 'FAS', 'MNT', 'PNL', 'EDGE', 'IP', 'RF', 'GEO'];
+const ids = Object.keys(RULES);
+check('Katalogda kural var', ids.length > 50, `${ids.length} kural`);
+for (const id of CORE) check(`Çekirdek kural tanımlı: ${id}`, !!RULES[id]);
+for (const p of ['PORT-', 'LID-', 'FAS-', 'MNT-', 'PNL-', 'EDGE-', 'IP-']) check(`Önek ailesi var: ${p}*`, ids.some((i) => i.startsWith(p)));
+const bad = [];
+const urls = new Set();
+for (const id of ids) {
+  const r = RULES[id];
+  const errs = [];
+  if (!/^[A-Z]+(-[A-Z0-9]+)+$/.test(id)) errs.push('kimlik biçimi');
+  if (!PREFIXES.includes(id.split('-')[0])) errs.push('önek');
+  if (typeof r.title !== 'string' || r.title.length < 4) errs.push('başlık');
+  if (!CATEGORIES.includes(r.cat)) errs.push(`kategori ${r.cat}`);
+  if (!Array.isArray(r.processes) || !r.processes.length || r.processes.some((p) => !PROCESSES.includes(p))) errs.push('süreçler');
+  if (!LEVELS.includes(r.level)) errs.push(`önem ${r.level}`);
+  if (typeof r.why !== 'string' || r.why.length < 20) errs.push('neden');
+  if (!['high', 'medium', 'low'].includes(r.conf)) errs.push('güven');
+  if (!Number.isFinite(r.priority)) errs.push('öncelik');
+  if (!Array.isArray(r.source) || !r.source.length) errs.push('kaynak yok');
+  else {
+    if (!r.source.some((s) => s && typeof s.title === 'string' && s.title.length > 3)) errs.push('kaynak başlığı');
+    for (const s of r.source) {
+      if (!s || typeof s.title !== 'string' || !s.title) errs.push('boş kaynak');
+      else if (s.url && !/^https?:\/\/[^\s]+$/.test(s.url)) errs.push(`URL ${s.url}`);
+      if (s && s.url) urls.add(s.url);
+    }
+  }
+  if (errs.length) bad.push(`${id}: ${errs.join(', ')}`);
+}
+check('Tüm kurallar eksiksiz (başlık, kategori, süreç, önem, neden, kaynak, güven, öncelik)', !bad.length, bad.join(' | ') || `${ids.length} kural, ${urls.size} farklı kaynak URL'si`);
+check('Her kuralın en az bir URL\'li ya da standart kaynağı var', ids.every((id) => RULES[id].source.length >= 1));
+check('ruleInfo bilinmeyen kimlikte null döner', ruleInfo('YOK-BOYLE') === null && ruleInfo('GEN-WALL-MIN')?.id === 'GEN-WALL-MIN');
+
+// ---------- 2) Kaynak kodda geçen kural kimlikleri ----------
+const SRC = ['../js/design.js', '../js/panel.js', '../js/mount.js', '../js/edgehold.js', '../js/dfm/review.js', '../js/dfm/loop.js'];
+const IGNORE = new Set(['TS35', 'IP67', 'IP65', 'IP66', 'IP68']);
+const unknown = [];
+let used = 0;
+for (const url of SRC) {
+  const txt = await (await fetch(url)).text();
+  for (const m of txt.matchAll(/['"`]((?:GEN|FDM|CNC|INJ|PORT|LID|FAS|MNT|PNL|EDGE|IP|RF|GEO)-[A-Z0-9]+(?:-[A-Z0-9]+)*)['"`]/g)) {
+    if (IGNORE.has(m[1])) continue;
+    used++;
+    if (!RULES[m[1]]) unknown.push(`${url.split('/').pop()}: ${m[1]}`);
+  }
+}
+check('Kaynak koddaki tüm kural kimlikleri katalogda', !unknown.length, unknown.join(', ') || `${used} kullanım`);
+
+// ---------- 3) Sentetik kart üzerinde döngü ----------
+const getJson = async (u) => (await fetch(u)).json();
+const [screwsLib, insertsLib, fmat, fasteners, panelLib, sealing] = await Promise.all([
+  getJson('../rules/toolbox/iso-screws.json'), getJson('../rules/toolbox/inserts.json'), getJson('../rules/toolbox/fastener-materials.json'),
+  getJson('../rules/fasteners.json'), getJson('../rules/toolbox/panel-parts.json'), getJson('../rules/sealing.json'),
+]);
+const toolbox = {
+  types: libraryTypes(screwsLib, 'screws'), inserts: libraryTypes(insertsLib, 'inserts'), washers: libraryTypes(screwsLib, 'washers'),
+  nuts: libraryTypes(screwsLib, 'nuts'), standoffs: libraryTypes(insertsLib, 'standoffs'), panel: libraryTypes(panelLib, 'panel'),
+  materials: fmat.materials, model: fmat.model,
+};
+const boardBox = { min: [0, 0, 0], max: [80, 50, 1.6] };
+const partsDef = [
+  { name: 'TEST_PCB', box: boardBox, isBoard: true },
+  { name: 'CP_Elec_10x10', box: { min: [30, 15, 1.6], max: [40, 25, 11.6] } },
+  { name: 'PinHeader_Below', box: { min: [20, 40, -2], max: [60, 42, 1.6] } },
+  { name: 'Module_PCB_Antenna', box: { min: [66, 18, 1.6], max: [88, 32, 2.4] }, edges: [{ side: '+X', kind: 'overhang', value: 8 }] },
+];
+const analysis = {
+  parts: partsDef.map((p, i) => ({ id: i, name: p.name, meshIdx: [i], box: p.box, isBoard: !!p.isBoard, edges: p.edges || [] })),
+  meshBoxes: partsDef.map((p) => p.box),
+  board: { partId: 0, name: 'TEST_PCB', box: boardBox, axes: { u: 'X', v: 'Y', n: 'Z' }, length: 80, width: 50, thickness: 1.6, top: 1.6, bottom: 0 },
+  maxAbove: { value: 10, partId: 1, name: 'CP_Elec_10x10' },
+  maxBelow: { value: 2, partId: 2, name: 'PinHeader_Below' },
+  holes: [[3.5, 3.5], [76.5, 3.5], [3.5, 46.5], [76.5, 46.5]].map(([x, y]) => ({ x, y, d: 3.2, mount: true })),
+};
+const selectedHoles = new Set([0, 1, 2, 3]);
+const opts = (extra = {}) => ({
+  fasteners, toolbox, lidMode: 'screw', cornerAxis: 'auto', selectedHoles, portOverrides: new Map(), sealing: null,
+  screwSpec: { type: 'iso7045', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match' },
+  insertSpec: { type: 'auto', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' },
+  panelParts: [], fits: { lid: 'normal', screw: 'normal' }, mount: { type: 'none' }, edgeHold: 'auto', encloseOverrides: new Map(), ...extra,
+});
+const rulesFor = async (id) => getJson(`../rules/${id}.json`);
+const STOPS = ['converged', 'max-iter', 'oscillation', 'stalled', 'needs-user'];
+const ip67 = sealing.levels.find((l) => l.id === 'IP67');
+const cases = [
+  ['fdm/pla', {}], ['fdm/petg', {}], ['fdm/pacf', {}], ['cnc/pom', {}], ['cnc/al6061', {}], ['injection/abs', {}],
+  ['fdm/petg', { sealing: ip67 }], ['cnc/pom', { sealing: ip67, lidMode: 'corner' }], ['fdm/pla', { mount: { type: 'din' } }],
+  ['injection/abs', { lidMode: 'corner' }],
+];
+const table = [];
+for (const [rid, extra] of cases) {
+  const rules = await rulesFor(rid);
+  const o = opts(extra);
+  const t0 = performance.now();
+  const L = runDesignLoop(analysis, rules, { userParams: {} }, o);
+  const ms = Math.round(performance.now() - t0);
+  const label = `${rid}${extra.sealing ? ' IP67' : ''}${extra.lidMode === 'corner' ? ' köşe' : ''}${extra.mount ? ' DIN' : ''}`;
+  const unknownRules = L.findings.filter((fd) => !RULES[fd.rule]).map((fd) => fd.rule || '(yok)');
+  check(`${label}: tüm bulguların kuralı katalogda`, !unknownRules.length, unknownRules.join(', ') || `${L.findings.length} bulgu`);
+  check(`${label}: döngü sonlandı ve durma nedeni geçerli`, STOPS.includes(L.stop) && L.iterations <= 9, `${L.stop}, ${L.iterations} tur, ${L.evaluations} hesap, ${ms} ms`);
+  check(`${label}: değişiklikler yalnızca artırıyor ve kayıtlı`, L.changes.every((c) => c.to > c.from && RULES[c.rule] && AUTO_KEYS.includes(c.key)),
+    L.changes.map((c) => `${c.rule} ${c.key} ${c.from}→${c.to}`).join('; ') || 'değişiklik yok');
+  const base = baseParams(analysis, rules);
+  check(`${label}: sonuç parametreleri kural varsayılanından küçük değil`, AUTO_KEYS.every((k) => L.params[k] >= base[k] - 1e-9));
+  const again = runDesignLoop(analysis, rules, { userParams: {} }, opts(extra));
+  check(`${label}: belirlenimci (aynı girdi → aynı sonuç)`, JSON.stringify(again.params) === JSON.stringify(L.params) &&
+    again.findings.map((fd) => fd.id).join() === L.findings.map((fd) => fd.id).join());
+  const ids2 = L.findings.map((fd) => fd.id);
+  check(`${label}: bulgu kimlikleri tekil`, new Set(ids2).size === ids2.length);
+  const sum = summarize(L.findings);
+  check(`${label}: sayımlar tutarlı`, sum.counts.error === L.counts.error && sum.counts.warn === L.counts.warn && sum.status === L.status,
+    `${L.status} E${L.counts.error} W${L.counts.warn} I${L.counts.info} OK${L.counts.ok}`);
+  table.push({ case: label, status: L.status, stop: L.stop, iterations: L.iterations, changes: L.changes.length, counts: L.counts, params: L.params, ms });
+}
+
+// Kilit: kullanıcının yazdığı değer korunur, düzeltmesi "kullanıcı kararı" olur
+{
+  const rules = await rulesFor('fdm/pla');
+  const L = runDesignLoop(analysis, rules, { userParams: { wall: 2.1 } }, opts());
+  check('Kilitli parametre değişmez', L.params.wall === 2.1 && L.locks.includes('wall'), `wall=${L.params.wall}`);
+  const nz = L.findings.find((fd) => fd.rule === 'FDM-WALL-NOZZLE');
+  check('Kilitli anahtardaki düzeltme otomatik değil (needs-user)', nz && nz.level === 'warn' && nz.fix && !nz.fixAuto && L.stop === 'needs-user', `${nz?.level} ${L.stop}`);
+  const D = defaultParams(analysis, rules, opts());
+  const L0 = runDesignLoop(analysis, rules, { userParams: {} }, opts());
+  check('defaultParams = döngünün kilitsiz sonucu', JSON.stringify(D) === JSON.stringify(L0.params), JSON.stringify(D));
+  check('FDM insert: PCB altı yükseklik insert boyu + 1 mm derinliğe göre yükseltildi', L0.changes.some((c) => c.rule === 'FDM-INSERT-DEPTH' && c.key === 'standoffHeight'),
+    L0.changes.map((c) => c.text).join(' '));
+  // Muafiyet
+  const target = L0.findings.find((fd) => fd.level === 'warn' || fd.level === 'info');
+  const W = runDesignLoop(analysis, rules, { userParams: {}, waivers: { [target.id]: { reason: 'test', date: '2026-11-26' } } }, opts());
+  const wf = W.findings.find((fd) => fd.id === target.id);
+  check('Muafiyet bulguya işlenir ve ayrı sayılır', wf && wf.waived && W.counts.waived >= 1, `${target.rule} ${target.id}`);
+  // Parmak izi rakamlardan bağımsız
+  check('Parmak izi rakamlardan bağımsız', fingerprint('GEN-WALL-MIN', null, 'Et 1,2 mm') === fingerprint('GEN-WALL-MIN', null, 'Et 2,4 mm'));
+}
+
+// Metal gövde + dahili anten: RF-METAL-BODY hata ve SMA önerisi; karbon fiber: RF-LOSSY-MATERIAL
+{
+  const al = runDesignLoop(analysis, await rulesFor('cnc/al6061'), { userParams: {} }, opts());
+  const rf = al.findings.find((fd) => fd.rule === 'RF-METAL-BODY');
+  check('Alüminyum gövde + dahili anten → RF-METAL-BODY hata, SMA önerisi', rf && rf.level === 'error' && rf.fix?.key === 'panelAdd', rf?.text);
+  const cf = runDesignLoop(analysis, await rulesFor('fdm/pacf'), { userParams: {} }, opts());
+  check('PA-CF + dahili anten → RF-LOSSY-MATERIAL uyarı', cf.findings.some((fd) => fd.rule === 'RF-LOSSY-MATERIAL' && fd.level === 'warn'));
+  const ko = runDesignLoop(analysis, await rulesFor('fdm/pla'), { userParams: {} }, opts());
+  const k = ko.findings.find((fd) => fd.rule === 'RF-KEEPOUT-METAL');
+  check('Anten yakınındaki metal vida/insert → RF-KEEPOUT-METAL uyarı', k && k.level === 'warn' && k.measured < 15, k?.text);
+  const ip = runDesignLoop(analysis, await rulesFor('fdm/petg'), { userParams: {} }, opts({ sealing: ip67 }));
+  check('IP67: et kalınlığı conta payına, iç köşe kanal radyüsüne yükseltildi', ip.changes.some((c) => c.rule === 'IP-RIM') && ip.changes.some((c) => c.rule === 'IP-GROOVE-RADIUS'),
+    ip.changes.map((c) => c.text).join(' '));
+  const pitch = ip.findings.find((fd) => fd.rule === 'IP-CLAMP-PITCH');
+  check('IP67: sıkıştırma aralığı en büyük boşlukla ölçülür', pitch && Number.isFinite(pitch.measured), pitch?.text);
+}
+
+// Katı model sonrası inceleme
+{
+  const rules = await rulesFor('injection/abs');
+  const L = runDesignLoop(analysis, rules, { userParams: {} }, opts());
+  const tr = [
+    { part: 'base', feature: 'iç taban kenarı', kind: 'fillet', size: 1, ok: false, applied: null, note: 'BRepFilletAPI hatası' },
+    { part: 'lid', feature: 'kapak dış kenarı', kind: 'chamfer', size: 0.5, ok: true, applied: 0.3, note: '' },
+    { part: 'base', feature: 'yan duvarlar', kind: 'draft', size: 1, ok: true, applied: 1, note: '' },
+    { part: 'base', feature: 'port açıklığı', kind: 'boolean', size: 0, ok: false, applied: null, note: 'kesim başarısız' },
+  ];
+  const fb = reviewBuild(L.design, tr);
+  check('reviewBuild: uygulanamayan kenar işlemi → GEO-TREAT uyarı', fb.some((fd) => fd.rule === 'GEO-TREAT' && fd.level === 'warn'));
+  check('reviewBuild: başarısız Boole → GEO-BUILD hata', fb.some((fd) => fd.rule === 'GEO-BUILD' && fd.level === 'error'));
+  check('reviewBuild: uygulanan draft → INJ-DRAFT uygun', fb.some((fd) => fd.rule === 'INJ-DRAFT' && fd.level === 'ok'));
+  const nb = reviewBuild(L.design, null);
+  check('reviewBuild: rapor yoksa enjeksiyonda INJ-DRAFT uyarı', nb.some((fd) => fd.rule === 'INJ-DRAFT' && fd.level === 'warn'));
+  check('summarize: hata → blocked', summarize(fb).status === 'blocked');
+  check('findingsFromChecks: hatalı girdi → GEN-INPUT', findingsFromChecks({ ok: false, error: 'x' })[0]?.rule === 'GEN-INPUT');
+}
+
+// ---------- Sonuç ----------
+const failed = results.filter((r) => !r.pass);
+document.getElementById('sum').innerHTML = failed.length
+  ? `<span class="bad">${failed.length} / ${results.length} test başarısız</span>`
+  : `<span class="ok">${results.length} testin tümü geçti</span> · ${ids.length} kural`;
+document.getElementById('rows').innerHTML = results.map((r) => `<tr><td class="${r.pass ? 'ok' : 'bad'}">${r.pass ? 'geçti' : 'KALDI'}</td><td>${esc(r.name)}</td><td class="muted">${esc(r.detail)}</td></tr>`).join('');
+console.log('IKRA-TEST-RESULT ' + JSON.stringify({ total: results.length, failed: failed.length, rules: ids.length, failures: failed, table }));
+console.log('IKRA-TEST-DONE');
+</script>
+<script>
+  window.addEventListener('error', (e) => console.log('IKRA-TEST-ERROR ' + (e.message || e.error)));
+  window.addEventListener('unhandledrejection', (e) => console.log('IKRA-TEST-ERROR ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+</script>
+</body>
+</html>

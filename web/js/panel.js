@@ -79,7 +79,8 @@ function steps(lo, hi, n, pref) {
 
 /**
  * ctx: computeDesign ara sonuçları (kavite, z seviyeleri, dil, standoff, kapak delikleri, portlar, engeller...)
- * Dönüş: { items, holes, spots, visuals, bom, checks: [[level, text, fix, focus]] , hasRf }
+ * Dönüş: { items, holes, spots, visuals, bom, checks: [{ level, text, fix, focus, rule, measured?, limit?, op?, unit? }], hasRf }
+ * rule: dfm/catalog.js kural kimliği (PNL-*, IP-*, INJ-SIDE-ACTION, CNC-SETUPS, FDM-HOLE-HORIZ)
  */
 export function planPanel(ctx) {
   const {
@@ -93,7 +94,7 @@ export function planPanel(ctx) {
     qty: 1, kind: o.kind || 'panel', standard: o.code ?? pd.code, name: o.name || pd.name, size: o.size ?? pd.size ?? '', length: o.length ?? null,
     material: o.material || '', spec: o.spec || '', where: FACE_LABEL[face] || '', at, part: onLid ? 'lid' : 'base', type: pd.id,
   });
-  const add = (level, text, fix = null, focus = null) => out.checks.push([level, text, fix, focus]);
+  const add = (level, text, fix = null, focus = null, rule = 'PNL-PLACE', meta = null) => out.checks.push({ level, text, fix, focus, rule, ...(meta || {}) });
   const partId = (name) => {
     const pt = analysis.parts.find((x) => x.name === name);
     return pt ? { partId: pt.id } : null;
@@ -178,7 +179,7 @@ export function planPanel(ctx) {
   }
   if (bump > 0 && !feet.length) {
     add('warn', `Tabandan ${f(bump)} mm ${bottomBumps[0].what} çıkıyor: kutu düz oturmaz. Gömme baş (havşa) seçin ya da en az ${f(bump + 0.5)} mm lastik ayak ekleyin.`,
-      { key: 'panelAdd', value: 'bumper', label: 'Lastik ayak ekle' });
+      { key: 'panelAdd', value: 'bumper', label: 'Lastik ayak ekle' }, null, 'PNL-BOTTOM-BUMP', { measured: bump, unit: 'mm' });
   }
 
   // --- Işık boruları: LED üstüne kapakta delik ---
@@ -507,6 +508,8 @@ export function planPanel(ctx) {
 
   // --- Kontroller ---
   const label = (it) => `${it.title} (${FACE_LABEL[it.face]})`;
+  // Eleman türüne göre yerleşim kuralı
+  const itemRule = (it) => (it.kind === 'foot' ? 'PNL-FOOT' : it.kind === 'lightpipe' ? 'PNL-LIGHTPIPE' : 'PNL-PLACE');
   for (const it of out.items) {
     const errs = it.issues.filter((q) => q.level === 'error');
     const focusOf = (q) => q.focus || (q.who ? q.who.filter((s) => s.comp).map((s) => partId(s.name)).find(Boolean) : null) || null;
@@ -514,57 +517,59 @@ export function planPanel(ctx) {
       // Otomatik yerleşim başarısız: tek satır (neden + düzeltme önerisi)
       const why = errs[0] ? ` Gösterilen konumda ${errs[0].text}.` : '';
       const where = it.faceAuto ? `hiçbir ${it.pd.faces.includes('lid') ? 'duvara ya da kapağa' : 'duvara'}` : `${FACE_LABEL[it.face]} üzerinde ${it.uAuto && it.vAuto ? 'hiçbir yere' : 'verilen hizada'}`;
-      add('error', `${label(it)}: ${where} çakışmasız sığmadı.${why}`, it.fix || null, errs[0] ? focusOf(errs[0]) : null);
-      for (const q of it.issues.filter((x) => x.level !== 'error')) add(q.level, `${label(it)}: ${q.text}.`, null, focusOf(q));
+      add('error', `${label(it)}: ${where} çakışmasız sığmadı.${why}`, it.fix || null, errs[0] ? focusOf(errs[0]) : null, 'PNL-AUTO-FAIL');
+      for (const q of it.issues.filter((x) => x.level !== 'error')) add(q.level, `${label(it)}: ${q.text}.`, null, focusOf(q), itemRule(it));
     } else {
       let fixUsed = false;
       for (const q of it.issues) {
         const fx = q.level === 'error' && it.fix && !fixUsed ? it.fix : null;
         if (fx) fixUsed = true;
-        add(q.level, `${label(it)}: ${q.text}.`, fx, focusOf(q));
+        add(q.level, `${label(it)}: ${q.text}.`, fx, focusOf(q), itemRule(it));
       }
     }
     if (!errs.length && !it.autoFail && it.kind !== 'foot' && it.kind !== 'lightpipe') {
       const pos = it.face === 'lid' ? `X ${f(it.u)} / Y ${f(it.v)}` : `${it.uAxis} ${f(it.u)} / Z ${f(it.v)}`;
-      add('ok', `${label(it)}: ${holeText(it.pd.hole)} delik, merkez ${pos} mm${it.uAuto || it.vAuto ? ' (otomatik)' : ''}${it.pd.inner ? `; içeride ${f(it.pd.inner)} mm boşluk var` : ''}.`);
+      add('ok', `${label(it)}: ${holeText(it.pd.hole)} delik, merkez ${pos} mm${it.uAuto || it.vAuto ? ' (otomatik)' : ''}${it.pd.inner ? `; içeride ${f(it.pd.inner)} mm boşluk var` : ''}.`, null, null, 'PNL-OK');
     }
     if (it.kind === 'lightpipe' && !errs.length && it.positions.length) {
-      add('ok', `${it.positions.length} LED üstüne kapakta Ø${f(it.pd.hole.d)} delik; boru boyu ${[...new Set(it.positions.map((q) => f(q.L)))].join(' / ')} mm.`);
+      add('ok', `${it.positions.length} LED üstüne kapakta Ø${f(it.pd.hole.d)} delik; boru boyu ${[...new Set(it.positions.map((q) => f(q.L)))].join(' / ')} mm.`, null, null, 'PNL-LIGHTPIPE');
     }
-    if (it.kind === 'foot' && !errs.length) add('ok', `4 × ${it.size} lastik ayak taban köşelerinde${bump > 0 ? `; tabandan çıkan ${f(bump)} mm ${bottomBumps[0].what} yere değmez` : ''}.`);
+    if (it.kind === 'foot' && !errs.length) add('ok', `4 × ${it.size} lastik ayak taban köşelerinde${bump > 0 ? `; tabandan çıkan ${f(bump)} mm ${bottomBumps[0].what} yere değmez` : ''}.`, null, null, 'PNL-FOOT');
     if (it.spot) {
       const t0 = it.face === 'lid' ? lidT : wall;
-      add('info', `${label(it)}: et ${f(t0)} mm, parça en fazla ${f(it.pd.panelMax)} mm panele oturur; ${it.spot.side === 'inner' ? 'içten' : 'dıştan'} Ø${f(it.spot.d)} × ${f(it.spot.depth)} mm lamba ile yerel inceltildi.`);
-      if (it.face !== 'lid' && rules.process === 'injection') add('warn', `${label(it)}: yan duvardaki lamba ve delik kalıpta yan maça ister.`);
-      if (it.face !== 'lid' && rules.process === 'cnc') add('info', `${label(it)}: lamba dış yüzde (iç yüzdeki lamba 3 eksende işlenemez); somun lamba içinde kalır, lokma anahtar gerekir.`);
+      add('info', `${label(it)}: et ${f(t0)} mm, parça en fazla ${f(it.pd.panelMax)} mm panele oturur; ${it.spot.side === 'inner' ? 'içten' : 'dıştan'} Ø${f(it.spot.d)} × ${f(it.spot.depth)} mm lamba ile yerel inceltildi.`,
+        null, null, 'PNL-SPOT', { measured: t0, limit: it.pd.panelMax, op: '<=', unit: 'mm' });
+      if (it.face !== 'lid' && rules.process === 'injection') add('warn', `${label(it)}: yan duvardaki lamba ve delik kalıpta yan maça ister.`, null, null, 'INJ-SIDE-ACTION');
+      if (it.face !== 'lid' && rules.process === 'cnc') add('info', `${label(it)}: lamba dış yüzde (iç yüzdeki lamba 3 eksende işlenemez); somun lamba içinde kalır, lokma anahtar gerekir.`, null, null, 'CNC-SETUPS');
     }
     if (it.wallNeed) {
       // Sayısal anahtar kullanılmaz: varsayılan parametreler bunu kendiliğinden uygulamasın (kullanıcı kararı)
       add('info', `${label(it)}: duvar yüksekliği yetmediği için kapağa kondu. Duvara almak için bileşen üstü boşluk ${f(it.wallNeed)} mm olmalı.`,
-        { key: 'setParam', value: `topClearance:${it.wallNeed}`, label: `${f(it.wallNeed)} mm yap` });
+        { key: 'setParam', value: `topClearance:${it.wallNeed}`, label: `${f(it.wallNeed)} mm yap` }, null, 'PNL-WALL-NEED');
     }
-    if (it.kind === 'rf' && it.pigtail) add('info', `${label(it)}: karttaki RF bileşenine yaklaşık ${it.pigtail} mm u.FL pigtail kablo yeter.`);
-    if (it.kind === 'vent' && it.face === 'lid') add('info', `${label(it)}: membran yukarı bakıyor; yağmur ve su birikintisi alan yerde duvara (yana) alın.`);
-    if (it.kind === 'gland') add('info', `${label(it)}: kablo dış çapı Ø${f(it.pd.clamp[0])}–${f(it.pd.clamp[1])} mm olmalı; kontra somun içten ${f(it.pd.af)} mm anahtarla sıkılır.`);
+    if (it.kind === 'rf' && it.pigtail) add('info', `${label(it)}: karttaki RF bileşenine yaklaşık ${it.pigtail} mm u.FL pigtail kablo yeter.`, null, null, 'PNL-RF-CABLE', { measured: it.pigtail, limit: 150, op: '<=', unit: 'mm' });
+    if (it.kind === 'vent' && it.face === 'lid') add('info', `${label(it)}: membran yukarı bakıyor; yağmur ve su birikintisi alan yerde duvara (yana) alın.`, null, null, 'PNL-VENT');
+    if (it.kind === 'gland') add('info', `${label(it)}: kablo dış çapı Ø${f(it.pd.clamp[0])}–${f(it.pd.clamp[1])} mm olmalı; kontra somun içten ${f(it.pd.af)} mm anahtarla sıkılır.`, null, null, 'PNL-GLAND');
     if (it.face !== 'lid' && it.face !== 'bottom' && it.kind !== 'foot' && rules.process === 'fdm' && it.pd.hole && it.pd.hole.d >= 8 && it.pd.hole.shape !== 'D') {
-      add('info', `${label(it)}: yan duvardaki Ø${f(it.pd.hole.d)} deliğin üst yarısı baskıda köprü yapar ve hafif sarkar; baskıdan sonra matkap/rayba ile ölçüye getirin.`);
+      add('info', `${label(it)}: yan duvardaki Ø${f(it.pd.hole.d)} deliğin üst yarısı baskıda köprü yapar ve hafif sarkar; baskıdan sonra matkap/rayba ile ölçüye getirin.`, null, null, 'FDM-HOLE-HORIZ',
+        { measured: it.pd.hole.d, unit: 'mm' });
     }
   }
   const wallParts = out.items.filter((it) => it.face && WALL_FACES.includes(it.face));
-  if (wallParts.length && rules.process === 'injection' && !wallParts.some((it) => it.spot)) add('warn', 'Yan duvardaki panel delikleri kalıpta yan maça ister; ya da kalıptan sonra delinir.');
-  if (wallParts.length && rules.process === 'cnc') add('info', 'Yan duvar panel delikleri ikinci bağlama ya da 4. eksen ister.');
+  if (wallParts.length && rules.process === 'injection' && !wallParts.some((it) => it.spot)) add('warn', 'Yan duvardaki panel delikleri kalıpta yan maça ister; ya da kalıptan sonra delinir.', null, null, 'INJ-SIDE-ACTION');
+  if (wallParts.length && rules.process === 'cnc') add('info', 'Yan duvar panel delikleri ikinci bağlama ya da 4. eksen ister.', null, null, 'CNC-SETUPS');
 
   // Sızdırmazlık
   if (seal) {
     for (const it of out.items) {
-      if (it.kind === 'rf') add('info', `${label(it)}: ${seal.label} için O-ringli (IP67) panel konnektör seçin; boştayken toz kapağı takın.`);
-      if (it.kind === 'custom') add('info', `${label(it)}: ${seal.label} için IP sınıflı (contalı) parça seçin.`);
+      if (it.kind === 'rf') add('info', `${label(it)}: ${seal.label} için O-ringli (IP67) panel konnektör seçin; boştayken toz kapağı takın.`, null, null, 'IP-PANEL');
+      if (it.kind === 'custom') add('info', `${label(it)}: ${seal.label} için IP sınıflı (contalı) parça seçin.`, null, null, 'IP-PANEL');
     }
     const glands = out.items.filter((it) => it.kind === 'gland' || it.kind === 'vent');
-    if (glands.length) add('ok', `${glands.length} rakor / basınç elemanı IP68 sınıfında; conta yüzeyi düz ve temiz olmalı.`);
+    if (glands.length) add('ok', `${glands.length} rakor / basınç elemanı IP68 sınıfında; conta yüzeyi düz ve temiz olmalı.`, null, null, 'IP-PANEL');
     if (/67|68/.test(seal.id) && !out.items.some((it) => it.kind === 'vent')) {
       add('info', `${seal.label} dış ortam kutusunda sıcaklık değişimi contayı zorlar ve yoğuşma yapar: basınç dengeleme elemanı önerilir.`,
-        { key: 'panelAdd', value: 'vent-m12', label: 'Basınç dengeleme ekle' });
+        { key: 'panelAdd', value: 'vent-m12', label: 'Basınç dengeleme ekle' }, null, 'IP-VENT');
     }
   }
   return out;
