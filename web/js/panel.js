@@ -149,6 +149,7 @@ export function planPanel(ctx) {
   }
   const bottomOpen = standoffs.filter((s) => s.nutPocket?.shape === 'hex' || s.bottomCountersink).map((s) => ({ x: s.x, y: s.y, r: (s.nutPocket?.s || s.bottomCountersink?.dTop || 4) / 2 + 0.5 }));
   const bump = bottomBumps.reduce((m, b) => Math.max(m, b.h), 0);
+  out.bottomBump = bump;
 
   for (const { sp, t } of feet) {
     const pd = panelData(t, sp);

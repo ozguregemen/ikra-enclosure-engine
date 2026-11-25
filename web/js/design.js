@@ -20,6 +20,7 @@ const isRfName = (name) => RF_SUBSTR.test(name) ||
 
 import { detectPorts } from './ports.js';
 import { planPanel } from './panel.js';
+import { planMount } from './mount.js';
 import { toleranceOf, lidGap, adjustScrewRow, pocketAf, compHole } from './fits.js';
 
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
@@ -1269,6 +1270,14 @@ export function computeDesign(analysis, rules, params, options = {}) {
   bom.push(...panel.bom);
   parts.push(...panel.parts);
 
+  // --- Kutunun bağlanması: montaj kulakları ya da tabandan içten vida ---
+  const mount = planMount({
+    mount: options.mount, rules, tol, fitSel, fasteners, washers: options.toolbox?.washers || [], outer, center, z0, wall, floor,
+    floorTop, rIn, rOut, cav, ports, panelItems: panel.items, standoffs, cornerBosses, bottomBump: panel.bottomBump || 0,
+    hasFeet: panel.items.some((it) => it.kind === 'foot'), p, below, seal,
+  });
+  bom.push(...mount.bom);
+
   // --- DFM kontrolleri ---
   cat = 'genel';
   if (wall < rules.min_wall) {
@@ -1427,6 +1436,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
       fitSel.lid === 'press' ? null : { key: 'fitLid', value: 'press', label: 'Sıkı geçme' });
   }
 
+  // Kutunun bağlanması (montaj)
+  cat = 'montaj';
+  for (const [level, text, fix] of mount.checks) add(level, text, fix);
+
   // Panel elemanları
   cat = 'panel';
   for (const [level, text, fix, focus] of panel.checks) add(level, text, fix, focus);
@@ -1493,8 +1506,11 @@ export function computeDesign(analysis, rules, params, options = {}) {
       groove: grooveGeom,
       panelHoles: panel.holes,
       panelSpots: panel.spots,
+      ears: mount.ears,
+      mountHoles: mount.floorHoles,
     },
     panel: { items: panel.items, visuals: panel.visuals },
+    mount: { type: mount.type, info: mount.info, footprint: mount.footprint, holes: mount.holes },
     sealing: seal ? { id: seal.id, label: seal.label, cord_d: seal.cord_d, squeeze: seal.squeeze, groove, cordLength } : null,
     ports,
     lipBars,

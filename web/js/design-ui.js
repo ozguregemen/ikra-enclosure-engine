@@ -9,6 +9,7 @@ import { FACE_LABEL, holeText } from './panel.js';
 import { loadPreferred, savePreferred, parsePreferredCsv, matchPreferred, bomCsv, preferredTemplateCsv } from './bom.js';
 import { assemblyItems } from './assembly.js';
 import { FIT_CLASSES, toleranceOf } from './fits.js';
+import { MOUNT_TYPES, MOUNT_SIZES } from './mount.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -87,6 +88,7 @@ export function createDesignUI({ viewer, setStatus }) {
     panelParts: [], // [{ uid, type, size, face, u, v, custom }] — null = otomatik
     preferred: loadPreferred(), // şirket tercihli parça listesi (yalnızca bu tarayıcıda)
     fits: { lid: 'normal', screw: 'normal' }, // geçme sınıfları
+    mount: { type: 'none', size: 'M4', count: 4, axis: 'auto', hole: 'round' }, // kutunun bağlanması
     tolOverrides: loadTolOverrides(), // { 'fdm/pla': { general, per_100mm, hole_comp, press, normal, loose } } — kendi yazıcı/atölye değerleri
   };
 
@@ -368,6 +370,7 @@ export function createDesignUI({ viewer, setStatus }) {
     panelParts: state.panelParts,
     fits: state.fits,
     tolerance: state.rules ? state.tolOverrides[state.rules.id] || null : null,
+    mount: state.mount,
   });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
 
@@ -444,6 +447,9 @@ export function createDesignUI({ viewer, setStatus }) {
       return;
     }
     if (key === 'fitLid') { setFit('lid', value); return; }
+    if (key === 'mountAxis') { setMount({ axis: value }); return; }
+    if (key === 'mountType') { setMount({ type: value }); return; }
+    if (key === 'mountCount') { setMount({ count: Number(value) }); return; }
     if (key === 'setParam') {
       const [pk, pv] = String(value).split(':');
       if (!(pk in state.params)) return;
@@ -654,6 +660,54 @@ export function createDesignUI({ viewer, setStatus }) {
     update();
   });
 
+  /* ---------- Montaj (kutunun bağlanması) ---------- */
+
+  const MOUNT_DESC = {
+    none: 'Kutu bir yere bağlanmıyor (masa üstü; gerekirse lastik ayak panel elemanlarından eklenir).',
+    ears: 'Taban hizasında dışa çıkan kulaklar: kutu yüzeye düz oturur, vidalar dışarıdan sıkılır; sızdırmazlığı bozmaz.',
+    floor: 'Tabandan delikler: kutu, kart takılmadan önce içeriden yüzeye vidalanır; dış görünüş temiz kalır.',
+  };
+
+  function renderMount(d = state.design) {
+    const mt = state.mount;
+    const seg = (items, cur, attr) => items.map(([id, label]) =>
+      `<button type="button" role="radio" data-${attr}="${id}" aria-checked="${String(cur) === String(id)}">${esc(label)}</button>`).join('');
+    $('#mount-type').innerHTML = seg(MOUNT_TYPES.map((t) => [t.id, t.label]), mt.type, 'mtype');
+    $('#mount-desc').textContent = MOUNT_DESC[mt.type];
+    $('#mount-opts').classList.toggle('hidden', mt.type === 'none');
+    $('#mount-ear-opts').classList.toggle('hidden', mt.type !== 'ears');
+    $('#mount-size').innerHTML = MOUNT_SIZES.map((s) =>
+      `<button type="button" class="chip" role="radio" data-msize="${s}" aria-checked="${mt.size === s}">${s}</button>`).join('');
+    $('#mount-count').innerHTML = seg([[2, '2'], [4, '4']], mt.count, 'mcount');
+    $('#mount-axis').innerHTML = seg([['auto', 'Otomatik'], ['x', '±X duvarları'], ['y', '±Y duvarları']], mt.axis, 'maxis');
+    $('#mount-hole').innerHTML = seg([['round', 'Yuvarlak'], ['slot', 'Uzun delik (hizalama)']], mt.hole, 'mhole');
+    const info = d?.mount?.info;
+    const fp = d?.mount?.footprint;
+    const n2 = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
+    $('#sum-mount').textContent = mt.type === 'none' ? 'yok' : `${info ? info.count : ''} × ${mt.size} ${mt.type === 'ears' ? 'kulak' : 'taban'}`;
+    if (!info) { $('#mount-info').innerHTML = ''; return; }
+    const rows = [
+      ['Delik', `Ø${n2(info.d)}${mt.type === 'ears' && mt.hole === 'slot' ? ' (uzun)' : ''}`],
+      ['Delik aralığı', info.spacing.filter((v) => v > 0.05).map(n2).join(' × ') + ' mm'],
+      mt.type === 'ears' ? ['Kulak', `kalınlık ${n2(info.t)} · genişlik ${n2(info.w)} · çıkıntı ${n2(info.P)} mm`] : null,
+      fp ? ['Taban izi (kulaklarla)', `${n2(fp.L)} × ${n2(fp.W)} mm`] : null,
+    ].filter(Boolean);
+    $('#mount-info').innerHTML = `<table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>`;
+  }
+
+  function setMount(patch) {
+    const prev = state.rules && state.analysis ? currentDefaults() : null;
+    state.mount = { ...state.mount, ...patch };
+    if (prev) refreshAutoParams(prev);
+    renderMount();
+    update();
+  }
+  $('#mount-type').addEventListener('click', (e) => { const b = e.target.closest('[data-mtype]'); if (b) setMount({ type: b.dataset.mtype }); });
+  $('#mount-size').addEventListener('click', (e) => { const b = e.target.closest('[data-msize]'); if (b) setMount({ size: b.dataset.msize }); });
+  $('#mount-count').addEventListener('click', (e) => { const b = e.target.closest('[data-mcount]'); if (b) setMount({ count: Number(b.dataset.mcount) }); });
+  $('#mount-axis').addEventListener('click', (e) => { const b = e.target.closest('[data-maxis]'); if (b) setMount({ axis: b.dataset.maxis }); });
+  $('#mount-hole').addEventListener('click', (e) => { const b = e.target.closest('[data-mhole]'); if (b) setMount({ hole: b.dataset.mhole }); });
+
   /* ---------- Panel elemanları (Toolbox Paket D) ---------- */
 
   const newPanelUid = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -750,7 +804,7 @@ export function createDesignUI({ viewer, setStatus }) {
 
   /* ---------- DFM paneli ---------- */
 
-  const DFM_CATS = [['genel', 'Genel'], ['surec', 'Süreç'], ['ip', 'Sızdırmazlık (IP)'], ['port', 'Port açıklıkları'], ['panel', 'Panel elemanları'], ['kapak', 'Kapak'], ['baglanti', 'Bağlantı']];
+  const DFM_CATS = [['genel', 'Genel'], ['surec', 'Süreç'], ['ip', 'Sızdırmazlık (IP)'], ['port', 'Port açıklıkları'], ['panel', 'Panel elemanları'], ['montaj', 'Montaj'], ['kapak', 'Kapak'], ['baglanti', 'Bağlantı']];
   const LEVEL_RANK = { error: 0, warn: 1, info: 2, ok: 3 };
   const LEVEL_LABEL = [['error', 'hata'], ['warn', 'uyarı'], ['ok', 'uygun'], ['info', 'bilgi']];
 
@@ -793,6 +847,7 @@ export function createDesignUI({ viewer, setStatus }) {
     renderCornerPick(d);
     renderPanelCard(d);
     renderTolerance(d);
+    renderMount(d);
 
     const errEl = $('#design-error');
     errEl.classList.toggle('hidden', !d.error);
@@ -838,7 +893,7 @@ export function createDesignUI({ viewer, setStatus }) {
       massSub = `gövde ${nf1.format(v.base / 1000)} + kapak ${nf1.format(v.lid / 1000)} cm³ · ${state.rules.label}`;
     }
     $('#design-stats').innerHTML =
-      stat('Dış ölçü (U × G × Y)', dims(d.outer.L, d.outer.W, d.outer.H), `${state.rules.label} · ${processLabel()}`, 'wide accent') +
+      stat('Dış ölçü (U × G × Y)', dims(d.outer.L, d.outer.W, d.outer.H), `${state.rules.label} · ${processLabel()}${d.mount?.footprint ? ` · kulaklarla ${f2(d.mount.footprint.L)} × ${f2(d.mount.footprint.W)}` : ''}`, 'wide accent') +
       stat('İç cep', dims(d.cavity.L, d.cavity.W, d.cavity.H), 'PCB + boşluklar') +
       stat('Et / taban / kapak', `${f2(d.params.wall)} <span class="unit">mm</span>`, `kapak dili ${f2(d.params.lipT)} mm, boşluk ${f2(d.params.fit)} mm`) +
       stat('Tahmini kütle', mass, massSub) +
@@ -1232,6 +1287,7 @@ export function createDesignUI({ viewer, setStatus }) {
       panelParts: state.panelParts,
       fits: state.fits,
       toleranceOverride: state.tolOverrides[state.rules.id] || null,
+      mount: state.mount,
     };
   }
 
@@ -1264,6 +1320,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.panelParts = (s.panelParts || []).filter((p) => ptypes.some((t) => t.id === p.type));
     if ((s.panelParts || []).length !== state.panelParts.length) warnings.push('Bazı panel elemanı tipleri bu sürümde yok; atlandı.');
     state.fits = { lid: 'normal', screw: 'normal', ...(s.fits || {}) };
+    state.mount = { type: 'none', size: 'M4', count: 4, axis: 'auto', hole: 'round', ...(s.mount || {}) };
     if (s.toleranceOverride && Object.keys(s.toleranceOverride).length) {
       state.tolOverrides = { ...state.tolOverrides, [state.rules.id]: { ...s.toleranceOverride } };
       saveTolOverrides(state.tolOverrides);

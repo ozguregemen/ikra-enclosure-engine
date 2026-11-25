@@ -31,7 +31,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">V1.10 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">V1.11 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez; tüm hesap bu tarayıcıda yapılır">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -211,6 +211,27 @@
                   <div class="panel-list" id="panel-list"></div>
                   <button type="button" class="btn block" id="panel-add">+ Toolbox'tan ekle</button>
                   <p class="muted small">Boş bırakılan yüz ve konum, çakışmayan en uygun yere otomatik hesaplanır. Konum: duvarda kavite merkezinden yatay, gövde alt yüzünden Z; kapakta merkezden X/Y (mm).</p>
+                </div>
+              </details>
+
+              <details class="card">
+                <summary><span class="card-title">Montaj</span><span class="card-sum" id="sum-mount"></span></summary>
+                <div class="card-body">
+                  <div class="seg-full three" id="mount-type" role="radiogroup" aria-label="Kutunun bağlanması"></div>
+                  <p class="muted small" id="mount-desc"></p>
+                  <div class="mount-opts" id="mount-opts">
+                    <h3 class="sub-title">Vida</h3>
+                    <div class="chips" id="mount-size" role="radiogroup" aria-label="Montaj vidası"></div>
+                    <h3 class="sub-title">Adet</h3>
+                    <div class="seg-full" id="mount-count" role="radiogroup" aria-label="Montaj noktası sayısı"></div>
+                    <div id="mount-ear-opts">
+                      <h3 class="sub-title">Kulak duvarı</h3>
+                      <div class="seg-full three" id="mount-axis" role="radiogroup" aria-label="Kulakların olduğu duvarlar"></div>
+                      <h3 class="sub-title">Delik</h3>
+                      <div class="seg-full" id="mount-hole" role="radiogroup" aria-label="Kulak deliği"></div>
+                    </div>
+                    <div class="tol-result" id="mount-info"></div>
+                  </div>
                 </div>
               </details>
             </div>
@@ -420,6 +441,7 @@
         <li class="step done"><span class="num">13</span>M5–M6, montaj STEP'i ve paftası, BOM CSV, tercihli parçalar, arama<span class="tag">V1.8</span></li>
         <li class="step done"><span class="num">14</span>Malzeme kütüphanesi: 8 filament, 15 CNC malzemesi; sıkı/normal/bol geçme<span class="tag">V1.9</span></li>
         <li class="step done"><span class="num">15</span>Proje kaydet / aç (.ikra.json, STEP gömülü ya da ayrı)<span class="tag">V1.10</span></li>
+        <li class="step done"><span class="num">16</span>Montaj: taban hizasında kulaklar ya da tabandan içten vida<span class="tag">V1.11</span></li>
       </ol>
     </div>
   </dialog>

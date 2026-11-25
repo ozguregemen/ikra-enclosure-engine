@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.10 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası)
+## Şu anki durum: V1.11 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -171,6 +171,15 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Kartın STEP'i isteğe bağlı olarak projeye gömülür (tek dosyada taşınır); gömülmezse proje açılınca aynı STEP istenir.
   Kart kimliği SHA-256 ile kontrol edilir, farklı STEP yüklenirse uyarılır. Açılan proje hatasızsa muhafaza hemen oluşturulur
 
+**Montaj (V1.11)** — Tasarım › Montaj
+- Montaj kulağı: taban hizasında (kutu yüzeye düz oturur), 2 ya da 4 kulak, M3–M6, yuvarlak ya da uzun (hizalama) delik;
+  delik ISO 273 serisi + FDM telafisi, delik merkezi duvardan vida başı/pul + tornavida payı kadar uzakta, kalınlık
+  ≥ max(3 mm; 1,5·et; 0,8·d). Otomatik duvar seçimi kulak üstünde port/panel elemanı çakışması olmayan çifti seçer
+- Tabandan içten vida: kart takılmadan önce içeriden sıkılır; delikler standoff ve köşe boss'larından uzak konur,
+  vida başı PCB altına sığmazsa PCB altı yükseklik kendiliğinden artar; IP'de sızdırmazlık pulu uyarısı
+- Kontroller: kulak üstündeki fiş/panel elemanı, ayakla birlikte kullanım, tabandan çıkan vida başı, CNC stok boyu
+- Teknik resimde M# delik satırları, delik aralığı notu ve kulaklı taban izi ölçüsü; malzeme listesinde montaj satırı
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -213,7 +222,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.7 | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 | V1.8 | M5–M6, montaj STEP'i, montaj paftası (balon + parça listesi), BOM CSV, tercihli parça listesi, Toolbox araması |
 | V1.9 | Malzeme kütüphanesi (8 FDM filamenti, 15 CNC malzemesi), malzemeye özel tolerans ve sıkı/normal/bol geçme, ISO 273 delik serileri |
-| **V1.10** | Proje kaydet / aç (.ikra.json): tüm tasarım ayarları, STEP isteğe bağlı gömülü, kart kimliği (SHA-256) kontrolü |
+| V1.10 | Proje kaydet / aç (.ikra.json): tüm tasarım ayarları, STEP isteğe bağlı gömülü, kart kimliği (SHA-256) kontrolü |
+| **V1.11** | Montaj: taban hizasında montaj kulakları (2/4, yuvarlak ya da uzun delik, M3–M6) ya da tabandan içten vidalı delikler |
 | **V1.7** | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 
 ## Yerelde çalıştırma
@@ -260,6 +270,7 @@ web/                  Yayınlanan statik site
   js/assembly.js      Montaj: bağlantı/panel elemanlarının basit katı tanımları (montaj STEP ve paftası)
   js/bom.js           BOM CSV ve tercihli parça (stok kodu) listesi
   js/fits.js          Tolerans ve geçme modeli (malzeme + sıkı/normal/bol, ISO 273, FDM delik telafisi)
+  js/mount.js         Montaj: taban hizasında kulaklar ve tabandan içten vidalı delikler (saf fonksiyonlar)
   rules/              Süreç × malzeme kural dosyaları
   rules/toolbox/      Toolbox kütüphaneleri (ISO vidalar/pullar/somunlar, dişli burçlar/aralayıcılar, panel elemanları)
   samples/            Örnek STEP dosyası

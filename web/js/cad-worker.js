@@ -176,6 +176,35 @@ function buildEnclosure(g) {
   for (const c of g.cutouts || []) {
     base = base.cut(cutoutPrism(c));
   }
+  // Montaj kulakları: taban hizasında, duvara 0,8 mm gömülü dil + yuvarlak uç; delik (ya da uzun delik)
+  for (const ear of g.ears || []) {
+    const c = [ear.hx, ear.hy];
+    const min = [0, 0, ear.z0];
+    const max = [0, 0, ear.z0 + ear.t];
+    min[ear.axis] = Math.min(ear.wallOut - ear.dir * 0.8, c[ear.axis]);
+    max[ear.axis] = Math.max(ear.wallOut - ear.dir * 0.8, c[ear.axis]);
+    min[ear.along] = ear.a - ear.w / 2;
+    max[ear.along] = ear.a + ear.w / 2;
+    base = base.fuse(makeBox(min, max)).fuse(makeCylinder(ear.w / 2, ear.t, [c[0], c[1], ear.z0], up));
+  }
+  for (const ear of g.ears || []) {
+    const r = ear.d / 2;
+    const h = ear.t + 1;
+    const zc = ear.z0 - 0.5;
+    if (ear.slot > 0) {
+      const o = [0, 0];
+      o[ear.slotAxis] = ear.slot / 2;
+      const min = [ear.hx - (ear.slotAxis === 0 ? ear.slot / 2 : r), ear.hy - (ear.slotAxis === 1 ? ear.slot / 2 : r), zc];
+      const max = [ear.hx + (ear.slotAxis === 0 ? ear.slot / 2 : r), ear.hy + (ear.slotAxis === 1 ? ear.slot / 2 : r), zc + h];
+      base = base.cut(makeBox(min, max))
+        .cut(makeCylinder(r, h, [ear.hx - o[0], ear.hy - o[1], zc], up))
+        .cut(makeCylinder(r, h, [ear.hx + o[0], ear.hy + o[1], zc], up));
+    } else {
+      base = base.cut(makeCylinder(r, h, [ear.hx, ear.hy, zc], up));
+    }
+  }
+  // Tabandan içten vidalı montaj delikleri
+  for (const mh of g.mountHoles || []) base = base.cut(makeCylinder(mh.d / 2, g.floor + 1, [mh.x, mh.y, g.z0 - 0.5], up));
   // Panel elemanları: lamba (yerel et inceltme) ve D/yuvarlak delikler
   for (const sp of (g.panelSpots || []).filter((x) => x.part === 'base')) {
     const dir = [0, 0, 0];

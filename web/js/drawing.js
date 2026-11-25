@@ -310,8 +310,11 @@ function baseSheet(ctx) {
 
   // Genel ölçüler
   const pt = placed.top;
-  dimH(out, pt.x0, pt.x1, pt.y1 + 7, pt.y1, d.outer.L);
-  dimV(out, pt.y0, pt.y1, pt.x1 + 7, pt.x1, d.outer.W);
+  // Kulaklar varsa üst görünüş kutusu taban izidir (kulaklar dahil)
+  const fpL = d.mount?.footprint?.L ?? d.outer.L;
+  const fpW = d.mount?.footprint?.W ?? d.outer.W;
+  dimH(out, pt.x0, pt.x1, pt.y1 + 7, pt.y1, fpL);
+  dimV(out, pt.y0, pt.y1, pt.x1 + 7, pt.x1, fpW);
   const pf = placed.front;
   dimV(out, pf.y0, pf.y1, pf.x0 - 7, pf.x0, g.cavTop - g.z0);
 
@@ -329,6 +332,14 @@ function baseSheet(ctx) {
     centerMark(out, px, py, (c.holeD / 2) * s);
     balloon(out, px, py, px + (px < (pt.x0 + pt.x1) / 2 ? 6 : -6), py - 5, `C${i + 1}`);
     holeRows.push([`C${i + 1}`, d2(c.x - datum[0]), d2(c.y - datum[1]), `Ø${d2(c.holeD)}`, d2(c.depth), `köşe boss Ø${d1(c.od)}`]);
+  });
+
+  // Montaj delikleri (kulak / taban) — üst görünüşte merkez işareti + balon
+  (d.mount?.holes || []).forEach((mh, i) => {
+    const [px, py] = pt.toPaper([mh.x, mh.y, 0]);
+    centerMark(out, px, py, (mh.d / 2) * s);
+    balloon(out, px, py, px + (px < (pt.x0 + pt.x1) / 2 ? -6 : 6), py + 6, `M${i + 1}`);
+    holeRows.push([`M${i + 1}`, d2(mh.x - datum[0]), d2(mh.y - datum[1]), `Ø${d2(mh.d)}${mh.slot ? `×${d1(mh.d + mh.slot)}` : ''}`, 'boydan', mh.kind === 'ear' ? 'montaj kulağı' : 'taban montajı']);
   });
 
   // Port açıklıkları — ilgili görünüşte balon
@@ -386,6 +397,7 @@ function baseSheet(ctx) {
     `Et kalınlığı ${d1(d.params.wall)} mm, taban ${d1(d.params.floor)} mm, iç köşe R${d1(d.params.rIn)}, dış köşe R${d1(d.params.rOut)}.`,
     `Açıklık konumu duvar boyunca sıfır noktasından, Z gövde altından ölçülür; açıklıklar konnektör + ${d1(rules.cutout_clearance_xy)} mm boşlukla.`,
   ];
+  if (d.mount?.info) n.push(`Montaj delikleri (M): ${d.mount.holes.length} × Ø${d2(d.mount.info.d)}, aralık ${d.mount.info.spacing.filter((v) => v > 0.05).map(d1).join(' × ')} mm${d.mount.footprint ? `; kulaklarla taban izi ${d1(d.mount.footprint.L)} × ${d1(d.mount.footprint.W)} mm` : ''}.`);
   if (panelRows.length) n.push('Panel delikleri (E): merkez konumu duvar boyunca sıfır noktasından, Z gövde altından; D-deliklerde düzlük üstte. Lamba, parçanın panel kalınlığı sınırı için yerel et inceltmedir.');
   if (d.sealing) {
     const sg = d.sealing.groove;
