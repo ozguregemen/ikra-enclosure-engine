@@ -10,6 +10,7 @@ import { loadPreferred, savePreferred, parsePreferredCsv, matchPreferred, bomCsv
 import { assemblyItems } from './assembly.js';
 import { FIT_CLASSES, toleranceOf } from './fits.js';
 import { MOUNT_TYPES, MOUNT_SIZES } from './mount.js';
+import { treatmentFor } from './treat.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1084,6 +1085,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.pendingDesign = d;
     setBusy(true);
     const stem = state.fileName.replace(/\.(step|stp)$/i, '') || 'ikra';
+    d.geometry.treat = treatmentFor(d, state.rules, state.lidSel && state.lidRules ? state.lidRules : state.rules);
     getWorker().postMessage({ id, geometry: d.geometry, names: { base: `${stem}_govde`, lid: `${stem}_kapak`, clip: `${stem}_din_klipsi` } });
   }
 
@@ -1105,6 +1107,7 @@ export function createDesignUI({ viewer, setStatus }) {
     }
     const d = state.pendingDesign;
     state.result = { ...msg, design: d };
+    d.treatReport = msg.treatReport || null;
     state.generated = true;
     const screws = d.screws.map((s) => ({
       x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,

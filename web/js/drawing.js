@@ -211,6 +211,16 @@ function notes(out, x, y, width, title, items, size = 2.2) {
   return yy;
 }
 
+/** Notları antede taşmadan sığdır: gerekirse yazı boyunu küçültür (2,2 → 1,6) */
+function fitNotes(out, x, y, width, title, items, yMax = 168) {
+  const lineCount = (size) => {
+    const maxChars = Math.floor(width / (size * 0.56));
+    return items.reduce((sum, item, i) => sum + Math.max(1, Math.ceil((`${i + 1}. ${item}`.length * 1.08) / maxChars)), 0);
+  };
+  const size = [2.2, 2.0, 1.85, 1.7, 1.6].find((s) => y + 4 + lineCount(s) * s * 1.35 <= yMax) || 1.6;
+  return notes(out, x, y, width, title, items, size);
+}
+
 function titleBlock(out, info, part, sheetNo, sheetCount, scale) {
   const x = 167, y = 172, w = 120, h = 28;
   out.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#fff" stroke="#000" stroke-width="${STROKE_VISIBLE}"/>`);
@@ -248,6 +258,7 @@ function chooseScale(fits) {
 function toleranceNotes(rules, d = null) {
   const pp = rules.process_params || {};
   const t = d?.tolerance;
+  const treated = !!d?.geometry?.treat;
   const gen = t ? `±${d2(t.general)} mm (+±${d2(t.per_100mm)} mm / 100 mm)` : null;
   const fitTxt = t ? `Kapak geçmesi ${{ press: 'sıkı', normal: 'normal', loose: 'bol' }[t.fitSel.lid]} (dil boşluğu ${d2(t.lidGap)} mm/kenar); geçiş delikleri ISO 273 ${{ press: 'ince', normal: 'orta', loose: 'kaba' }[t.fitSel.screw]} seri.` : null;
   if (rules.process === 'fdm') {
@@ -258,16 +269,125 @@ function toleranceNotes(rules, d = null) {
     ];
   }
   if (rules.process === 'cnc') {
+    // Kenar işlemli modelde kenar/köşe notları edgeNotes()'tan gelir (model neyse not o)
+    if (treated) return [`Genel toleranslar ISO 2768-m; ${rules.label} için ${gen || '±0,1 mm'}.`, ...(fitTxt ? [fitTxt] : [])];
     return [
       `Genel toleranslar ISO 2768-m; ${rules.label} için ${gen || '±0,1 mm'}. Keskin kenarları 0,3×45° kır.`,
       `İç köşe radyüsleri takıma göre R${d1(pp.tool_diameter / 2 + 0.1)}.`,
       ...(fitTxt ? [fitTxt] : []),
     ];
   }
+  if (treated) return ['Genel toleranslar ISO 20457 TG6.', `Çekme payı %${d1(rules.shrink_factor * 100)} kalıpta uygulanır.`];
   return [
     'Genel toleranslar ISO 20457 TG6.',
     `Kalıp çıkma açısı ≥ ${d1(rules.draft_angle_min)}° (resimde gösterilmemiştir). Çekme payı %${d1(rules.shrink_factor * 100)} kalıpta uygulanır.`,
   ];
+}
+
+/**
+ * Kenar / çıkma açısı notları: geometry.treat (politika) ve treatReport (katı modelde gerçekten uygulanan) üzerinden.
+ * Yalnızca modelde olan işlem yazılır; uygulanamayanlar ayrıca belirtilir. treat yoksa boş (eski notlar geçerli).
+ */
+function edgeNotes(d, part) {
+  const T = d?.geometry?.treat;
+  const P = T?.[part];
+  if (!P) return [];
+  const rep = (d.treatReport || []).filter((e) => e.part === part);
+  const has = rep.length > 0;
+  // Uygulanan ölçü (rapor yoksa politika değeri)
+  const got = (key, fallback = 0) => {
+    const e = rep.find((x) => x.key === key);
+    if (!e) return has ? 0 : fallback;
+    return e.applied > 0 ? e.applied : 0;
+  };
+  const n = [];
+  const geo = d.geometry;
+  const cnc = P.process === 'cnc';
+  const fdm = P.process === 'fdm';
+  const inj = P.process === 'injection';
+  if (part === 'base') {
+    if (inj) {
+      const dr = got('draft.outer', P.draftDeg);
+      const dp = got('draft.pocket', P.draftDeg);
+      if (dr > 0 && dp > 0) {
+        n.push(`Kalıp çıkma açısı ${d1(dr)}° modelde uygulanmıştır (çekme +Z): dış ve iç duvar paralel açılı, cep taban seviyesinde anma ölçüsünde; ayırma çizgisi ağız dış kenarında, keskin. Dış hat ağızda her yanda +${d2(T.rim.grow)} mm.`);
+      } else n.push(`Kalıp çıkma açısı ≥ ${d1(P.draftDeg)}° gerekir; modelde uygulanamadı (işlem raporu).`);
+      const ri = got('floor', P.floorFillet);
+      const ro = got('outer.bottom', P.outerBottomFillet);
+      if (ri > 0 || ro > 0) n.push(`İç taban köşesi R${d2(ri)}${ro > 0 ? `, dış alt kenar R${d2(ro)} (iç radyüs + et, aynı merkez)` : ''}.`);
+      const sr = got('standoff.root', P.bossRootFillet);
+      if ((geo.standoffs || []).some((s) => s.integral !== false) && sr > 0) n.push(`Boss'lar: dış yüz ${d1(P.bossDraftDeg)}° açılı, kök R${d2(sr)}, uçta ${d1(P.bossTipChamfer)}×45° pah.`);
+      if ((geo.ears || []).length || (geo.cutouts || []).some((c) => c.z1 <= geo.cavTop)) n.push('Kulaklar ve kapalı yan pencereler kalıpta yan maça ister; bunlarda çıkma açısı uygulanmamıştır.');
+    } else if (cnc) {
+      const b = got('outer.bottom', P.outerEdgeBreak);
+      const parts = [];
+      if (b > 0) parts.push('taban çevresi');
+      if (got('rim.out', P.rimOuterBreak) > 0) parts.push('ağız dış kenarı');
+      if (got('cutout.break', P.cutoutBreak) > 0) parts.push('port açıklıkları dış kenarı');
+      if (got('ear.bottom', P.outerEdgeBreak) > 0) parts.push('kulaklar');
+      n.push(`Belirtilmeyen kenarlar ISO 13715 −${d1(P.outerEdgeBreak)} (çapaksız, kırma ≤ ${d1(P.outerEdgeBreak)} mm)${parts.length ? `; modelde ${d1(P.outerEdgeBreak)}×45° pah: ${parts.join(', ')}` : ''}.`);
+    } else if (fdm) {
+      const bc = got('bed', P.bedChamfer);
+      if (bc > 0) n.push(`Tabla kenarları ${d1(bc)}×45° pah (fil ayağı payı; tabla kenarında radyüs yok)${(geo.ears || []).length && got('ear.bottom', P.bedChamfer) > 0 ? '; kulak alt kenarları dahil' : ''}.`);
+      const ff = got('floor', P.floorFillet);
+      if (ff > 0) n.push(`Taban–duvar iç köşesi R${d2(ff)} (yukarı bakan oluk, desteksiz).`);
+    }
+    const li = got('rim.in', P.rimLeadIn);
+    if (li > 0) n.push(`Ağız iç kenarında ${d1(li)}×45° giriş pahı (kapak dili için).`);
+    if (cnc) {
+      const pp = d.params || {};
+      const radii = [`cep köşeleri R${d1(pp.rIn ?? geo.cavity.r)}`];
+      const cr = got('corner.concave', 0);
+      const pr = got('pad.concave', 0);
+      if (cr > 0) radii.push(`köşe boss'u–duvar birleşimi R${d2(cr)}`);
+      if (pr > 0) radii.push(`kart desteği–duvar birleşimi R${d2(pr)}`);
+      if (got('ear.concave', 0) > 0) radii.push(`kulak–duvar birleşimi R${d2(got('ear.concave', 0))}`);
+      if ((geo.cutouts || []).length) radii.push(`port köşeleri R${d1(Math.max(...geo.cutouts.map((c) => c.r)))}`);
+      n.push(`İç dikey köşeler: ${radii.join(', ')}; taban–duvar iç köşesi keskin (düz parmak freze).`);
+    }
+    if (!inj && got('standoff.root', P.bossRootFillet) > 0) n.push(`Standoff kökleri R${d2(got('standoff.root', P.bossRootFillet))}${got('standoff.tip', P.bossTipChamfer) > 0 ? `, uçları ${d1(P.bossTipChamfer)}×45° pah` : ''}.`);
+    else if (cnc && got('standoff.tip', P.bossTipChamfer) > 0) n.push(`Standoff uçları ${d1(P.bossTipChamfer)}×45° pah.`);
+    const tap = (T.holes?.standoffs || []).concat(T.holes?.corners || []).filter((h) => h.entry && (h.method === 'tapped' || h.method === 'helicoil'));
+    if (tap.length && (got('entry.standoff', 1) > 0 || got('entry.corner', 1) > 0)) n.push('Kılavuz çekilecek delikler 90° havşalı (Ø = diş dış çapı + 0,2), NASA JSC-67701 §9.6a.');
+    const st = (T.holes?.standoffs || []).concat(T.holes?.corners || []).filter((h) => h.entry && h.method === 'self_tap');
+    if (st.length && (got('entry.standoff', 1) > 0 || got('entry.corner', 1) > 0)) n.push('Sac vidası ön deliklerinin girişi Ø1,05·d boşaltmalı 45° pah (EJOT DELTA PT).');
+    if (d.fasteningMethod === 'insert' && P.holeEntry.insert === 0) n.push('İnsert delikleri düz, girişte pah yok (insert üreticisi ölçüsü).');
+    if (P.grooveBottomR > 0 && geo.groove) {
+      const gb = got('groove.bottom', P.grooveBottomR);
+      n.push(`Conta kanalı dip radyüsü R${d2(gb)}${got('groove.break', P.grooveEdgeBreak) > 0 ? `, üst kenarları ${d2(P.grooveEdgeBreak)} mm kırık` : ''} (Parker ORD 5700).`);
+    }
+    if (T.clip && geo.din) {
+      const lr = (d.treatReport || []).find((e) => e.part === 'clip' && e.key === 'latch.root');
+      const v = lr ? lr.applied : T.clip.latchRootR;
+      const cbE = (d.treatReport || []).find((e) => e.part === 'clip' && e.key === 'bed');
+      const cb = cbE ? cbE.applied : T.clip.bedChamfer;
+      if (v > 0) n.push(`DIN klipsi: kilit dili kökü R${d2(v)} (≥ 0,5·t), yarık uçları yuvarlak${cb > 0 ? `; üst yüz (tabla) kenarları ${d2(cb)}×45° pah` : ''}.`);
+    }
+  } else if (part === 'lid') {
+    if (inj) {
+      const dr = got('draft.plate', P.draftDeg);
+      n.push(dr > 0
+        ? `Kalıp çıkma açısı ${d1(dr)}° (çekme −Z); ayırma çizgisi kapak alt dış kenarında, keskin; alt dış hat gövde ağız hattıyla aynı.`
+        : `Kalıp çıkma açısı ≥ ${d1(P.draftDeg)}° gerekir; modelde uygulanamadı (işlem raporu).`);
+      const tf = got('outer.top', P.outerTopFillet);
+      if (tf > 0) n.push(`Üst dış kenar R${d2(tf)} (kozmetik).`);
+      if (got('lip.draft', P.lipDraftDeg) > 0) n.push(`Kapak dili: ${d1(P.lipDraftDeg)}° çıkma açısı, kök R${d2(got('lip.root', P.lipRootFillet))}, uçta ${d1(got('lip.tip', P.lipTipChamfer))}×45° giriş pahı.`);
+      if (got('tube.root', P.tubeRootFillet) > 0) n.push(`Vida boruları: ${d1(P.bossDraftDeg)}° açılı, kök R${d2(got('tube.root', P.tubeRootFillet))}, uçta pah.`);
+    } else {
+      if (fdm && got('bed', P.bedChamfer) > 0) n.push(`Dış yüz tablada: üst dış kenar ${d1(got('bed', P.bedChamfer))}×45° pah (tabla kenarında radyüs yok).`);
+      if (cnc) {
+        const both = got('outer.top', P.outerEdgeBreak) > 0 && got('outer.bottom', P.outerEdgeBreak) > 0;
+        n.push(`Belirtilmeyen kenarlar ISO 13715 −${d1(P.outerEdgeBreak)}${both ? `; üst ve alt dış kenarlar modelde ${d1(P.outerEdgeBreak)}×45° pah` : ''}.`);
+      }
+      const lt = got('lip.tip', P.lipTipChamfer);
+      if (lt > 0) n.push(`Kapak dili ucunda ${d1(lt)}×45° giriş pahı${got('lip.root', P.lipRootFillet) > 0 ? `, kökte R${d2(got('lip.root', P.lipRootFillet))}` : ''}.`);
+      if (got('tube.root', P.tubeRootFillet) > 0) n.push(`Vida borusu kökleri R${d2(got('tube.root', P.tubeRootFillet))}.`);
+      if (cnc && got('entry.tube', 1) > 0 && (T.holes?.lidTubes || []).some((h) => h.entry)) n.push(`Geçiş delikleri girişte ${d1(P.holeEntry.clearance)}×45° kırık.`);
+    }
+  }
+  const failed = rep.filter((e) => !e.ok && e.kind !== 'boolean' && e.applied === 0 && !/yan maça/.test(e.note || '')).map((e) => e.feature);
+  if (failed.length) n.push(`Modelde uygulanamayan işlemler (elle tamamlanmalı): ${[...new Set(failed)].slice(0, 4).join(', ')}.`);
+  return n;
 }
 
 const METHOD_NOTE = { insert: 'ısıl insert', tapped: 'kılavuz', self_tap: 'sac vidası ön deliği', helicoil: 'Helicoil (STI)', nut: 'geçiş + somun cebi', standoff: 'aralayıcı geçiş deliği' };
@@ -394,6 +514,7 @@ function baseSheet(ctx) {
   }
   const n = [
     ...toleranceNotes(rules, d),
+    ...edgeNotes(d, 'base'),
     `Et kalınlığı ${d1(d.params.wall)} mm, taban ${d1(d.params.floor)} mm, iç köşe R${d1(d.params.rIn)}, dış köşe R${d1(d.params.rOut)}.`,
     `Açıklık konumu duvar boyunca sıfır noktasından, Z gövde altından ölçülür; açıklıklar konnektör + ${d1(rules.cutout_clearance_xy)} mm boşlukla.`,
   ];
@@ -414,7 +535,7 @@ function baseSheet(ctx) {
   if (d.fasteningMethod === 'helicoil' && ins0) n.push(`Helicoil yuvaları: Ø${d2(ins0.drill)} matkap, ${d.standoffs[0].screw} STI kılavuz, girişte 90° havşa Ø${d2(ins0.csk)}; burç yüzeyden 0,25–0,5·P içeride, tang kırılır.`);
   if (d.fasteningMethod === 'nut' && ins0) n.push(ins0.shape === 'hex' ? `Somun cepleri tabandan: ${ins0.code} ${d.standoffs[0].screw} için altıgen cep (SW + boşluk); somun vidayla yukarı çekilir.` : `Kare somun yuvaları standoff yanında, kavite tarafına açık (${ins0.code} ${d.standoffs[0].screw}).`);
   if (d.fasteningMethod === 'standoff' && ins0) n.push(`Hazır aralayıcılar ${d.standoffs[0].screw} × ${d2(ins0.L)} SW ${d2(ins0.sw)} tabandaki geçiş deliklerine ${ins0.ends === 'ff' ? 'alttan vidayla' : 'altta somunla'} bağlanır.`);
-  y = notes(out, colX, y, 91, 'NOTLAR', n);
+  y = fitNotes(out, colX, y, 91, 'NOTLAR', n);
   if (d.bom.length && y < 158) notes(out, colX, y + 3, 91, 'BAĞLANTI ELEMANLARI', d.bom, 2.0);
 
   titleBlock(out, ctx.info, 'GÖVDE', 1, ctx.sheetCount || 2, s);
@@ -488,6 +609,7 @@ function lidSheet(ctx) {
   }
   const n = [
     ...toleranceNotes(rules, dl),
+    ...edgeNotes(d, 'lid'),
     `Kapak kalınlığı ${d1(d.params.lidT)} mm. Konumlandırma dili ${d1(d.params.lipT)} mm, gövdeye ${d2(d.params.fit)} mm boşlukla oturur.`,
     'Delik koordinatları gövde ile aynı sıfır noktasına göredir.',
   ];
@@ -497,7 +619,7 @@ function lidSheet(ctx) {
     n.push(`Kapağın alt yüzü conta yüzeyidir: düz ve çiziksiz olmalı. ${sunk ? 'Havşalara sıvı sızdırmazlık.' : 'Vida başlarına sızdırmazlık pulu.'}`);
   }
   if (rules.process === 'fdm') n.push('Baskı yönü: kapağın dış yüzü tablaya; borular ve dil yukarı.');
-  notes(out, 194, y, 91, 'NOTLAR', n);
+  fitNotes(out, 194, y, 91, 'NOTLAR', n);
 
   titleBlock(out, { ...ctx.info, material: ctx.info.lidMaterial || ctx.info.material, process: ctx.info.lidProcess || ctx.info.process }, 'KAPAK', 2, ctx.sheetCount || 2, s);
   return { title: 'Kapak', svg: sheetSvg(out), scale: s };
