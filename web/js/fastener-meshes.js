@@ -11,7 +11,7 @@ import { headProfile, headTop, driveOutline } from './screw-shapes.js';
 
 const TAU = Math.PI * 2;
 const HEX_E_VIS = 2 / Math.sqrt(3);
-const COARSE_P = { M2: 0.4, 'M2.5': 0.45, M3: 0.5, M4: 0.7 };
+const COARSE_P = { M2: 0.4, 'M2.5': 0.45, M3: 0.5, M4: 0.7, M5: 0.8, M6: 1.0 };
 export const pitchFor = (size, d) => COARSE_P[size] ?? Math.max(0.35, 0.15 * d);
 
 /** Paylaşılan PBR malzemeler; envMap verilirse metal yansıması gerçekçi görünür */

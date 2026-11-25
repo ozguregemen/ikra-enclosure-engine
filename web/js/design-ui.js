@@ -6,6 +6,8 @@ import { computeDesign, defaultParams, paramHint, pickScrew, screwTable, library
 import { buildSheets, exportPdf } from './drawing.js';
 import { createToolbox, headIcon, insertIcon, panelIcon } from './toolbox.js';
 import { FACE_LABEL, holeText } from './panel.js';
+import { loadPreferred, savePreferred, parsePreferredCsv, matchPreferred, bomCsv, preferredTemplateCsv } from './bom.js';
+import { assemblyItems } from './assembly.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -74,6 +76,7 @@ export function createDesignUI({ viewer, setStatus }) {
     insertSpec: { type: 'auto', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' },
     panelLib: null, // panel-parts.json
     panelParts: [], // [{ uid, type, size, face, u, v, custom }] — null = otomatik
+    preferred: loadPreferred(), // şirket tercihli parça listesi (yalnızca bu tarayıcıda)
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -112,6 +115,7 @@ export function createDesignUI({ viewer, setStatus }) {
         fasteners: state.fasteners,
         evaluate: evaluateSpec,
         evaluatePanel,
+        preferred: () => state.preferred.items,
         onApply: (spec, ispec, cspec, panel) => setToolboxSpec(spec, ispec, cspec, panel),
       });
     }
@@ -667,6 +671,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const bom = d.bom || [];
     $('#bom-title').classList.toggle('hidden', !bom.length);
     $('#bom-list').innerHTML = bom.map((line) => `<li>${esc(line)}</li>`).join('');
+    renderPreferredMatch(d);
     renderScrewPick(d);
     renderInsertPick(d);
     renderCornerPick(d);
@@ -770,6 +775,7 @@ export function createDesignUI({ viewer, setStatus }) {
   function onWorkerMessage(ev) {
     const msg = ev.data;
     if (state.drawingId !== null && msg.id === state.drawingId) { onDrawing(msg); return; }
+    if (state.asmId && msg.id === state.asmId) { onAssemblyStep(msg); return; }
     if (msg.id !== state.pendingId) return;
     if (msg.type === 'progress') {
       if (msg.stage === 'engine' && state.firstBuild) setStatus('CAD çekirdeği yükleniyor… (ilk seferde ~6 MB)');
@@ -823,6 +829,69 @@ export function createDesignUI({ viewer, setStatus }) {
     if (state.result) download(state.result.files.stlLid, `${fileStem()}_kapak.stl`, 'model/stl');
   });
 
+  /* ---------- Malzeme listesi (CSV) ve tercihli parça listesi ---------- */
+
+  const projectInfo = () => {
+    const proc = state.index?.processes.find((p) => p.id === state.process);
+    return {
+      project: fileStem(), material: state.rules?.label || '', process: proc?.label || '',
+      date: new Date().toISOString().slice(0, 10), version: $('#app-version').textContent.replace(/^Sürüm\s*/, 'Ikra v'),
+      bodies: [
+        { name: `Gövde (${fileStem()}_govde)`, material: state.rules?.label || '', spec: proc?.label || '' },
+        { name: `Kapak (${fileStem()}_kapak)`, material: state.rules?.label || '', spec: proc?.label || '' },
+      ],
+    };
+  };
+
+  /** Tercihli liste yüklüyse: BOM satırlarının kaçı stokta, hangileri değil */
+  function renderPreferredMatch(d = state.design) {
+    const pref = state.preferred;
+    const n = pref.items.length;
+    $('#pref-sum').textContent = n ? `${n} kalem${pref.name ? ' · ' + pref.name : ''}` : 'yüklü değil';
+    $('#pref-clear').disabled = !n;
+    const parts = d?.parts || [];
+    const box = $('#pref-match');
+    if (!n || !parts.length) { box.classList.add('hidden'); return; }
+    const miss = parts.filter((p) => !matchPreferred(p, pref.items));
+    box.classList.remove('hidden');
+    box.innerHTML = miss.length
+      ? `<span class="t-warn">★ ${parts.length - miss.length}/${parts.length} kalem tercihli listede.</span> Listede olmayanlar: ` +
+        miss.map((p) => `<b>${esc([p.standard || p.name, p.size + (p.length ? '×' + String(p.length).replace('.', ',') : ''), p.material].filter(Boolean).join(' '))}</b>`).join(', ')
+      : `<span class="t-ok">★ Tüm ${parts.length} kalem tercihli listede; stok kodları BOM CSV'de.</span>`;
+  }
+
+  $('#dl-bom').addEventListener('click', () => {
+    const d = state.design;
+    if (!d?.parts?.length) return;
+    download(new TextEncoder().encode(bomCsv(d.parts, state.preferred, projectInfo())), `${fileStem()}_ikra_bom.csv`, 'text/csv');
+  });
+  $('#pref-template').addEventListener('click', () => {
+    download(new TextEncoder().encode(preferredTemplateCsv(state.design?.parts || [], state.preferred)), 'ikra_tercihli_parcalar.csv', 'text/csv');
+  });
+  $('#pref-clear').addEventListener('click', () => {
+    state.preferred = { items: [], name: '', date: '' };
+    savePreferred(state.preferred);
+    renderPreferredMatch();
+    setStatus('Tercihli parça listesi kaldırıldı.');
+    setTimeout(() => setStatus(null), 1800);
+  });
+  $('#pref-file').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const { items, skipped } = parsePreferredCsv(await file.text());
+      if (!items.length) throw new Error('Geçerli satır bulunamadı (standart ve stok kodu dolu olmalı).');
+      state.preferred = { items, name: file.name, date: new Date().toISOString().slice(0, 10) };
+      const saved = savePreferred(state.preferred);
+      renderPreferredMatch();
+      setStatus(`Tercihli liste yüklendi: ${items.length} kalem${skipped ? `, ${skipped} satır atlandı` : ''}${saved ? '' : ' (tarayıcıda saklanamadı; sayfa yenilenince kaybolur)'}.`);
+      setTimeout(() => setStatus(null), 2600);
+    } catch (err) {
+      setStatus('Tercihli liste okunamadı: ' + err.message, { error: true });
+    }
+  });
+
   /* ---------- Teknik resim ---------- */
 
   const dialog = $('#drawing-dialog');
@@ -833,8 +902,39 @@ export function createDesignUI({ viewer, setStatus }) {
     state.drawingId = ++state.seq;
     $('#drawing-btn').disabled = true;
     $('#drawing-btn').lastElementChild.textContent = 'Hazırlanıyor…';
-    getWorker().postMessage({ type: 'drawing', id: state.drawingId });
+    const d = state.result.design;
+    getWorker().postMessage({
+      type: 'drawing', id: state.drawingId,
+      assembly: { items: assemblyItems(d, state.analysis.board.top), explode: explodeOf(d) },
+    });
   }
+  const explodeOf = (d) => Math.round(Math.max(d.outer.H * 0.75, 10));
+
+  /* Montaj STEP'i: gövde + kapak + bağlantı/panel elemanları (isteğe bağlı, ayrı üretilir) */
+  function requestAssemblyStep() {
+    if (!state.result) return;
+    if (state.pendingId !== null) { setStatus('Muhafaza güncelleniyor, birazdan tekrar dene.', { error: true }); return; }
+    state.asmId = ++state.seq;
+    const btn = $('#dl-step-asm');
+    btn.disabled = true;
+    btn.lastElementChild.textContent = 'Hazırlanıyor…';
+    const stem = fileStem();
+    getWorker().postMessage({
+      type: 'assemblyStep', id: state.asmId, items: assemblyItems(state.result.design, state.analysis.board.top),
+      names: { base: `${stem}_govde`, lid: `${stem}_kapak` },
+    });
+  }
+  function onAssemblyStep(msg) {
+    state.asmId = null;
+    const btn = $('#dl-step-asm');
+    btn.disabled = false;
+    btn.lastElementChild.textContent = 'Montaj (bağlantı elemanlarıyla)';
+    if (msg.type === 'error') { setStatus('Montaj STEP üretilemedi: ' + msg.message, { error: true }); return; }
+    download(msg.step, `${fileStem()}_ikra_montaj_${state.process}-${state.material}.step`, 'model/step');
+    setStatus(`Montaj STEP indirildi: gövde, kapak ve ${msg.count} eleman.`);
+    setTimeout(() => setStatus(null), 2400);
+  }
+  $('#dl-step-asm').addEventListener('click', requestAssemblyStep);
 
   function onDrawing(msg) {
     state.drawingId = null;
@@ -848,6 +948,8 @@ export function createDesignUI({ viewer, setStatus }) {
         views: msg.views,
         design: d,
         rules: state.rules,
+        explode: explodeOf(d),
+        preferred: state.preferred.items,
         info: {
           project: fileStem(),
           material: state.rules.label,

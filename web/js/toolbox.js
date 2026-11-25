@@ -9,10 +9,13 @@ import {
 } from './design.js';
 import { headProfile, headTop, driveOutline, driveSection } from './screw-shapes.js';
 import { panelData, panelTitle, holeText, FACE_LABEL } from './panel.js';
+import { preferredHas } from './bom.js';
 
 const NUM = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
 const n = (v) => NUM.format(v);
 const sizeLabel = (size) => size.replace('.', ',');
+/** Arama için katlama: küçük harf, ı→i, aksanlar atılır (ş→s, ç→c…) */
+const fold = (s) => String(s ?? '').toLocaleLowerCase('tr').replace(/ı/g, 'i').normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -503,7 +506,14 @@ const METHOD_LABEL = {
  * evaluate(screwSpec, insertSpec) → null (kart yok) ya da { auto, sel, standoffAuto, standoffNow, ruleMethod, helicoilD }
  * onApply(screwSpec, insertSpec): seçim uygulanınca
  */
-export function createToolbox({ dialog, libraries, fasteners, materials = [], evaluate, evaluatePanel = null, onApply }) {
+export function createToolbox({ dialog, libraries, fasteners, materials = [], evaluate, evaluatePanel = null, preferred = () => [], onApply }) {
+  // Şirket tercihli parça listesi: ★ işareti (standart, boyut, boy)
+  const STAR = '<span class="pref-star" title="Tercihli parça listesinde">★</span>';
+  const isPref = (code, size = null, length = null) => {
+    const items = preferred();
+    return items.length > 0 && preferredHas(items, code, size, length);
+  };
+  let search = '';
   const q = (sel) => dialog.querySelector(sel);
   const [screwLib, insertLib, panelLib] = libraries;
   const panelTypes = panelLib ? libraryTypes(panelLib, 'panel') : [];
@@ -547,6 +557,8 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       panelView: null,
     };
     if (view === 'panel') setPanelView(extra.panelType || panelTypes[0]?.id);
+    search = '';
+    q('#tb-search').value = '';
     render();
     if (!dialog.open) dialog.showModal();
     q('.tb-item[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -565,18 +577,30 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       <button type="button" class="tb-item" role="treeitem" data-washer="${t.id}" aria-selected="${draft.view === 'washer' && t.id === draft.washerView}" title="${esc(t.name)}">
         ${washerIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${active().washer === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
-    const lib = (L, itemFor, count) => `
-      <div class="tb-node"><span class="tb-caret" aria-hidden="true"></span><strong>${esc(L.standard)}</strong><span class="tb-count">${count} tip</span></div>
-      ${L.categories.map((cat) => cat.soon
-        ? `<div class="tb-node lvl1 soon"><span class="tb-caret" aria-hidden="true"></span>${esc(cat.label)}<span class="tb-soon">yakında</span></div>`
-        : `<div class="tb-node lvl1"><span class="tb-caret" aria-hidden="true"></span>${esc(cat.label)}</div>
-          ${(cat.groups || []).map((g) => `
-            <div class="tb-group-node ${closedGroups.has(g.id) ? 'closed' : ''}" role="group">
-              <button type="button" class="tb-node lvl2" data-group="${g.id}" aria-expanded="${!closedGroups.has(g.id)}">
-                <span class="tb-caret" aria-hidden="true"></span>${esc(g.label)}<span class="tb-count">${g.types.length}</span>
+    // Arama: her kelime kod, ad, kısa ad ya da boyutlarda geçmeli (Türkçe karakterler katlanır: ı→i, ş→s…)
+    const tokens = fold(search).split(/\s+/).filter(Boolean);
+    const hit = (t) => !tokens.length || ((hay) => tokens.every((k) => hay.includes(k)))(
+      fold([t.code, t.name, t.short, t.id, t.kind, ...(t.sizes ? Object.keys(t.sizes) : [])].join(' ')));
+    const withStar = (t, html) => (isPref(t.code) ? html.replace('</span><span class="tb-name">', `${STAR}</span><span class="tb-name">`) : html);
+    const lib = (L, itemFor, count) => {
+      const cats = L.categories.map((cat) => {
+        if (cat.soon) return tokens.length ? '' : `<div class="tb-node lvl1 soon"><span class="tb-caret" aria-hidden="true"></span>${esc(cat.label)}<span class="tb-soon">yakında</span></div>`;
+        const groups = (cat.groups || []).map((g) => {
+          const list = g.types.filter(hit);
+          if (!list.length) return '';
+          const closed = !tokens.length && closedGroups.has(g.id);
+          return `
+            <div class="tb-group-node ${closed ? 'closed' : ''}" role="group">
+              <button type="button" class="tb-node lvl2" data-group="${g.id}" aria-expanded="${!closed}">
+                <span class="tb-caret" aria-hidden="true"></span>${esc(g.label)}<span class="tb-count">${list.length}</span>
               </button>
-              <div class="tb-group-items">${g.types.map(itemFor(cat)).join('')}</div>
-            </div>`).join('')}`).join('')}`;
+              <div class="tb-group-items">${list.map((t) => withStar(t, itemFor(cat)(t))).join('')}</div>
+            </div>`;
+        }).join('');
+        return groups ? `<div class="tb-node lvl1"><span class="tb-caret" aria-hidden="true"></span>${esc(cat.label)}</div>${groups}` : '';
+      }).join('');
+      return cats ? `<div class="tb-node"><span class="tb-caret" aria-hidden="true"></span><strong>${esc(L.standard)}</strong><span class="tb-count">${count} tip</span></div>${cats}` : '';
+    };
     const nutItem = (t) => `
       <button type="button" class="tb-item" role="treeitem" data-nut="${t.id}" aria-selected="${draft.view === 'nut' && t.id === draft.insert.nut}" title="${esc(t.name)}">
         ${insertIcon(t.kind === 'square' ? 'squarenut' : 'nut')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'nut' && draft.insert.nut === t.id ? ' · seçili' : ''}</span></span>
@@ -592,9 +616,10 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
         ${panelIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${count ? ` · ${count} eklendi` : ''}</span></span>
       </button>`;
     };
-    q('#tb-tree').innerHTML = lib(screwLib, (cat) => (cat.id === 'washers' ? washerItem : cat.id === 'nuts' ? nutItem : screwItem), types.length + washerTypes.length + nutTypes.length) +
+    const html = lib(screwLib, (cat) => (cat.id === 'washers' ? washerItem : cat.id === 'nuts' ? nutItem : screwItem), types.length + washerTypes.length + nutTypes.length) +
       (insertLib ? lib(insertLib, (cat) => (cat.id === 'standoffs' ? standoffItem : insertItem), insertTypes.length + standoffTypes.length) : '') +
       (panelLib ? lib(panelLib, () => panelItem, panelTypes.length) : '');
+    q('#tb-tree-items').innerHTML = html || `<p class="tb-empty small muted">"${esc(search)}" için sonuç yok. Kod (7045), ad (imbus, rakor) ya da boyut (M5) deneyin.</p>`;
   }
 
   /* ---------- Panel elemanları ---------- */
@@ -843,11 +868,11 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
 
     const sizeChips = [`<button type="button" class="chip" data-size="auto" aria-checked="${S.size === 'auto'}">Otomatik <span class="chip-sub">${esc(autoSize)}</span></button>`]
       .concat(sizes.map((size) => `<button type="button" class="chip ${fits(size) ? '' : 'bad'}" data-size="${esc(size)}" aria-checked="${S.size === size}"` +
-        ` ${fits(size) ? '' : `disabled title="Ø${n(minHole)} PCB deliğinden geçmez"`}>${esc(size)}</button>`)).join('');
+        ` ${fits(size) ? '' : `disabled title="Ø${n(minHole)} PCB deliğinden geçmez"`}>${esc(size)}${isPref(t.code, size) ? STAR : ''}</button>`)).join('');
     const stLabel = { ok: 'uygun', short: 'kısa', adapt: 'uyarlanır', long: 'uzun', na: '' };
     const lenChips = [`<button type="button" class="chip" data-len="auto" aria-checked="${S.length === 'auto'}">Otomatik <span class="chip-sub">${autoL ? n(autoL) + ' mm' : '–'}</span></button>`]
       .concat(lenInfo.map((li) => `<button type="button" class="chip len ${li.status}" data-len="${li.L}" aria-checked="${String(S.length) === String(li.L)}"` +
-        ` title="${esc(li.status === 'na' ? '' : `${stLabel[li.status]}${li.eng === undefined ? '' : li.eng <= 0 ? " · standoff'a ulaşmıyor" : ` · ${n(li.eng)} mm tutunur`}${li.need ? ` · PCB altı ${n(li.need)} mm olur` : ''}`)}">${n(li.L)}</button>`)).join('');
+        ` title="${esc(li.status === 'na' ? '' : `${stLabel[li.status]}${li.eng === undefined ? '' : li.eng <= 0 ? " · standoff'a ulaşmıyor" : ` · ${n(li.eng)} mm tutunur`}${li.need ? ` · PCB altı ${n(li.need)} mm olur` : ''}${isPref(t.code, effSize, li.L) ? ' · tercihli' : ''}`)}">${n(li.L)}${isPref(t.code, effSize, li.L) ? STAR : ''}</button>`)).join('');
 
     const selInfo = lenInfo.find((li) => li.L === selL);
     let lenNote = '';
@@ -1103,6 +1128,11 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       ${fitSection(ev)}`;
   }
 
+  q('#tb-search').addEventListener('input', (e) => { search = e.target.value; renderTree(); });
+  q('#tb-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); q('#tb-tree-items .tb-item')?.click(); }
+    if (e.key === 'Escape' && search) { e.preventDefault(); e.stopPropagation(); e.target.value = ''; search = ''; renderTree(); }
+  });
   q('#tb-tree').addEventListener('click', (e) => {
     const grp = e.target.closest('[data-group]');
     if (grp) {

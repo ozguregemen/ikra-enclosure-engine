@@ -1132,6 +1132,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
 
   // Malzeme listesi (BOM)
   const bom = [];
+  // Yapılandırılmış malzeme listesi (CSV, tercihli parça eşleştirme, montaj paftası balonları)
+  // { qty, kind, standard, name, size, length, material, spec, where, at: [x,y,z], part: 'base'|'lid' }
+  const parts = [];
+  const addPart = (pp) => parts.push({ standard: '', size: '', length: null, material: '', spec: '', where: '', at: null, part: 'base', ...pp });
   const groups = new Map();
   for (const sc of screws) {
     const key = `${sc.code}|${sc.size}|${sc.length}|${sc.role}|${sc.material?.id}`;
@@ -1144,6 +1148,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
     const mat = g.material ? ` ${g.material.tag}` : '';
     const where = { sandwich: 'kapak + PCB', pcb: 'PCB', corner: 'kapak (köşe)' }[g.role] || (g.lid ? 'kapak + PCB' : 'PCB');
     bom.push(`${g.count} × ${g.code ? g.code + ' ' : ''}${g.size}×${len}${mat} ${g.name.toLocaleLowerCase('tr')}${drive}${g.counterbore ? ', gömme' : ''} — ${where}`);
+    addPart({ qty: g.count, kind: 'screw', standard: g.code || '', name: g.name, size: g.size, length: g.length ?? null, material: g.material?.tag || '',
+      spec: [g.driveText, g.counterbore ? 'gömme baş' : ''].filter(Boolean).join(', '), where, at: [g.x, g.y, g.zSeat ?? (g.lid ? zTop : b.top)], part: g.lid ? 'lid' : 'base' });
   }
   // Köşe boss'larının gövde tarafı
   if (cornerBosses.length && cplan) {
@@ -1156,17 +1162,25 @@ export function computeDesign(analysis, rules, params, options = {}) {
         : `${n} × ${ci.id} ısıyla gömülen pirinç insert — köşe boss'larına (delik Ø${f(ci.hole)})`)
       : cplan.method === 'self_tap' ? `Köşe boss'ları: ${n} × Ø${f(cs.selftap_pilot)} ön delik (sac vidası)` : `Köşe boss'ları: ${n} × ${cs.size} kılavuz (matkap Ø${f(cs.tap_drill)})`);
   }
+  if (cornerBosses.length && cplan && cornerBosses[0].insert) {
+    const ci = cornerBosses[0].insert;
+    const c0 = cornerBosses[0];
+    addPart(ci.kind === 'helicoil'
+      ? { qty: cornerBosses.length, kind: 'helicoil', standard: 'DIN 8140', name: 'Helicoil tel dişli burç, serbest dönen', size: cplan.s.size, length: ci.L, material: 'A2', spec: ci.id, where: 'köşe boss', at: [c0.x, c0.y, c0.z1] }
+      : { qty: cornerBosses.length, kind: 'insert', standard: 'ruthex RX', name: 'Isıyla gömülen pirinç insert', size: cplan.s.size, length: ci.L, material: 'CuZn', spec: ci.id, where: 'köşe boss', at: [c0.x, c0.y, c0.z1] });
+  }
   // Baş altı pulları (tip + boyut + malzeme gruplanır)
   const wgroups = new Map();
   for (const sc of screws) {
     if (!sc.washer) continue;
     const w = sc.washer;
     const key = `${w.type}|${w.size}|${w.material?.id}`;
-    if (!wgroups.has(key)) wgroups.set(key, { ...w, count: 0 });
+    if (!wgroups.has(key)) wgroups.set(key, { ...w, count: 0, at: [sc.x, sc.y, sc.zSeat ?? (sc.lid ? zTop : b.top)], lid: sc.lid });
     wgroups.get(key).count++;
   }
   for (const w of wgroups.values()) {
     bom.push(`${w.count} × ${w.code} ${w.size.replace(/^M/, '')}${w.material ? ' ' + w.material.tag : ''} ${w.name.toLocaleLowerCase('tr')} (Ø${f(w.d1)}/Ø${f(w.d2)} × ${f(w.s)}) — vida başı altı`);
+    addPart({ qty: w.count, kind: 'washer', standard: w.code, name: w.name, size: w.size, material: w.material?.tag || '', spec: `Ø${f(w.d1)}/Ø${f(w.d2)} × ${f(w.s)}`, where: 'vida başı altı', at: w.at, part: w.lid ? 'lid' : 'base' });
   }
   // Sıkma torku (kapak ve yalnızca PCB vidaları ayrı)
   const tqText = (t) => `${f(t.T)} N·m (${torqueLimitText(t.limit)})`;
@@ -1181,28 +1195,36 @@ export function computeDesign(analysis, rules, params, options = {}) {
   if (standoffs.length && fasteners) {
     const s = table.find((x) => x.size === standoffs[0].screw);
     const ins = standoffs[0].insert;
+    const st0 = standoffs[0];
+    const stAt = [st0.x, st0.y, st0.z1];
     if (method === 'insert') {
+      addPart({ qty: standoffs.length, kind: 'insert', standard: ins ? 'ruthex RX' : '', name: 'Isıyla gömülen pirinç insert', size: s.size, length: ins ? ins.L : s.insert_length, material: 'CuZn', spec: ins ? ins.id : '', where: 'standoff', at: stAt });
       bom.push(ins
         ? `${standoffs.length} × ${ins.id} ısıyla gömülen pirinç insert (${s.size}; Ø${f(ins.dOut)} × ${f(ins.L)}) — delik Ø${f(ins.hole)}`
         : `${standoffs.length} × ${s.size} ısıyla gömülen insert (L ${f(s.insert_length)}; delik Ø${f(s.insert_hole)})`);
     }
     if (method === 'helicoil' && ins) {
       bom.push(`${standoffs.length} × Helicoil ${s.size} × ${ins.id.replace('.', ',')} (${f(ins.L)} mm), serbest dönen, paslanmaz — DIN 8140`);
+      addPart({ qty: standoffs.length, kind: 'helicoil', standard: 'DIN 8140', name: 'Helicoil tel dişli burç, serbest dönen', size: s.size, length: ins.L, material: 'A2', spec: ins.id, where: 'standoff', at: stAt });
       bom.push(`Gövde: Ø${f(ins.drill)} matkap, ${s.size} STI (Helicoil) kılavuz, girişte 90° havşa Ø${f(ins.csk)}; montaj aleti ve tang kırıcı`);
     }
     if (method === 'tapped' || (method === 'helicoil' && !ins)) bom.push(`${standoffs.length} × ${s.size} kılavuz (matkap Ø${f(s.tap_drill)})`);
     if (method === 'nut' && ins && ins.kind === 'nut') {
+      addPart({ qty: standoffs.length, kind: 'nut', standard: ins.code, name: ins.name, size: s.size, material: ins.material?.tag || '', spec: ins.shape === 'hex' ? 'tabandan cebe' : 'yan yuvaya', where: 'standoff', at: [st0.x, st0.y, ins.zTop] });
       bom.push(`${standoffs.length} × ${ins.code} ${s.size}${ins.material ? ' ' + ins.material.tag : ''} ${ins.name.toLocaleLowerCase('tr')} — ` +
         (ins.shape === 'hex' ? `tabandan cebe (cep SW ${f(ins.s + (rules.process === 'fdm' ? 0.5 : 0.2))})` : 'standoff yanındaki yuvaya'));
     }
     if (method === 'standoff' && ins && ins.kind === 'standoff') {
+      addPart({ qty: standoffs.length, kind: 'standoff', name: `Altıgen aralayıcı, ${ins.ends === 'ff' ? 'dişi-dişi' : 'erkek-dişi'}`, size: s.size, length: ins.L, material: ins.material?.tag || '', spec: `SW ${f(ins.sw)}`, where: 'taban', at: [st0.x, st0.y, (ins.zBottom + ins.zTop) / 2] });
       bom.push(`${standoffs.length} × ${s.size} × ${f(ins.L)} ${ins.ends === 'ff' ? 'dişi-dişi' : 'erkek-dişi'} altıgen aralayıcı, SW ${f(ins.sw)}${ins.material ? ' ' + ins.material.label.toLocaleLowerCase('tr') : ''}` +
         (ins.ends === 'mf' ? ` (erkek diş ${f(ins.male)} mm)` : ''));
       const sc0 = screws[0];
       if (ins.bottom?.kind === 'screw') {
         bom.push(`${standoffs.length} × ${sc0?.code ? sc0.code + ' ' : ''}${s.size}×${ins.bottom.length ?? '?'}${sc0?.material ? ' ' + sc0.material.tag : ''} ${sc0?.name.toLocaleLowerCase('tr') ?? 'vida'} — tabandan aralayıcıya`);
+        addPart({ qty: standoffs.length, kind: 'screw', standard: sc0?.code || '', name: sc0?.name || 'Vida', size: s.size, length: ins.bottom.length ?? null, material: sc0?.material?.tag || '', spec: sc0?.driveText || '', where: 'tabandan aralayıcıya', at: [st0.x, st0.y, z0] });
       } else if (ins.bottom?.kind === 'nut') {
         bom.push(`${standoffs.length} × ${ins.bottom.code} ${s.size}${ins.bottom.material ? ' ' + ins.bottom.material.tag : ''} altıgen somun — taban altında aralayıcıya`);
+        addPart({ qty: standoffs.length, kind: 'nut', standard: ins.bottom.code, name: 'Altıgen somun, normal', size: s.size, material: ins.bottom.material?.tag || '', where: 'taban altı', at: [st0.x, st0.y, z0] });
       }
     }
     if (method === 'self_tap' && tapping) bom.push(`Gövde: ${standoffs.length} × Ø${f(s.selftap_pilot)} ön delik (${s.size} sac vidası dişini kendisi açar; insert gerekmez)`);
@@ -1220,8 +1242,12 @@ export function computeDesign(analysis, rules, params, options = {}) {
     grooveGeom = { L: gL, W: gW, r: gr, width: groove.width, depth: groove.depth };
     cordLength = 2 * (gL + gW) - 8 * gr + 2 * Math.PI * gr;
     bom.push(`1 × Ø${f(seal.cord_d)} silikon kordon conta, ${Math.ceil(cordLength + 10)} mm (uçlar yapıştırılarak halka yapılır)`);
+    addPart({ qty: 1, kind: 'seal', name: 'Silikon kordon conta', size: `Ø${f(seal.cord_d)}`, length: Math.ceil(cordLength + 10), material: 'VMQ', spec: 'uçlar yapıştırılarak halka', where: 'duvar üstü kanal', at: [center[0] + gL / 2, center[1], cavTop - groove.depth / 2] });
     const lidCount = screws.filter((s) => s.lid).length;
-    if (lidCount && !countersunk) bom.push(`${lidCount} × ${screws.find((s) => s.lid).size} sızdırmazlık pulu (vida başı altına)`);
+    if (lidCount && !countersunk) {
+      bom.push(`${lidCount} × ${screws.find((s) => s.lid).size} sızdırmazlık pulu (vida başı altına)`);
+      addPart({ qty: lidCount, kind: 'sealwasher', name: 'Sızdırmazlık pulu', size: screws.find((s) => s.lid).size, where: 'kapak vida başı altı' });
+    }
     if (lidCount && countersunk) bom.push(`Sıvı sızdırmazlık / vida sabitleyici (havşa başlı ${lidCount} kapak vidası için)`);
   }
 
@@ -1235,6 +1261,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
     rfParts: rfAll.filter((pt) => !portIds.has(pt.id)).length ? rfAll.filter((pt) => !portIds.has(pt.id)) : rfAll,
   });
   bom.push(...panel.bom);
+  parts.push(...panel.parts);
 
   // --- DFM kontrolleri ---
   cat = 'genel';
@@ -1465,6 +1492,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
     lidTubes,
     screws,
     bom,
+    parts,
     screwSpec: spec,
     insertSpec: ispec,
     insertType: itype ? { id: itype.id, kind: itype.kind, code: itype.code, name: itype.name } : null,

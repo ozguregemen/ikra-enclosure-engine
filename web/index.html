@@ -31,7 +31,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">V1.7 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">V1.8 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez; tüm hesap bu tarayıcıda yapılır">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -201,12 +201,28 @@
             </div>
             <div class="downloads hidden" id="downloads">
               <button type="button" class="btn dl" id="dl-step"><span class="dl-kind">STEP</span><span>Gövde + kapak (CAD)</span></button>
+              <button type="button" class="btn dl" id="dl-step-asm" title="Gövde, kapak, vidalar, pullar, burçlar, somunlar ve panel elemanları (basitleştirilmiş katı)"><span class="dl-kind">STEP</span><span>Montaj (bağlantı elemanlarıyla)</span></button>
               <button type="button" class="btn dl" id="dl-stl-base"><span class="dl-kind">STL</span><span>Gövde</span></button>
               <button type="button" class="btn dl" id="dl-stl-lid"><span class="dl-kind">STL</span><span>Kapak</span></button>
               <button type="button" class="btn dl" id="drawing-btn"><span class="dl-kind">PDF</span><span>Teknik resim (önizle)</span></button>
             </div>
-            <h3 class="sub-title hidden" id="bom-title">Bağlantı elemanları</h3>
+            <div class="bom-head hidden" id="bom-title">
+              <h3 class="sub-title">Bağlantı elemanları</h3>
+              <button type="button" class="btn small" id="dl-bom" title="Malzeme listesi: Excel için ; ayraçlı CSV (stok kodlarıyla)">BOM (CSV)</button>
+            </div>
             <ul class="bom" id="bom-list"></ul>
+            <div class="pref-match hidden" id="pref-match"></div>
+            <details class="pref-box" id="pref-box">
+              <summary>Tercihli parça listesi <span class="muted" id="pref-sum">yüklü değil</span></summary>
+              <p class="muted small">Şirketin stok kodlarını eşleştirmek için CSV yükle: başlık satırında <b>Standart; Boyut; Boy; Malzeme; Stok kodu; Açıklama</b>
+                (boş alan "hepsi" demek). Toolbox'ta tercihli tip, boyut ve boylar ★ ile işaretlenir; BOM CSV'ye stok kodu yazılır.
+                Liste yalnızca bu tarayıcıda saklanır, hiçbir yere gönderilmez.</p>
+              <div class="pref-actions">
+                <label class="btn small">CSV yükle<input type="file" id="pref-file" accept=".csv,.txt,text/csv" hidden></label>
+                <button type="button" class="btn small" id="pref-template" title="Bu tasarımın parçalarıyla doldurulmuş şablon (stok kodu boş)">Şablon indir</button>
+                <button type="button" class="btn small" id="pref-clear">Listeyi kaldır</button>
+              </div>
+            </details>
             <div class="panel-head dfm-head" id="dfm-anchor">
               <h3 class="sub-title">DFM kontrolleri</h3>
               <div class="dfm-counts" id="dfm-counts"></div>
@@ -306,7 +322,10 @@
       <button type="button" class="btn primary" id="tb-apply">Uygula</button>
     </div>
     <div class="tb-body">
-      <nav class="tb-tree" id="tb-tree" role="tree" aria-label="Kütüphane"></nav>
+      <nav class="tb-tree" id="tb-tree" aria-label="Kütüphane">
+        <input type="search" class="tb-search" id="tb-search" placeholder="Ara: 7045, imbus, M5, rakor…" aria-label="Toolbox'ta ara" autocomplete="off">
+        <div class="tb-tree-items" id="tb-tree-items" role="tree"></div>
+      </nav>
       <section class="tb-preview" aria-label="Önizleme">
         <div class="tb-figure" id="tb-figure"></div>
         <div class="tb-designation" id="tb-designation"></div>
@@ -348,6 +367,7 @@
         <li class="step done"><span class="num">10</span>Somun cebi ve hazır aralayıcılar<span class="tag">V1.5</span></li>
         <li class="step done"><span class="num">11</span>Köşe kapak vidaları, gömme baş<span class="tag">V1.6</span></li>
         <li class="step done"><span class="num">12</span>Panel elemanları: SMA, rakor, basınç dengeleme, ışık borusu, ayak<span class="tag">V1.7</span></li>
+        <li class="step done"><span class="num">13</span>M5–M6, montaj STEP'i ve paftası, BOM CSV, tercihli parçalar, arama<span class="tag">V1.8</span></li>
       </ol>
     </div>
   </dialog>

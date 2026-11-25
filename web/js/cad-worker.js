@@ -12,6 +12,7 @@ import {
   draw,
   makeBox,
   makeCylinder,
+  makeCompound,
   exportSTEP,
   measureVolume,
   drawProjection,
@@ -27,6 +28,8 @@ const VIEW_CAMERAS = {
   back: { dir: [0, 1, 0], x: [-1, 0, 0] },
   right: { dir: [1, 0, 0], x: [0, 1, 0] },
   left: { dir: [-1, 0, 0], x: [0, -1, 0] },
+  // Montaj paftası: önden-sağdan-üstten izometrik (kağıtta yukarı ≈ +Z)
+  iso: { dir: [1, -1, 1], x: [1, 1, 0] },
 };
 
 let lastShapes = null;
@@ -219,6 +222,86 @@ function buildEnclosure(g) {
   return { base, lid };
 }
 
+/* ---------- Montaj: bağlantı ve panel elemanlarının basit katıları (assembly.js tanımlarından) ---------- */
+
+const AX_PLANE = ['YZ', 'ZX', 'XY'];
+
+function axisOf(dir) {
+  const a = [0, 1, 2].reduce((best, k) => (Math.abs(dir[k]) > Math.abs(dir[best]) ? k : best), 0);
+  return { a, s: Math.sign(dir[a]) || 1 };
+}
+
+function boreCut(shape, p, a, start, h, rIn) {
+  if (!rIn) return shape;
+  const d = [0, 0, 0];
+  d[a] = 1;
+  const q = [...p];
+  q[a] = start - 0.1;
+  return shape.cut(makeCylinder(rIn, h + 0.2, q, d));
+}
+
+function primShape(pr) {
+  if (pr.k === 'box') return makeBox(pr.min, pr.max);
+  if (pr.k === 'cone') {
+    return drawCircle(pr.r0).sketchOnPlane('XY', pr.p).extrude(pr.h, { extrusionProfile: { profile: 'linear', endFactor: pr.r1 / pr.r0 } });
+  }
+  const { a, s } = axisOf(pr.dir);
+  const start = s > 0 ? pr.p[a] : pr.p[a] - pr.h;
+  const origin = [...pr.p];
+  origin[a] = start;
+  let shape;
+  if (pr.k === 'hex') {
+    const R = pr.af / Math.sqrt(3);
+    let pen = draw([R, 0]);
+    for (let i = 1; i < 6; i++) pen = pen.lineTo([R * Math.cos((Math.PI / 3) * i), R * Math.sin((Math.PI / 3) * i)]);
+    shape = pen.close().sketchOnPlane(AX_PLANE[a], origin).extrude(pr.h);
+  } else {
+    const d = [0, 0, 0];
+    d[a] = 1;
+    shape = makeCylinder(pr.r, pr.h, origin, d);
+  }
+  return boreCut(shape, origin, a, start, pr.h, pr.rIn);
+}
+
+let itemCache = { key: null, shapes: null };
+/** items: [{ name, part, color, prims }] → [{ shape, name, color, part }] (son istek önbellekte) */
+function buildItems(items) {
+  const key = JSON.stringify(items);
+  if (itemCache.key === key) return itemCache.shapes;
+  const shapes = [];
+  for (const it of items) {
+    try {
+      const list = it.prims.map(primShape);
+      shapes.push({ shape: list.length === 1 ? list[0] : makeCompound(list), name: it.name, color: it.color, part: it.part });
+    } catch (err) {
+      console.warn('Montaj elemanı kurulamadı:', it.name, err);
+    }
+  }
+  itemCache = { key, shapes };
+  return shapes;
+}
+
+/** Patlatılmış montaj (kapak ve kapak elemanları yukarı) — izdüşüm için tek bileşik */
+function explodedAssembly(items, explode) {
+  const { base, lid } = lastShapes;
+  const up = [0, 0, explode];
+  const list = [base.clone(), lid.clone().translate(up)];
+  for (const it of buildItems(items)) list.push(it.part === 'lid' ? it.shape.clone().translate(up) : it.shape.clone());
+  return makeCompound(list);
+}
+
+async function makeAssemblyStep(id, items, names) {
+  if (!lastShapes) throw new Error('Önce muhafaza oluşturulmalı.');
+  const { base, lid } = lastShapes;
+  const parts = buildItems(items);
+  const step = await exportSTEP([
+    { shape: base, name: names.base, color: '#8fa7bd' },
+    { shape: lid, name: names.lid, color: '#c3d0dc' },
+    ...parts.map((x) => ({ shape: x.shape, name: x.name, color: x.color })),
+  ]).arrayBuffer();
+  self.postMessage({ id, type: 'assemblyStep', step, count: parts.length }, [step]);
+}
+
 function packMesh(shape) {
   const m = shape.mesh(MESH_OPTS);
   return {
@@ -234,7 +317,7 @@ function project(shape, view) {
   return { visible: p.visible.toSVGPaths().flat(), hidden: p.hidden.toSVGPaths().flat() };
 }
 
-async function makeDrawing(id) {
+async function makeDrawing(id, assembly = null) {
   if (!lastShapes) throw new Error('Önce muhafaza oluşturulmalı.');
   const t0 = performance.now();
   const { base, lid } = lastShapes;
@@ -242,14 +325,22 @@ async function makeDrawing(id) {
     base: Object.fromEntries(['top', 'front', 'back', 'right', 'left'].map((v) => [v, project(base, v)])),
     lid: Object.fromEntries(['top', 'bottom', 'front'].map((v) => [v, project(lid, v)])),
   };
+  if (assembly) {
+    try {
+      views.assembly = { iso: project(explodedAssembly(assembly.items, assembly.explode), 'iso') };
+    } catch (err) {
+      console.warn('Montaj izdüşümü üretilemedi', err);
+    }
+  }
   self.postMessage({ id, type: 'drawing', views, ms: performance.now() - t0 });
 }
 
 self.onmessage = async (ev) => {
-  if (ev.data.type === 'drawing') {
+  if (ev.data.type === 'drawing' || ev.data.type === 'assemblyStep') {
     try {
       await init();
-      await makeDrawing(ev.data.id);
+      if (ev.data.type === 'drawing') await makeDrawing(ev.data.id, ev.data.assembly || null);
+      else await makeAssemblyStep(ev.data.id, ev.data.items || [], ev.data.names);
     } catch (err) {
       self.postMessage({ id: ev.data.id, type: 'error', message: (err && err.message) || String(err) });
     }

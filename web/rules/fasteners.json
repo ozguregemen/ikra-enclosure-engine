@@ -1,10 +1,12 @@
 {
-  "aciklama": "Metrik vida verileri (mm). Geçiş deliği orta sınıf (ISO 273), baş ölçüleri ISO 7045 yıldız başlı vidanın yaklaşık değerleri, insert ölçüleri ruthex RX serisi (standart boy) veri sayfasındandır; insert/Helicoil seçimi toolbox/inserts.json ile yapılır. Kurum standardına göre düzenleyin.",
-  "standard_lengths": [4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45, 50],
+  "aciklama": "Metrik vida verileri (mm). Geçiş deliği orta sınıf (ISO 273), baş ölçüleri ISO 7045 yıldız başlı vidanın yaklaşık değerleri, insert ölçüleri ruthex RX serisi (standart boy) veri sayfasındandır; insert/Helicoil seçimi toolbox/inserts.json ile yapılır. M5–M6: geçiş deliği ISO 273 orta sınıf (5,5 / 6,6), insert ruthex RX-M5x9,5 ve RX-M6x12,7. Kurum standardına göre düzenleyin.",
+  "standard_lengths": [4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45, 50, 60],
   "screws": [
     { "size": "M2", "d": 2.0, "min_pcb_hole": 2.1, "clearance": 2.4, "tap_drill": 1.6, "selftap_pilot": 1.6, "insert_hole": 3.2, "insert_length": 4.0, "head_d": 4.0, "head_h": 1.6 },
     { "size": "M2.5", "d": 2.5, "min_pcb_hole": 2.6, "clearance": 2.9, "tap_drill": 2.05, "selftap_pilot": 2.0, "insert_hole": 4.0, "insert_length": 5.7, "head_d": 5.0, "head_h": 2.0 },
     { "size": "M3", "d": 3.0, "min_pcb_hole": 3.1, "clearance": 3.4, "tap_drill": 2.5, "selftap_pilot": 2.5, "insert_hole": 4.0, "insert_length": 5.7, "head_d": 5.6, "head_h": 2.4 },
-    { "size": "M4", "d": 4.0, "min_pcb_hole": 4.1, "clearance": 4.5, "tap_drill": 3.3, "selftap_pilot": 3.3, "insert_hole": 5.6, "insert_length": 8.1, "head_d": 7.0, "head_h": 3.1 }
+    { "size": "M4", "d": 4.0, "min_pcb_hole": 4.1, "clearance": 4.5, "tap_drill": 3.3, "selftap_pilot": 3.3, "insert_hole": 5.6, "insert_length": 8.1, "head_d": 7.0, "head_h": 3.1 },
+    { "size": "M5", "d": 5.0, "min_pcb_hole": 5.1, "clearance": 5.5, "tap_drill": 4.2, "selftap_pilot": 4.2, "insert_hole": 6.4, "insert_length": 9.5, "head_d": 10.0, "head_h": 3.8 },
+    { "size": "M6", "d": 6.0, "min_pcb_hole": 6.1, "clearance": 6.6, "tap_drill": 5.0, "selftap_pilot": 5.0, "insert_hole": 8.0, "insert_length": 12.7, "head_d": 12.0, "head_h": 4.6 }
   ]
 }

@@ -85,7 +85,12 @@ export function planPanel(ctx) {
     lipBars = [], standoffs = [], lidTubes = [], cornerBosses = [], lidHoles = [], screws = [], ports = [], groove, seal,
     obstacles = [], boardObstacles = [], rfParts = [], boardTop,
   } = ctx;
-  const out = { items: [], holes: [], spots: [], visuals: [], bom: [], checks: [], hasRf: false };
+  const out = { items: [], holes: [], spots: [], visuals: [], bom: [], parts: [], checks: [], hasRf: false };
+  // Yapılandırılmış malzeme listesi satırı (design.js parts biçimi)
+  const part = (pd, o, face, at, onLid) => ({
+    qty: 1, kind: o.kind || 'panel', standard: o.code ?? pd.code, name: o.name || pd.name, size: o.size ?? pd.size ?? '', length: o.length ?? null,
+    material: o.material || '', spec: o.spec || '', where: FACE_LABEL[face] || '', at, part: onLid ? 'lid' : 'base', type: pd.id,
+  });
   const add = (level, text, fix = null, focus = null) => out.checks.push([level, text, fix, focus]);
   const partId = (name) => {
     const pt = analysis.parts.find((x) => x.name === name);
@@ -166,6 +171,7 @@ export function planPanel(ctx) {
     out.items.push(item);
     for (const q of pos) out.visuals.push({ kind: 'foot', part: 'base', anchor: [q.x, q.y, z0], dir: [0, 0, -1], d: pd.d, h: pd.h });
     out.bom.push(`4 × ${pd.size} mm yapışkanlı lastik ayak — taban köşeleri (köşeden ${f(inset)} mm)`);
+    out.parts.push({ ...part(pd, { name: 'Yapışkanlı lastik ayak', spec: `köşeden ${f(inset)} mm`, material: 'kauçuk' }, 'bottom', [pos[0].x, pos[0].y, z0 - pd.h / 2], false), qty: 4 });
   }
   if (bump > 0 && !feet.length) {
     add('warn', `Tabandan ${f(bump)} mm ${bottomBumps[0].what} çıkıyor: kutu düz oturmaz. Gömme baş (havşa) seçin ya da en az ${f(bump + 0.5)} mm lastik ayak ekleyin.`,
@@ -210,6 +216,10 @@ export function planPanel(ctx) {
     if (pos.length) {
       const Ls = [...new Set(pos.map((q) => q.L))];
       out.bom.push(`${pos.length} × ${pd.size} ışık borusu (akrilik/PC çubuk), L ${Ls.map((v) => f(v)).join(' / ')} mm — ${pos.map((q) => q.led).slice(0, 3).join(', ')}${pos.length > 3 ? '…' : ''} üstü; kapak deliği Ø${f(pd.hole.d)}`);
+      for (const Lx of Ls) {
+        const at = pos.find((q) => q.L === Lx);
+        out.parts.push({ ...part(pd, { name: 'Işık borusu (akrilik/PC çubuk)', length: Lx, material: 'PMMA/PC', spec: `kapak deliği Ø${f(pd.hole.d)}` }, 'lid', [at.x, at.y, zTop - Lx / 2], true), qty: pos.filter((q) => q.L === Lx).length, where: 'LED üstü' });
+      }
     }
   }
 
@@ -469,12 +479,17 @@ export function planPanel(ctx) {
         pig = `; u.FL (IPEX) – ${pd.code.replace(' panel', '')} pigtail kablo Ø1,13 mm, ${Lp} mm`;
       }
       out.bom.push(`1 × ${pd.name.replace(/\s*\(.*\)$/, '')}, somun + tırtıllı pul ile — ${where}${pig}`);
+      out.parts.push(part(pd, { name: pd.name.replace(/\s*\(.*\)$/, ''), spec: `delik ${holeText(pd.hole)}, somun SW ${f(pd.af)}` }, face, [x, y, z], onLid));
+      if (item.pigtail) out.parts.push(part(pd, { kind: 'cable', code: '', name: `u.FL (IPEX) – ${pd.code.replace(' panel', '')} pigtail kablo`, size: 'Ø1,13', length: item.pigtail, spec: 'koaksiyel' }, face, null, onLid));
     } else if (pd.kind === 'gland') {
       out.bom.push(`1 × ${pd.size}×1,5 kablo rakoru (kablo Ø${f(pd.clamp[0])}–${f(pd.clamp[1])} mm, IP68) + ${pd.size}×1,5 kontra somun — ${where}`);
+      out.parts.push(part(pd, { name: 'Kablo rakoru, plastik, kontra somunlu', size: `${pd.size}×1,5`, spec: `kablo Ø${f(pd.clamp[0])}–${f(pd.clamp[1])}, IP68` }, face, [x, y, z], onLid));
     } else if (pd.kind === 'vent') {
       out.bom.push(`1 × M12×1,5 basınç dengeleme elemanı (membranlı) + kontra somun — ${where}`);
+      out.parts.push(part(pd, { name: 'Basınç dengeleme elemanı, membranlı', size: 'M12×1,5', spec: 'kontra somunlu' }, face, [x, y, z], onLid));
     } else {
       out.bom.push(`1 × özel panel elemanı (${holeText(pd.hole)}${pd.af ? `, somun SW ${f(pd.af)}` : ''}) — ${where}`);
+      out.parts.push(part(pd, { name: 'Özel panel elemanı', size: holeText(pd.hole), spec: pd.af ? `somun SW ${f(pd.af)}` : '' }, face, [x, y, z], onLid));
     }
   }
 

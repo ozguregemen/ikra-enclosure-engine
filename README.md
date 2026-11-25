@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.7 (M0–M4 + Toolbox)
+## Şu anki durum: V1.8 (M0–M4 + Toolbox)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -135,6 +135,20 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Değerler tipik başlangıç değerleridir (SMA kesimi Würth/Amphenol yaygın değerleri; rakor anahtar ağzı ve en kalın
   panel yaklaşık): seçilen parçanın veri sayfasıyla doğrulanmalıdır
 
+**Çıktılar ve şirket listesi (V1.8)**
+- M5 ve M6: 11 metrik vida tipi, pullar, somunlar (fasten.it DIN EN ISO tabloları; havşa başlarda teorik dk ISO 2009
+  tablosundan), ruthex RX-M5x9,5 / RX-M5Sx5,8 / RX-M6x12,7 insert, Helicoil M5/M6 (Böllhoff kataloğu),
+  geçiş deliği ISO 273 orta (5,5 / 6,6). Boy serileri yaygın katalog boylarıdır
+- Montaj STEP'i: gövde + kapak + vidalar, pullar, insert/Helicoil, somun, aralayıcı ve panel elemanları
+  (basitleştirilmiş katı, her biri adlı ayrı gövde); istek üzerine ayrı üretilir, normal STEP'i yavaşlatmaz
+- Teknik resimde 3. pafta "Montaj": patlatılmış izometrik görünüş, poz balonları ve parça listesi
+- BOM (CSV): Excel için `;` ayraçlı, ondalık virgüllü, UTF-8; poz numaraları montaj paftasıyla aynı
+  (1 gövde, 2 kapak, sonra elemanlar); stok kodu ve "tercihli" sütunları
+- Tercihli parça listesi: şirket stok listesi CSV olarak yüklenir (Standart; Boyut; Boy; Malzeme; Stok kodu; Açıklama,
+  boş alan "hepsi"); Toolbox'ta tercihli tip/boyut/boy ★ ile işaretlenir, Çıktılar'da listede olmayan kalemler gösterilir;
+  "Şablon indir" bu tasarımın parçalarıyla doldurulmuş boş şablon verir. Liste yalnızca tarayıcıda (localStorage) saklanır
+- Toolbox'ta arama: kod (7045), ad (imbus, rakor, cıvata) ya da boyut (M5); Türkçe karakter duyarsız, Enter ilk sonucu açar
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -172,6 +186,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.4 | Pullar, vida malzemesi/kaplaması, sıkma torku önerisi |
 | V1.5 | Somun cebi (altıgen/kare), hazır altıgen aralayıcılar |
 | V1.6 | Köşe kapak vidaları, ayrı vida grupları, gömme baş, tornavida erişimi |
+| V1.7 | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
+| **V1.8** | M5–M6, montaj STEP'i, montaj paftası (balon + parça listesi), BOM CSV, tercihli parça listesi, Toolbox araması |
 | **V1.7** | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 
 ## Yerelde çalıştırma
@@ -215,6 +231,8 @@ web/                  Yayınlanan statik site
   js/screw-shapes.js  Vida başı ve tahrik izi geometrisi (3B ve çizim ortak)
   js/fastener-meshes.js  Dişli vida, insert, Helicoil ve panel elemanı 3B modelleri (three.js)
   js/panel.js         Panel elemanları: yerleşim, çakışma/kenar kontrolleri, D-delik ve lamba (saf fonksiyonlar)
+  js/assembly.js      Montaj: bağlantı/panel elemanlarının basit katı tanımları (montaj STEP ve paftası)
+  js/bom.js           BOM CSV ve tercihli parça (stok kodu) listesi
   rules/              Süreç × malzeme kural dosyaları
   rules/toolbox/      Toolbox kütüphaneleri (ISO vidalar/pullar/somunlar, dişli burçlar/aralayıcılar, panel elemanları)
   samples/            Örnek STEP dosyası

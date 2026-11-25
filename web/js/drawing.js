@@ -5,7 +5,9 @@
  * Koordinatlar gövdenin dış köşesine (0, 0, 0) göredir; tüm ölçüler mm.
  */
 
-const JSPDF_URL = 'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js';
+import { matchPreferred as matchPref } from './bom.js';
+
+const JSPDF_URL ='https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js';
 const SVG2PDF_URL = 'https://cdn.jsdelivr.net/npm/svg2pdf.js@2.9.0/dist/svg2pdf.umd.min.js';
 const FONT_REG_URL = 'https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf';
 const FONT_BOLD_URL = 'https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-Bold.ttf';
@@ -95,6 +97,8 @@ const VIEW_UV = {
   back: (p) => [-p[0], -p[2]],
   right: (p) => [p[1], -p[2]],
   left: (p) => [-p[1], -p[2]],
+  // cad-worker iso kamerası: yön (1, −1, 1), kağıtta sağ (1, 1, 0)/√2, yukarı (−1, 1, 2)/√6
+  iso: (p) => [(p[0] + p[1]) / Math.SQRT2, -(-p[0] + p[1] + 2 * p[2]) / Math.sqrt(6)],
 };
 const VIEW_LABEL = {
   top: 'ÜST GÖRÜNÜŞ', bottom: 'ALT GÖRÜNÜŞ', front: 'ÖN GÖRÜNÜŞ (−Y)',
@@ -385,7 +389,7 @@ function baseSheet(ctx) {
   y = notes(out, colX, y, 91, 'NOTLAR', n);
   if (d.bom.length && y < 158) notes(out, colX, y + 3, 91, 'BAĞLANTI ELEMANLARI', d.bom, 2.0);
 
-  titleBlock(out, ctx.info, 'GÖVDE', 1, 2, s);
+  titleBlock(out, ctx.info, 'GÖVDE', 1, ctx.sheetCount || 2, s);
   return { title: 'Gövde', svg: sheetSvg(out), scale: s };
 }
 
@@ -464,12 +468,104 @@ function lidSheet(ctx) {
   if (rules.process === 'fdm') n.push('Baskı yönü: kapağın dış yüzü tablaya; borular ve dil yukarı.');
   notes(out, 194, y, 91, 'NOTLAR', n);
 
-  titleBlock(out, ctx.info, 'KAPAK', 2, 2, s);
+  titleBlock(out, ctx.info, 'KAPAK', 2, ctx.sheetCount || 2, s);
   return { title: 'Kapak', svg: sheetSvg(out), scale: s };
 }
 
+/**
+ * Montaj paftası: patlatılmış izometrik görünüş, balonlar ve parça listesi.
+ * Poz numaraları BOM CSV ile aynıdır: 1 gövde, 2 kapak, sonra bağlantı ve panel elemanları.
+ */
+function assemblySheet(ctx) {
+  const { views, design: d } = ctx;
+  const iso = prepView('iso', views.assembly.iso);
+  const g = d.geometry;
+  const e = ctx.explode || 0;
+  const region = { x: 16, y: 24, w: 168, h: 168 };
+  const margin = 12;
+  const s = chooseScale((sc) => sc * iso.w + 2 * margin <= region.w && sc * iso.h + 2 * margin <= region.h);
+  const out = [];
+  const ox = region.x + (region.w - s * iso.w) / 2;
+  const oy = region.y + (region.h - s * iso.h) / 2;
+  // Başlık balon halkasının dışında (sol üst köşe), görünüş etiketsiz
+  const pv = placeView(out, iso, ox, oy, s, '');
+  out.push(text(region.x, region.y - 4, 'MONTAJ (PATLATILMIŞ İZOMETRİK)', 2.6, { bold: true }));
+
+  // Satırlar: gövde, kapak, parçalar (yalnızca çizimde konumu olanlara balon)
+  const [cx, cy] = g.center;
+  const rows = [
+    { name: 'Gövde', qty: 1, std: '', material: ctx.info.material, at: [cx, cy - g.outer.W / 2, g.z0 + (g.cavTop - g.z0) * 0.45], lid: false },
+    { name: 'Kapak', qty: 1, std: '', material: ctx.info.material, at: [cx + g.outer.L * 0.3, cy, g.zTop], lid: true },
+    ...(d.parts || []).map((p) => ({
+      name: p.name, qty: p.qty, std: [p.standard, p.size + (p.length ? '×' + d1(p.length) : '')].filter(Boolean).join(' '),
+      material: p.material, at: p.at, lid: p.part === 'lid', part: p,
+    })),
+  ];
+
+  // Balon yerleşimi: noktadan görünüş merkezinden dışa doğru, görünüş kutusunun 8 mm dışındaki dikdörtgen üzerine;
+  // çakışan balonlar dikdörtgen çevresi boyunca kaydırılır
+  const bx0 = pv.x0 - 8, by0 = pv.y0 - 8, bx1 = pv.x1 + 8, by1 = pv.y1 + 8;
+  const bw = bx1 - bx0, bh = by1 - by0, per = 2 * (bw + bh);
+  const fromS = (t) => {
+    let u = ((t % per) + per) % per;
+    if (u < bw) return [bx0 + u, by0];
+    u -= bw; if (u < bh) return [bx1, by0 + u];
+    u -= bh; if (u < bw) return [bx1 - u, by1];
+    u -= bw; return [bx0, by1 - u];
+  };
+  const toS = ([x, y]) => {
+    if (Math.abs(y - by0) < 1e-6) return x - bx0;
+    if (Math.abs(x - bx1) < 1e-6) return bw + (y - by0);
+    if (Math.abs(y - by1) < 1e-6) return bw + bh + (bx1 - x);
+    return 2 * bw + bh + (by1 - y);
+  };
+  const mx = (pv.x0 + pv.x1) / 2, my = (pv.y0 + pv.y1) / 2;
+  const placed = [];
+  const marks = [];
+  rows.forEach((r, i) => {
+    if (!r.at) return;
+    const [px, py] = pv.toPaper([r.at[0], r.at[1], r.at[2] + (r.lid ? e : 0)]);
+    let dx = px - mx, dy = py - my;
+    if (Math.hypot(dx, dy) < 1e-6) dx = 1;
+    const k = 1 / Math.max(Math.abs(dx) / (bw / 2), Math.abs(dy) / (bh / 2));
+    marks.push({ i, px, py, sPos: toS([mx + dx * k, my + dy * k]) });
+  });
+  marks.sort((a, b) => a.sPos - b.sPos);
+  for (const m of marks) {
+    let t = m.sPos;
+    for (let guard = 0; guard < 80 && placed.some((q) => Math.hypot(q[0] - fromS(t)[0], q[1] - fromS(t)[1]) < 5.6); guard++) t += 2;
+    const [tx, ty] = fromS(t);
+    placed.push([tx, ty]);
+    balloon(out, m.px, m.py, tx, ty, String(m.i + 1));
+  }
+
+  // Parça listesi (sağ sütun)
+  const pref = ctx.preferred || [];
+  const hasPref = pref.length > 0;
+  const clip = (str, w) => { const max = Math.floor(w / 1.12); const t = String(str ?? ''); return t.length > max ? t.slice(0, max - 1) + '…' : t; };
+  const cols = hasPref
+    ? [{ label: 'Poz', w: 7 }, { label: 'Adet', w: 7 }, { label: 'Tanım', w: 31 }, { label: 'Standart / ölçü', w: 25 }, { label: 'Stok kodu', w: 23 }]
+    : [{ label: 'Poz', w: 7 }, { label: 'Adet', w: 7 }, { label: 'Tanım', w: 36 }, { label: 'Standart / ölçü', w: 26 }, { label: 'Malzeme', w: 17 }];
+  const tRows = rows.map((r, i) => {
+    const last = hasPref ? (r.part ? (matchPref(r.part, pref)?.stock || '—') : '') : r.material || '';
+    return [String(i + 1), String(r.qty), clip(r.name, cols[2].w), clip(r.std, cols[3].w), clip(last, cols[4].w)];
+  });
+  let y = table(out, 194, 24, 'PARÇA LİSTESİ', cols, tRows) + 8;
+  const tq = (d.bom || []).find((l) => l.startsWith('Sıkma torku'));
+  const n = [
+    'Patlatılmış görünüş: kapak ve kapak elemanları ' + d1(e) + ' mm yukarı kaydırılmıştır.',
+    'Bağlantı elemanları basitleştirilmiş gösterilir (diş ve tahrik izi yok); ölçüler standart tablolardandır.',
+  ];
+  if (tq) n.push(tq);
+  if (y < 150) notes(out, 194, y, 91, 'NOTLAR', n);
+  titleBlock(out, ctx.info, 'MONTAJ', 3, ctx.sheetCount || 3, s);
+  return { title: 'Montaj', svg: sheetSvg(out), scale: s };
+}
+
 export function buildSheets(ctx) {
-  return [baseSheet(ctx), lidSheet(ctx)];
+  const withAsm = !!ctx.views.assembly?.iso;
+  ctx.sheetCount = withAsm ? 3 : 2;
+  return [baseSheet(ctx), lidSheet(ctx), ...(withAsm ? [assemblySheet(ctx)] : [])];
 }
 
 /* ---------- PDF ---------- */
