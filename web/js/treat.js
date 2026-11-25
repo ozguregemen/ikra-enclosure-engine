@@ -156,7 +156,16 @@ function partPolicy(process, rules, ctx) {
     grooveBottomR: 0,
     grooveEdgeBreak: 0,
     latchRootR: 0,
+    // Geometri yüzünden kaynak değerine ulaşılamayan işlemler: { key, feature, kind, want, got, note } (işlem raporuna yazılır)
+    limited: [],
     src: {},
+  };
+  // %10'a kadar eksik (köşe torusu için bırakılan 0,05 mm pay) sınırlama sayılmaz
+  const limitFloor = (want, got, rule) => {
+    if (got < 0.9 * want - 1e-6) {
+      P.limited.push({ key: 'floor', feature: 'taban–duvar iç köşesi', kind: 'fillet', want: r2(want), got: r2(got),
+        note: `cep köşe radyüsü R${String(r2(rIn)).replace('.', ',')} olduğundan ${got > 0 ? `R${String(r2(got)).replace('.', ',')} ile sınırlandı` : 'uygulanamadı'}; ${rule} için köşe radyüsü en az R${String(r2(want + 0.05)).replace('.', ',')} olmalı` });
+    }
   };
   if (process === 'fdm') {
     P.bedChamfer = FDM_BED_CHAMFER;
@@ -165,6 +174,7 @@ function partPolicy(process, rules, ctx) {
     P.lipRootFillet = FDM_ROOT_FILLET;
     const ff = capBelow(FDM_FLOOR_FILLET_MAX, rIn);
     P.floorFillet = ff >= 0.2 ? r2(ff) : 0;
+    limitFloor(0.5, P.floorFillet, 'FDM-14 (0,5–1 mm)');
     P.bossRootFillet = FDM_ROOT_FILLET;
     P.tubeRootFillet = FDM_ROOT_FILLET;
     // FDM-27: ısıl insert deliği düz, girişte pah yok. Kılavuz: CNC-26 (diş açılacak her delik havşalanır).
@@ -178,8 +188,10 @@ function partPolicy(process, rules, ctx) {
     P.pull = [0, 0, 1];
     P.draftDeg = injectionDraft(depth, wall, rules.draft_angle_min);
     P.bossDraftDeg = Math.max(IM_BOSS_DRAFT, rules.draft_angle_min || 0);
-    const ri = capBelow(Math.max(IM_INNER_R_FACTOR * wall, IM_INNER_R_MIN), rIn);
+    const riWant = Math.max(IM_INNER_R_FACTOR * wall, IM_INNER_R_MIN);
+    const ri = capBelow(riWant, rIn);
     P.floorFillet = ri >= 0.13 ? r2(ri) : 0;
+    limitFloor(riWant, P.floorFillet, 'IM-07 (r_i = 0,5·t, ≥ 0,5 mm)');
     // IM-08: dış radyüs = iç radyüs + et (aynı merkezden; et köşede de üniform)
     P.outerBottomFillet = r2(capBelow(P.floorFillet + floor, rOut));
     P.rimLeadIn = Math.min(0.3, wall / 4); // ağız iç kenarı maça tarafında kalır; giriş pahı kalıplanabilir (IM-39)
@@ -265,6 +277,7 @@ export function treatmentFor(design, rules, lidRules = rules) {
   // Gövdeye özgü olmayan alanlar kapakta kullanılmaz (ve tersi): rapor sade kalsın
   base.lipTipChamfer = 0; base.lipRootFillet = 0; base.lipDraftDeg = 0; base.tubeRootFillet = 0; base.outerTopFillet = 0;
   lid.rimLeadIn = 0; lid.floorFillet = 0; lid.outerBottomFillet = 0; lid.rimOuterBreak = 0; lid.nutDogbone = 0; lid.cutoutBreak = 0;
+  lid.limited = [];
   if (lid.process === 'fdm') lid.bossRootFillet = 0; // kapakta boss yok; boru kökü tubeRootFillet
 
   // IP conta kanalı (ENC-SEAL-02): dip radyüsü kordon kesitine göre, kenarlar ≈ 0,13 mm kırılır.
@@ -291,6 +304,7 @@ export function treatmentFor(design, rules, lidRules = rules) {
     clip.draftDeg = 0; clip.bossDraftDeg = 0; // klips enjeksiyonda zaten yan maça ister (mount.js uyarısı): açı uygulanmaz
     clip.floorFillet = 0; clip.rimLeadIn = 0; clip.rimOuterBreak = 0; clip.outerBottomFillet = 0; clip.lipTipChamfer = 0;
     clip.lipRootFillet = 0; clip.lipDraftDeg = 0; clip.tubeRootFillet = 0; clip.outerTopFillet = 0; clip.cutoutBreak = 0;
+    clip.limited = [];
     clip.latchRootR = r2(Math.max(SNAP_ROOT_FACTOR * (g.din.t || 2), SNAP_ROOT_MIN));
     if (clip.process === 'injection') { clip.bossRootFillet = Math.max(clip.bossRootFillet, 0.3); clip.bossTipChamfer = 0.3; }
   }

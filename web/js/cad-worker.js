@@ -433,9 +433,11 @@ function applyBatch(rep, part, op, shape, items, tag = '') {
   const finish = (used) => {
     items.forEach((it, i) => {
       for (const t of it.treats || []) {
-        const ok = used[i] === 'treated';
-        rep.add({ part, key: t.key, feature: t.feature, kind: t.kind, size: t.size, ok, applied: ok ? t.size : 0,
-          note: ok ? t.note || '' : used[i] === 'plain' ? `işlemsiz geometriye düşüldü${it.err ? ` (${it.err})` : ''}` : 'özellik eklenemedi' });
+        // t.applied / t.limited: geometri yüzünden kaynak değerinin altında kalan işlem (uygulandı ama tam değil)
+        const done = used[i] === 'treated';
+        const ok = done && !t.limited;
+        rep.add({ part, key: t.key, feature: t.feature, kind: t.kind, size: t.size, ok, applied: done ? t.applied ?? t.size : 0,
+          note: done ? t.note || '' : used[i] === 'plain' ? `işlemsiz geometriye düşüldü${it.err ? ` (${it.err})` : ''}` : 'özellik eklenemedi' });
       }
       if (used[i] === 'none') rep.add({ part, key: `${it.key}.bool`, feature: it.feature, kind: 'boolean', size: 1, ok: false, applied: 0, note: `${label} başarısız: özellik atlandı` });
     });
@@ -763,6 +765,8 @@ function buildBaseTreated(g, T, rep, st) {
   const cav = g.cavity;
   const plainOuter = () => roundedSlab(g.outer.L, g.outer.W, g.outer.r, cx, cy, g.z0, hBase);
   const plainPocket = () => roundedSlab(cav.L, cav.W, cav.r, cx, cy, floorTop, hBase);
+  // Politika geometri yüzünden kaynak değerine ulaşamadıysa (ör. cep köşe radyüsü küçük) raporda görünsün
+  for (const l of B.limited || []) rep.add({ part: P, key: `${l.key}.limit`, feature: l.feature, kind: l.kind, size: l.want, ok: false, applied: l.got, note: l.note });
 
   // 1) Dış blok: enjeksiyonda z0'da anma ölçüsü, ağza doğru büyüyen loft (paralel draft, IM-16)
   let outer = null;
@@ -788,6 +792,10 @@ function buildBaseTreated(g, T, rep, st) {
     if ((g.ears || []).length && size > EAR_EMBED - 0.1) { size = EAR_EMBED - 0.1; extra = `kulak kökü ${numTr(EAR_EMBED)} mm gömülü olduğundan ${numTr(size)} mm ile sınırlandı`; }
     size = Math.min(size, 0.45 * g.floor + (bottom[0] === 'fillet' ? g.floor : 0));
     outer = treatEdges(rep, P, bottom[2], bottom[3], bottom[0], size, outer, (e) => (inZ(edgePts(e), g.z0) ? 1 : null), extra);
+    if (size < 0.9 * bottom[1]) {
+      rep.add({ part: P, key: `${bottom[2]}.limit`, feature: bottom[3], kind: bottom[0], size: bottom[1], ok: false, applied: r3(size),
+        note: extra || `taban kalınlığı nedeniyle ${numTr(size)} mm ile sınırlandı` });
+    }
   }
 
   // 2) Cep: taban seviyesinde anma ölçüsü, yukarı büyür (PCB boşluğu hiçbir yükseklikte azalmaz)
@@ -909,7 +917,7 @@ function buildBaseTreated(g, T, rep, st) {
     const treats = [];
     let note = '';
     if (rc < need - 1e-3) note = `kapak dili ucu nedeniyle ${numTr(rc)} mm ile sınırlandı${B.process === 'cnc' ? '; takım burada daha büyük radyüs bırakır' : ''}`;
-    if (rc > 0.05) treats.push({ key: 'corner.concave', feature: "köşe boss'u–duvar birleşimi (içbükey radyüs)", kind: 'fillet', size: r3(rc), note });
+    if (rc > 0.05) treats.push({ key: 'corner.concave', feature: "köşe boss'u–duvar birleşimi (içbükey radyüs)", kind: 'fillet', size: r3(need), applied: r3(rc), limited: rc < 0.9 * need, note });
     if (st.pocketGrow && tb > 0) treats.push({ key: 'corner.draft', feature: "köşe boss'u çıkma açısı", kind: 'draft', size: B.bossDraftDeg });
     const e = 0.4;
     const m = rc > 0.05 ? tryMake(() => {
@@ -1243,7 +1251,7 @@ function buildClipTreated(dn, T, rep) {
     const rootR = Math.max(0, Math.min(C.bossRootFillet, RAIL_CHANNEL_HALF - 0.1 - (Math.abs(b.v) + dn.bossD / 2)));
     const tipC = Math.min(C.bossTipChamfer, 0.4 * (dn.bossD - dn.holeD) / 2);
     const treats = [];
-    if (C.bossRootFillet > 0) treats.push({ key: 'boss.root', feature: "klips boss'u kökü", kind: 'fillet', size: r3(rootR), note: rootR < C.bossRootFillet - 1e-6 ? 'ray kanalı nedeniyle küçültüldü' : '' });
+    if (C.bossRootFillet > 0) treats.push({ key: 'boss.root', feature: "klips boss'u kökü", kind: 'fillet', size: C.bossRootFillet, applied: r3(rootR), limited: rootR < 0.9 * C.bossRootFillet, note: rootR < C.bossRootFillet - 1e-6 ? 'ray kanalı (TS35) nedeniyle küçültüldü' : '' });
     if (tipC > 0.02) treats.push({ key: 'boss.tip', feature: "klips boss'u ucu pahı", kind: 'chamfer', size: r3(tipC) });
     const m = treats.length ? tryMake(() => bossSolid({ x: b.u, y: b.v, zRoot: -dn.tp, zTip: dn.bossZ, rTip: dn.bossD / 2, rootR, tipC, embed: 0.5 })) : { shape: null, err: '' };
     adds.push({ key: 'boss', feature: "klips boss'u", shape: m.shape, err: m.err, plain, treats });

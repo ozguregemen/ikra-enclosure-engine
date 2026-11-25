@@ -314,7 +314,8 @@ function edgeNotes(d, part) {
       } else n.push(`Kalıp çıkma açısı ≥ ${d1(P.draftDeg)}° gerekir; modelde uygulanamadı (işlem raporu).`);
       const ri = got('floor', P.floorFillet);
       const ro = got('outer.bottom', P.outerBottomFillet);
-      if (ri > 0 || ro > 0) n.push(`İç taban köşesi R${d2(ri)}${ro > 0 ? `, dış alt kenar R${d2(ro)} (iç radyüs + et, aynı merkez)` : ''}.`);
+      const roFull = ro >= P.outerBottomFillet - 0.06;
+      if (ri > 0 || ro > 0) n.push(`İç taban köşesi R${d2(ri)}${ro > 0 ? `, dış alt kenar R${d2(ro)} ${roFull ? '(iç radyüs + et, aynı merkez)' : `(IM-08 için R${d2(P.outerBottomFillet)} gerekir; sınırlandı)`}` : ''}.`);
       const sr = got('standoff.root', P.bossRootFillet);
       if ((geo.standoffs || []).some((s) => s.integral !== false) && sr > 0) n.push(`Boss'lar: dış yüz ${d1(P.bossDraftDeg)}° açılı, kök R${d2(sr)}, uçta ${d1(P.bossTipChamfer)}×45° pah.`);
       if ((geo.ears || []).length || (geo.cutouts || []).some((c) => c.z1 <= geo.cavTop)) n.push('Kulaklar ve kapalı yan pencereler kalıpta yan maça ister; bunlarda çıkma açısı uygulanmamıştır.');
@@ -382,11 +383,12 @@ function edgeNotes(d, part) {
       const lt = got('lip.tip', P.lipTipChamfer);
       if (lt > 0) n.push(`Kapak dili ucunda ${d1(lt)}×45° giriş pahı${got('lip.root', P.lipRootFillet) > 0 ? `, kökte R${d2(got('lip.root', P.lipRootFillet))}` : ''}.`);
       if (got('tube.root', P.tubeRootFillet) > 0) n.push(`Vida borusu kökleri R${d2(got('tube.root', P.tubeRootFillet))}.`);
-      if (cnc && got('entry.tube', 1) > 0 && (T.holes?.lidTubes || []).some((h) => h.entry)) n.push(`Geçiş delikleri girişte ${d1(P.holeEntry.clearance)}×45° kırık.`);
+      const lidEntries = [...(T.holes?.lidTubes || []), ...(T.holes?.lidHoles || [])].some((h) => h.entry);
+      if (cnc && lidEntries && (got('entry.tube', 1) > 0 || got('entry.lid', 1) > 0)) n.push(`Geçiş delikleri girişte ${d1(P.holeEntry.clearance)}×45° kırık.`);
     }
   }
   const failed = rep.filter((e) => !e.ok && e.kind !== 'boolean' && e.applied === 0 && !/yan maça/.test(e.note || '')).map((e) => e.feature);
-  if (failed.length) n.push(`Modelde uygulanamayan işlemler (elle tamamlanmalı): ${[...new Set(failed)].slice(0, 4).join(', ')}.`);
+  if (failed.length) n.push(`Modelde uygulanamayan kenar işlemleri: ${[...new Set(failed)].slice(0, 4).join(', ')} (ayrıntı işlem raporunda).`);
   return n;
 }
 
