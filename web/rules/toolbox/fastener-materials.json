@@ -12,6 +12,8 @@
     { "id": "a2", "label": "Paslanmaz A2", "tag": "A2", "family": "stainless", "rp": 450, "mu": 0.2, "conductive": true, "magnetic": false, "finish": "stainless" },
     { "id": "brass", "label": "Pirinç CuZn (CU2)", "tag": "pirinç", "family": "brass", "rp": 340, "mu": 0.15, "conductive": true, "magnetic": false, "finish": "brass" },
     { "id": "pa66", "label": "Polyamid PA66 (naylon, yalıtkan)", "tag": "PA66", "family": "plastic", "rp": 55, "mu": 0.25, "nu": 0.7, "conductive": false, "magnetic": false, "finish": "nylon" },
+    { "id": "brass-ni", "label": "Pirinç, nikel kaplı", "tag": "pirinç Ni", "family": "brass", "rp": 340, "mu": 0.15, "rm": 400, "conductive": true, "magnetic": false, "finish": "stainless" },
+    { "id": "st-zn", "label": "Çelik, galvaniz", "tag": "çelik galv.", "family": "steel", "rp": 400, "mu": 0.125, "rm": 500, "conductive": true, "magnetic": true, "finish": "zinc" },
     { "id": "st200zn", "label": "Çelik 200 HV, galvaniz", "tag": "çelik galv.", "family": "steel", "conductive": true, "magnetic": true, "finish": "zinc" },
     { "id": "springzn", "label": "Yay çeliği, galvaniz", "tag": "yay çeliği", "family": "steel", "conductive": true, "magnetic": true, "finish": "zinc" }
   ]

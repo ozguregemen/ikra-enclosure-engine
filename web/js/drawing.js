@@ -255,7 +255,7 @@ function toleranceNotes(rules) {
   ];
 }
 
-const METHOD_NOTE = { insert: 'ısıl insert', tapped: 'kılavuz', self_tap: 'sac vidası ön deliği', helicoil: 'Helicoil (STI)' };
+const METHOD_NOTE = { insert: 'ısıl insert', tapped: 'kılavuz', self_tap: 'sac vidası ön deliği', helicoil: 'Helicoil (STI)', nut: 'geçiş + somun cebi', standoff: 'aralayıcı geçiş deliği' };
 
 function baseSheet(ctx) {
   const { views, design: d, rules } = ctx;
@@ -350,6 +350,8 @@ function baseSheet(ctx) {
   const ins0 = d.standoffs[0]?.insert;
   if (d.fasteningMethod === 'insert') n.push(`İnsertler${ins0 ? ` (${ins0.id})` : ''} havya ile dik bastırılır; yüzeyle aynı hizada bitmeli.`);
   if (d.fasteningMethod === 'helicoil' && ins0) n.push(`Helicoil yuvaları: Ø${d2(ins0.drill)} matkap, ${d.standoffs[0].screw} STI kılavuz, girişte 90° havşa Ø${d2(ins0.csk)}; burç yüzeyden 0,25–0,5·P içeride, tang kırılır.`);
+  if (d.fasteningMethod === 'nut' && ins0) n.push(ins0.shape === 'hex' ? `Somun cepleri tabandan: ${ins0.code} ${d.standoffs[0].screw} için altıgen cep (SW + boşluk); somun vidayla yukarı çekilir.` : `Kare somun yuvaları standoff yanında, kavite tarafına açık (${ins0.code} ${d.standoffs[0].screw}).`);
+  if (d.fasteningMethod === 'standoff' && ins0) n.push(`Hazır aralayıcılar ${d.standoffs[0].screw} × ${d2(ins0.L)} SW ${d2(ins0.sw)} tabandaki geçiş deliklerine ${ins0.ends === 'ff' ? 'alttan vidayla' : 'altta somunla'} bağlanır.`);
   y = notes(out, colX, y, 91, 'NOTLAR', n);
   if (d.bom.length && y < 158) notes(out, colX, y + 3, 91, 'BAĞLANTI ELEMANLARI', d.bom, 2.0);
 

@@ -232,6 +232,62 @@
         }
       ]
     },
-    { "id": "nuts", "label": "Somunlar", "soon": true, "groups": [] }
+    {
+      "id": "nuts",
+      "label": "Somunlar",
+      "aciklama": "s anahtar ağzı, e köşeden köşeye (en küçük), m yükseklik (en büyük; naylon kilitli somunda h toplam yükseklik); fasten.it standart tabloları. Gövde tarafında somun cebi olarak kullanılır: altıgen somun tabandan, kare somun standoff yanındaki yuvadan takılır.",
+      "groups": [
+        {
+          "id": "hexnuts",
+          "label": "Altıgen somunlar",
+          "types": [
+            {
+              "id": "iso4032", "code": "ISO 4032", "name": "Altıgen somun, normal", "short": "Altıgen, normal", "kind": "hex",
+              "materials": ["a2", "st88zn", "brass", "pa66"],
+              "sizes": {
+                "M2": { "s": 4, "e": 4.32, "m": 1.6 },
+                "M2.5": { "s": 5, "e": 5.45, "m": 2.0 },
+                "M3": { "s": 5.5, "e": 6.01, "m": 2.4 },
+                "M4": { "s": 7, "e": 7.66, "m": 3.2 }
+              }
+            },
+            {
+              "id": "iso4035", "code": "ISO 4035", "name": "Altıgen somun, ince", "short": "Altıgen, ince", "kind": "hex",
+              "materials": ["a2", "st88zn"],
+              "sizes": {
+                "M2": { "s": 4, "e": 4.32, "m": 1.2 },
+                "M2.5": { "s": 5, "e": 5.45, "m": 1.6 },
+                "M3": { "s": 5.5, "e": 6.01, "m": 1.8 },
+                "M4": { "s": 7, "e": 7.66, "m": 2.2 }
+              }
+            },
+            {
+              "id": "iso10511", "code": "ISO 10511", "name": "Naylon kilitli altıgen somun, ince", "short": "Naylon kilitli", "kind": "hex", "locking": true,
+              "materials": ["a2", "st88zn"],
+              "sizes": {
+                "M3": { "s": 5.5, "e": 6.01, "m": 3.9, "mThread": 1.55 },
+                "M4": { "s": 7, "e": 7.66, "m": 5.0, "mThread": 1.95 }
+              }
+            }
+          ]
+        },
+        {
+          "id": "squarenuts",
+          "label": "Kare somunlar (DIN)",
+          "types": [
+            {
+              "id": "din562", "code": "DIN 562", "name": "Kare somun, ince", "short": "Kare, ince (baskıda yuva)", "kind": "square",
+              "materials": ["a2", "st88zn"],
+              "sizes": {
+                "M2": { "s": 4, "e": 5, "m": 1.2 },
+                "M2.5": { "s": 5, "e": 6.3, "m": 1.6 },
+                "M3": { "s": 5.5, "e": 7, "m": 1.8 },
+                "M4": { "s": 7, "e": 8.9, "m": 2.2 }
+              }
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

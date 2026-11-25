@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.4 (M0–M4 + Toolbox)
+## Şu anki durum: V1.5 (M0–M4 + Toolbox)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -96,6 +96,16 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   manyetik vida, PA66 vidanın sınırları, yalnızca PCB vidasının baş/pulunun bileşene çarpması
 - Kural dosyalarına `tensile_strength_mpa` ve `bearing_pressure_mpa`; malzeme verisi `rules/toolbox/fastener-materials.json`
 
+**Somunlar ve hazır aralayıcılar (V1.5)**
+- Somunlar (Toolbox › ISO › Somunlar): ISO 4032, ISO 4035 ince, ISO 10511 naylon kilitli, DIN 562 kare (fasten.it tabloları)
+- Gövde tarafında "somun cebi": altıgen somun tabandan cebe (cep derinliği seçilen vida boyuna göre, uç somundan 1,5·P taşar,
+  tabandan çıkmaz), kare somun standoff yanındaki yuvaya (kavite tarafına açık); boss köşeden köşeye ölçüye göre büyür;
+  tork sınırı somunun gövdeye baskısı
+- Hazır altıgen aralayıcı (Toolbox › DIN · üretici › Aralayıcılar): dişi-dişi (alttan vida, havşa başta tabana havşa) ve
+  erkek-dişi (tabandan geçen erkek diş + ISO 4032 somun); M2.5 ve M3, pirinç Ni / çelik galvaniz / PA66; gövdede boss yok,
+  aralayıcı boyu = PCB altı yükseklik (standart seri, uymazsa bir sonraki standart boy önerilir)
+- 3B'de altıgen/kare/naylon kilitli somun, aralayıcı, alt vida ve alt somun; malzeme listesi ve teknik resim notları
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -130,7 +140,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.1 | Toolbox: ISO vidalar (tip, boyut, boy), havşa |
 | V1.2 | Toolbox 13 tipe: yıldız, düz, imbus, torx, sac vidası (ST) |
 | V1.3 | Dişli burçlar: ısıyla gömülen insert, Helicoil; CNC'ye PEEK ve PTFE |
-| **V1.4** | Pullar, vida malzemesi/kaplaması, sıkma torku önerisi |
+| V1.4 | Pullar, vida malzemesi/kaplaması, sıkma torku önerisi |
+| **V1.5** | Somun cebi (altıgen/kare), hazır altıgen aralayıcılar |
 
 ## Yerelde çalıştırma
 

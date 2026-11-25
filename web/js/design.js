@@ -99,6 +99,7 @@ export const LID_MODES = [
 
 const METHOD_TEXT = {
   insert: 'ısıyla gömülen insert', tapped: 'kılavuz çekilmiş diş', self_tap: 'sac vidası (plastik için)', helicoil: 'Helicoil tel dişli burç',
+  nut: 'somun cebi', standoff: 'hazır aralayıcı',
 };
 
 /**
@@ -196,6 +197,7 @@ const roundTorque = (t) => (t >= 1 ? Math.round(t * 10) / 10 : Math.round(t * 10
 const LIMIT_TEXT = {
   screw: 'vida dayanımı', bearing_lid: 'kapakta baş/pul baskısı', bearing_pcb: 'PCB yüzeyinde baş/pul baskısı',
   strip: 'gövdede diş sıyırma', insert: 'insertin plastikten sökülmesi', helicoil: 'Helicoil yuvası (gövde)',
+  nut_bearing: 'somunun gövdeye baskısı', standoff: 'aralayıcı dişi',
 };
 export const torqueLimitText = (k) => LIMIT_TEXT[k] || k;
 
@@ -426,13 +428,18 @@ export function computeDesign(analysis, rules, params, options = {}) {
   // Gövde tarafı (Toolbox › dişli burçlar): 'auto' = kural dosyası, 'none' = doğrudan kılavuz, ya da burç tipi.
   // Sac vidası dişini plastikte kendisi açar: süreçten ve burç seçiminden bağımsız olarak gövdede ön delik.
   const insertTypes = options.toolbox?.inserts || [];
-  const ispec = { type: 'auto', variant: 'auto', ...(options.insertSpec || {}) };
+  const ispec = { type: 'auto', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto', ...(options.insertSpec || {}) };
   const ruleMethod = rules.fastening || 'insert';
   let method;
   let itype = null;
+  // Somun cebi (ISO › Somunlar) ve hazır aralayıcı (DIN · üretici › Aralayıcılar)
+  const ntype = ispec.type === 'nut' ? (options.toolbox?.nuts || []).find((x) => x.id === ispec.nut) || (options.toolbox?.nuts || [])[0] || null : null;
+  const sotype = ispec.type === 'standoff' ? (options.toolbox?.standoffs || []).find((x) => x.id === ispec.standoff) || (options.toolbox?.standoffs || [])[0] || null : null;
   if (tapping) method = 'self_tap';
   else if (ispec.type === 'auto') method = ruleMethod;
   else if (ispec.type === 'none') method = 'tapped';
+  else if (ispec.type === 'nut' && ntype) method = 'nut';
+  else if (ispec.type === 'standoff' && sotype) method = 'standoff';
   else {
     itype = insertTypes.find((t) => t.id === ispec.type) || null;
     method = itype ? (itype.kind === 'helicoil' ? 'helicoil' : 'insert') : ruleMethod;
@@ -495,6 +502,12 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const lengths = ts ? ts.lengths : fasteners.standard_lengths;
       // Gövde tarafı deliği: insert deliği / Helicoil matkabı / kılavuz matkabı / sac vidası ön deliği
       const ins = method === 'insert' || method === 'helicoil' ? insertFor(itype, s.size, ispec, rules) : null;
+      let avail = available; // vida ucunun inebileceği derinlik (PCB altından)
+      let integral = true; // gövdeyle tek parça boss (hazır aralayıcıda yok)
+      let nutGeo = null;
+      let soGeo = null;
+      let soMat = null;
+      let bottomScrew = null;
       // Plastikte sac vidası: en az 2·d diş boyu, boss dış çapı ≥ 2,5 × ön delik
       const engageD = tapping ? Math.max(2, rules.thread_engagement_d) : rules.thread_engagement_d;
       let featureD;
@@ -510,20 +523,86 @@ export function computeDesign(analysis, rules, params, options = {}) {
         featureD = ins.drill;
         required = ins.v.L + 3.5 * ins.P + 0.5;
         minEngage = ins.v.L;
+      } else if (method === 'nut' && ntype.sizes[s.size]) {
+        // Somun cebi: vida standoff'tan geçer, somunda tutunur. Altıgen somun tabandan cebe, kare somun yandan yuvaya
+        const nz = ntype.sizes[s.size];
+        const Pn = ts?.P ?? 0.5;
+        const fitC = rules.process === 'fdm' ? 0.25 : 0.1;
+        featureD = s.clearance;
+        if (ntype.kind === 'square') {
+          const topWall = Math.max(1.2, 2 * Pn);
+          const nutTop = b.bottom - topWall;
+          const nutBot = nutTop - nz.m - 0.2;
+          minEngage = b.bottom - nutBot + Pn;
+          required = topWall + nz.m + 0.2 + Pn + 1.0;
+          const dx = (cav.min[0] + cav.max[0]) / 2 - h.x;
+          const dy = (cav.min[1] + cav.max[1]) / 2 - h.y;
+          const axis = Math.abs(dx) >= Math.abs(dy) ? 0 : 1;
+          nutGeo = { shape: 'square', s: nz.s + 2 * fitC, z0: nutBot, z1: nutTop, axis, dir: Math.sign(axis === 0 ? dx : dy) || 1,
+            area: nz.s * nz.s - (Math.PI / 4) * s.clearance * s.clearance, nz };
+        } else {
+          // Cep derinliği vida boyuna göre ayarlanır: somun, vida ucu somundan 1,5·P taşacak yükseklikte durur.
+          // En az tutunma = somun üstünde PCB altına 1,2 mm et + somun + 1,5·P; en fazla = uç tabandan 0,8 mm içeride.
+          minEngage = 1.2 + nz.m + 1.5 * Pn;
+          required = minEngage + 0.3;
+          nutGeo = { shape: 'hex', s: nz.s + 2 * fitC, z0, depth: nz.m + 0.6, nutTop: z0 + nz.m + 0.6, Pn,
+            area: 0.866 * nz.s * nz.s - (Math.PI / 4) * s.clearance * s.clearance, nz };
+        }
+      } else if (method === 'standoff' && sotype.sizes[s.size]) {
+        // Hazır aralayıcı: gövdede boss yok; aralayıcı tabana alttan vida (dişi-dişi) ya da somunla (erkek-dişi) bağlanır
+        const sz = sotype.sizes[s.size];
+        integral = false;
+        const Ls = p.standoffHeight;
+        if (!sz.lengths.some((x) => Math.abs(x - Ls) < 0.05)) {
+          const next = sz.lengths.find((x) => x >= Ls - 1e-6) ?? sz.lengths[sz.lengths.length - 1];
+          noteSpec('error', `Hazır aralayıcı boyu = PCB altı yükseklik (${f(Ls)} mm) standart değil; ${next} mm aralayıcı için PCB altı yüksekliği ${next} mm yap.`,
+            { key: 'standoffHeight', value: next, label: `${next} mm uygula` });
+        }
+        soMat = resolveScrewMaterial(sotype, ispec.standoffMat, matList);
+        featureD = s.clearance;
+        required = 0;
+        if (sotype.ends === 'ff') {
+          // Alttan vida: üst ve alt vida aralayıcının yarısını paylaşır
+          const half = Ls / 2 - 0.25;
+          const gB = floor;
+          const minB = Math.min(s.d, half - 0.25);
+          const Lb = lengths.find((x) => x - gB >= minB - 1e-9 && x - gB <= half + 1e-9) ?? lengths.find((x) => x - gB >= minB - 1e-9) ?? null;
+          const eB = Lb !== null ? Math.min(half, Lb - gB) : half;
+          if (Lb === null || Lb - gB > half + 1e-9) noteSpec('warn', `${s.size} alttan vida için ${f(Ls)} mm aralayıcıda uygun standart boy yok; daha uzun aralayıcı seç.`);
+          bottomScrew = { L: Lb, eng: eB };
+          avail = Ls - eB - 0.2;
+          minEngage = Math.max(0.6 * s.d, Math.min(s.d, avail - 0.3));
+          if (avail - 0.3 < 0.8 * s.d) noteSpec('info', `${f(Ls)} mm aralayıcıda üst ve alt vida yalnızca ~${f(Math.max(0, avail - 0.3))} mm tutunur (< 0,8·d); daha uzun aralayıcı önerilir.`);
+        } else {
+          const fd = Math.max(2.5, Math.round(0.65 * Ls * 10) / 10);
+          avail = fd + 0.3;
+          minEngage = Math.min(s.d, fd - 0.2);
+          const nutM = (options.toolbox?.nuts || []).find((x) => x.id === 'iso4032')?.sizes[s.size]?.m ?? 0.8 * s.d;
+          const Pn = ts?.P ?? 0.5;
+          if (sz.male < floor + nutM + Pn - 1e-9) {
+            noteSpec('warn', `Erkek-dişi aralayıcının ${sz.male} mm erkek dişi, ${f(floor)} mm taban + ${f(nutM)} mm somunu geçmiyor; dişi-dişi aralayıcı + alttan vida seç.`,
+              { key: 'standoffType', value: 'hex-ff', label: 'Dişi-dişi seç' });
+          }
+        }
+        soGeo = { sw: sz.sw, L: Ls, ends: sotype.ends, male: sz.male || 0 };
       } else {
         featureD = method === 'self_tap' ? s.selftap_pilot : s.tap_drill;
         required = engageD * s.d + 0.5;
         minEngage = engageD * s.d;
         if (method === 'helicoil') noteSpec('warn', `${s.size} için Helicoil verisi yok; doğrudan kılavuz olarak hesaplandı.`);
+        if (method === 'nut') noteSpec('error', `${ntype.code} ${s.size} boyutunda yok; başka somun ya da vida boyutu seç.`);
+        if (method === 'standoff') noteSpec('error', `${sotype.name} ${s.size} boyutunda yok (yalnızca ${Object.keys(sotype.sizes).join(', ')}).`);
       }
       let od = Math.max(rules.boss_min_diameter, featureD + 2 * rules.boss_outer_wall);
       if (method === 'self_tap') od = Math.max(od, 2.2 * s.d, tapping ? 2.5 * featureD : 0);
       if (method === 'insert' && ins) od = Math.max(od, ins.v.d1 + 2 * ins.v.wall);
       if (method === 'helicoil' && ins) od = Math.max(od, ins.dhc + 2 * rules.boss_outer_wall);
+      if (nutGeo) od = Math.max(od, nutGeo.nz.e + 2 * (rules.process === 'fdm' ? 0.25 : 0.1) + 2 * 1.2);
+      if (soGeo) od = soGeo.sw * 1.155;
 
-      if (available < required - 1e-6) {
+      if (avail < required - 1e-6) {
         const need = Math.ceil((required - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10;
-        const text = `${s.size} ${METHOD_TEXT[method]} için ${f(required)} mm derinlik gerekir; PCB altı yükseklik + taban ${f(available)} mm veriyor.`;
+        const text = `${s.size} ${METHOD_TEXT[method]} için ${f(required)} mm derinlik gerekir; PCB altı yükseklik + taban ${f(avail)} mm veriyor.`;
         if (!depthIssues.has(text)) {
           depthIssues.set(text, { count: 0, where: at(h), text, fix: { key: 'standoffHeight', value: need, label: `${f(need)} mm uygula` } });
         }
@@ -584,7 +663,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
         if (hit) fastenChecks.push(['warn', `Delik ${at(h)}: vida başı${wz ? '/pul' : ''} (Ø${f(2 * headR)}) ${hit.name} bileşenine değiyor; daha küçük başlı vida ya da pulsuz montaj seç.`]);
       }
       if (!fastenInfo || (tube && !fastenInfo.lidScrew)) {
-        fastenInfo = { grip, available, method, size: s.size, lidScrew: !!tube, minEngage, lengths, floor, required,
+        fastenInfo = { grip, available: avail, method, size: s.size, lidScrew: !!tube, minEngage, lengths, floor, required,
           insert: ins ? { type: itype.id, kind: itype.kind, variant: ins.v.id, L: ins.v.L } : null };
       }
       // Seçilen boy kapak vidalarına uygulanır; kapak borusu olmayan (yalnızca PCB) deliklerde boy otomatik kalır
@@ -594,30 +673,37 @@ export function computeDesign(analysis, rules, params, options = {}) {
       }
       let len;
       if (!explicitLength) {
-        len = pickLength(lengths, grip, available, minEngage);
+        len = pickLength(lengths, grip, avail, minEngage);
       } else {
         const L = Number(spec.length);
-        const st = lengthStatus({ grip, available, minEngage }, L);
+        const st = lengthStatus({ grip, available: avail, minEngage }, L);
         len = { L, engagement: st.engagement, ok: st.status === 'ok', next: null };
         if (st.status === 'long') {
           // Seçilen vida korunur: standoff yükseltilerek delik derinleştirilir (otomatik parametrede uygulanır)
-          const shorter = [...lengths].reverse().find((x) => x - grip <= available - 0.3 && x - grip >= minEngage);
+          const shorter = [...lengths].reverse().find((x) => x - grip <= avail - 0.3 && x - grip >= minEngage);
           const needStandoff = Math.ceil((L - grip + 0.3 - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10;
-          noteSpec('error', `${s.size}×${L} vida standoff deliğinin dibine dayanır (bu tasarımda en fazla ${f(grip + available - 0.3)} mm). ` +
+          noteSpec('error', `${s.size}×${L} vida standoff deliğinin dibine dayanır (bu tasarımda en fazla ${f(grip + avail - 0.3)} mm). ` +
             `PCB altı yükseklik ${f(needStandoff)} mm yapılırsa sığar${shorter ? `; ya da ${s.size}×${shorter} seç` : ''}.`,
             { key: 'standoffHeight', value: needStandoff, label: `${f(needStandoff)} mm uygula` });
         } else if (st.status === 'short') {
-          const longer = lengths.find((x) => x - grip >= minEngage && x - grip <= available - 0.3);
+          const longer = lengths.find((x) => x - grip >= minEngage && x - grip <= avail - 0.3);
           noteSpec('warn', st.engagement <= 0
             ? `${s.size}×${L} vida standoff'a ulaşmıyor: kapak + kart ${f(grip)} mm, en az ${f(grip + minEngage)} mm boy gerekir.`
             : `${s.size}×${L} vida yalnızca ${f(st.engagement)} mm tutunur (en az ${f(minEngage)} mm önerilir).`,
             longer ? { key: 'screwLength', value: longer, label: `${s.size}×${longer} seç` } : null);
         }
       }
-      const depth = Math.min(available, Math.max(required, (len.L ? len.L - grip : 0) + 0.5));
+      const depth = method === 'nut' && nutGeo ? b.bottom - z0 + 0.5 : method === 'standoff' && soGeo ? floor + 0.5
+        : Math.min(avail, Math.max(required, (len.L ? len.L - grip : 0) + 0.5));
       if (!explicitLength && !len.ok) {
         const needAvail = len.next !== null ? len.next - grip + 0.3 : null;
-        const needStandoff = needAvail !== null ? Math.ceil((needAvail - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10 : null;
+        let needStandoff = needAvail !== null ? Math.ceil((needAvail - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10 : null;
+        if (soGeo && needAvail !== null) {
+          // Hazır aralayıcı: bir sonraki standart boy (dişi derinliği / alt vidayla paylaşım buna göre)
+          const series = sotype.sizes[s.size].lengths;
+          const availFor = (Ls) => (soGeo.ends === 'ff' ? Ls - (bottomScrew?.eng ?? Ls / 2) - 0.2 : Math.max(2.5, 0.65 * Ls) + 0.3);
+          needStandoff = series.find((Ls) => Ls > soGeo.L + 1e-6 && availFor(Ls) >= needAvail - 1e-6) ?? null;
+        }
         const text = (len.L ? `${s.size}×${len.L} vida yalnızca ${f(len.engagement)} mm tutunur (en az ${f(minEngage)} mm önerilir).` : `${s.size} için uygun standart boy yok.`) +
           (needStandoff !== null ? ` PCB altı yüksekliği ${f(needStandoff)} mm yapılırsa ${s.size}×${len.next} tam oturur.` : '');
         const key = text;
@@ -628,6 +714,13 @@ export function computeDesign(analysis, rules, params, options = {}) {
           });
         }
         lengthIssues.get(key).count++;
+      }
+      // Altıgen somun cebi: seçilen boya göre somun yüksekliği (uç somundan 1,5·P taşar)
+      if (nutGeo && nutGeo.shape === 'hex' && len.engagement !== undefined && len.engagement !== null) {
+        const tipZ = b.bottom - len.engagement;
+        const nutBot = Math.max(z0 + 0.6, tipZ + 1.5 * nutGeo.Pn);
+        nutGeo.nutTop = nutBot + nutGeo.nz.m;
+        nutGeo.depth = nutGeo.nutTop - z0 + 0.1;
       }
       // Sıkma torku: vida dayanımı, baş/pul altı yüzey basıncı ve gövdede diş/burç sıyırma sınırlarının en küçüğü
       let tqInfo = null;
@@ -642,7 +735,13 @@ export function computeDesign(analysis, rules, params, options = {}) {
           const A = (Math.PI / 4) * Math.max(0, dw * dw - dh * dh);
           limits.push({ key: tube ? 'bearing_lid' : 'bearing_pcb', T: (tq.kT * pAllow * A) / 1000 });
         }
-        if (rules.tensile_strength_mpa) {
+        if (method === 'nut' && nutGeo && rules.bearing_pressure_mpa) {
+          // Çelik somun dişi güçlü; sınır somunun gövde malzemesine yaptığı baskı
+          limits.push({ key: 'nut_bearing', T: (tq.kT * rules.bearing_pressure_mpa * nutGeo.area) / 1000 });
+        } else if (method === 'standoff' && soGeo) {
+          const Le = Math.max(0, len.engagement ?? 0);
+          if (Le > 0) limits.push({ key: 'standoff', T: (tq.kT * 0.6 * (soMat?.rm || 400) * Math.PI * s.d * Le * 0.6 / tmodel.metal_safety) / 1000 });
+        } else if (rules.tensile_strength_mpa) {
           const tau = 0.6 * rules.tensile_strength_mpa;
           const S = rules.conductive ? tmodel.metal_safety : tmodel.plastic_safety;
           const Le = Math.max(0, Math.min(len.engagement ?? 0, depth));
@@ -658,12 +757,42 @@ export function computeDesign(analysis, rules, params, options = {}) {
         torqueOf.push(tqInfo);
       }
       // Helicoil girişinde 90° havşa (Ø yuva dişi dış çapı + 0,1, Böllhoff); burç bilgisi 3B önizleme ve BOM içindir
-      const insertInfo = ins ? (itype.kind === 'helicoil'
+      let insertInfo = ins ? (itype.kind === 'helicoil'
         ? { kind: 'helicoil', id: ins.v.id, L: ins.v.L, dOut: ins.dhc, dIn: s.d, drill: ins.drill, P: ins.P, csk: ins.dhc + 0.1 }
         : { kind: 'heatset', id: ins.v.id, L: ins.v.L, dOut: ins.v.d1, d2: ins.v.d2, dIn: s.d, hole: ins.v.hole, wall: ins.v.wall, P: ts?.P ?? null }) : null;
+      const nutMat = nutGeo ? resolveScrewMaterial(ntype, screwMat?.family === 'stainless' ? 'a2' : screwMat?.family === 'plastic' ? 'pa66' : screwMat?.family === 'brass' ? 'brass' : 'st88zn', matList) : null;
+      if (nutGeo) {
+        insertInfo = {
+          kind: 'nut', id: `${ntype.code} ${s.size}`, type: ntype.id, code: ntype.code, name: ntype.name, shape: nutGeo.shape, locking: !!ntype.locking,
+          s: nutGeo.nz.s, e: nutGeo.nz.e, m: nutGeo.nz.m, dIn: s.d, P: ts?.P ?? null,
+          zTop: nutGeo.shape === 'hex' ? nutGeo.nutTop : nutGeo.z1, axis: nutGeo.axis, dir: nutGeo.dir,
+          material: nutMat ? { id: nutMat.id, tag: nutMat.tag, finish: nutMat.finish } : null,
+        };
+      }
+      let bottom = null;
+      if (soGeo) {
+        // Alt bağlantı: dişi-dişide alttan vida (aynı tip ve malzeme), erkek-dişide taban altında ISO 4032 somun
+        const bNut = (options.toolbox?.nuts || []).find((x) => x.id === 'iso4032');
+        const bNutZ = bNut?.sizes[s.size] || null;
+        bottom = soGeo.ends === 'ff'
+          ? { kind: 'screw', length: bottomScrew?.L ?? null, eng: bottomScrew?.eng ?? null }
+          : { kind: 'nut', code: 'ISO 4032', s: bNutZ?.s ?? 1.8 * s.d, e: bNutZ?.e ?? 2 * s.d, m: bNutZ?.m ?? 0.8 * s.d,
+            material: (() => { const m = resolveScrewMaterial(bNut, screwMat?.family === 'stainless' ? 'a2' : 'st88zn', matList); return m ? { id: m.id, tag: m.tag, finish: m.finish } : null; })() };
+        insertInfo = {
+          kind: 'standoff', id: `${s.size} × ${soGeo.L} ${sotype.name.toLocaleLowerCase('tr')}`, type: sotype.id, ends: soGeo.ends,
+          sw: soGeo.sw, L: soGeo.L, male: soGeo.male, dIn: s.d, P: ts?.P ?? null, zBottom: floorTop, zTop: b.bottom, zBase: z0,
+          material: soMat ? { id: soMat.id, tag: soMat.tag, label: soMat.label, finish: soMat.finish } : null, bottom,
+        };
+      }
+      const bottomCsk = soGeo && soGeo.ends === 'ff' && countersunk ? { dTop: headD + 0.3, depth: (headD + 0.3 - s.clearance) / 2 } : null;
       standoffs.push({
-        x: h.x, y: h.y, od, holeD: featureD, depth, z0: floorTop, z1: b.bottom, screw: s.size, insert: insertInfo,
+        x: h.x, y: h.y, od, holeD: soGeo && soGeo.ends === 'mf' ? s.d + 0.4 : featureD, depth,
+        z0: floorTop, z1: integral ? b.bottom : floorTop, screw: s.size, insert: insertInfo, integral,
         countersink: insertInfo && insertInfo.kind === 'helicoil' ? { dTop: insertInfo.csk, depth: (insertInfo.csk - featureD) / 2 } : null,
+        nutPocket: nutGeo ? (nutGeo.shape === 'hex'
+          ? { shape: 'hex', s: nutGeo.s, z0: z0 - 0.5, z1: z0 + nutGeo.depth }
+          : { shape: 'square', s: nutGeo.s, z0: nutGeo.z0, z1: nutGeo.z1, axis: nutGeo.axis, dir: nutGeo.dir, reach: od / 2 + 1 }) : null,
+        bottomCountersink: bottomCsk ? { ...bottomCsk, zBase: z0 } : null,
       });
       screws.push({
         size: s.size, length: len.L, engagement: len.engagement, ok: len.ok, lid: !!tube, x: h.x, y: h.y,
@@ -763,6 +892,20 @@ export function computeDesign(analysis, rules, params, options = {}) {
         noteSpec('warn', 'PTFE\'de doğrudan çekilen diş sünme yüzünden gevşer: Helicoil kullan.', toHeli);
       } else if (method === 'tapped' && mat === 'peek') {
         noteSpec('info', 'PEEK\'te doğrudan diş çekilebilir; sık sökülecekse Helicoil daha dayanıklıdır.', toHeli);
+      } else if (method === 'nut' && ntype) {
+        if (ntype.kind === 'square') {
+          noteSpec('info', rules.process === 'fdm'
+            ? `${ntype.code} kare somun standoff yanındaki yuvaya PCB takılmadan önce sürülür; yuva üstü köprü olarak basılır.`
+            : `Standoff yanındaki kare somun yuvası ${rules.process === 'cnc' ? 'CNC\'de yandan frezeleme' : 'kalıpta yan maça'} ister; altıgen cep ya da insert daha uygundur.`,
+          rules.process === 'fdm' ? null : { key: 'nutType', value: 'iso4032', label: 'Altıgen cep seç' });
+        } else {
+          noteSpec('info', rules.process === 'cnc'
+            ? 'Somun cebi tabandan açılır: CNC\'de ikinci bağlama gerekir; kılavuz ya da Helicoil daha pratiktir.'
+            : `Somun tabandaki altıgen cebe bastırılır ve vidayla yukarı çekilir; cep tabandan açık kalır${rules.process === 'fdm' ? ' (cep ölçüsü +0,25 mm)' : ''}.`);
+          if (ntype.locking) noteSpec('info', `${ntype.code} naylon kilitli somun titreşimde gevşemeyi önler; vida ucu somundan en az 1–2 diş taşmalıdır (boy buna göre seçildi).`);
+        }
+      } else if (method === 'standoff' && sotype) {
+        noteSpec('info', `Hazır aralayıcı tabana ${sotype.ends === 'ff' ? 'alttan vidayla' : 'erkek dişi ve altta somunla'} bağlanır; ${countersunk && sotype.ends === 'ff' ? 'havşa başlı alt vidalar tabanla aynı hizada kalır.' : 'tabandaki vida başları/somunlar dışarıda kalır, lastik ayak önerilir.'}`);
       }
     }
     for (const [level, text, fix] of specIssues.values()) fastenChecks.push([level, text, fix]);
@@ -821,6 +964,20 @@ export function computeDesign(analysis, rules, params, options = {}) {
       bom.push(`Gövde: Ø${f(ins.drill)} matkap, ${s.size} STI (Helicoil) kılavuz, girişte 90° havşa Ø${f(ins.csk)}; montaj aleti ve tang kırıcı`);
     }
     if (method === 'tapped' || (method === 'helicoil' && !ins)) bom.push(`${standoffs.length} × ${s.size} kılavuz (matkap Ø${f(s.tap_drill)})`);
+    if (method === 'nut' && ins && ins.kind === 'nut') {
+      bom.push(`${standoffs.length} × ${ins.code} ${s.size}${ins.material ? ' ' + ins.material.tag : ''} ${ins.name.toLocaleLowerCase('tr')} — ` +
+        (ins.shape === 'hex' ? `tabandan cebe (cep SW ${f(ins.s + (rules.process === 'fdm' ? 0.5 : 0.2))})` : 'standoff yanındaki yuvaya'));
+    }
+    if (method === 'standoff' && ins && ins.kind === 'standoff') {
+      bom.push(`${standoffs.length} × ${s.size} × ${f(ins.L)} ${ins.ends === 'ff' ? 'dişi-dişi' : 'erkek-dişi'} altıgen aralayıcı, SW ${f(ins.sw)}${ins.material ? ' ' + ins.material.label.toLocaleLowerCase('tr') : ''}` +
+        (ins.ends === 'mf' ? ` (erkek diş ${f(ins.male)} mm)` : ''));
+      const sc0 = screws[0];
+      if (ins.bottom?.kind === 'screw') {
+        bom.push(`${standoffs.length} × ${sc0?.code ? sc0.code + ' ' : ''}${s.size}×${ins.bottom.length ?? '?'}${sc0?.material ? ' ' + sc0.material.tag : ''} ${sc0?.name.toLocaleLowerCase('tr') ?? 'vida'} — tabandan aralayıcıya`);
+      } else if (ins.bottom?.kind === 'nut') {
+        bom.push(`${standoffs.length} × ${ins.bottom.code} ${s.size}${ins.bottom.material ? ' ' + ins.bottom.material.tag : ''} altıgen somun — taban altında aralayıcıya`);
+      }
+    }
     if (method === 'self_tap' && tapping) bom.push(`Gövde: ${standoffs.length} × Ø${f(s.selftap_pilot)} ön delik (${s.size} sac vidası dişini kendisi açar; insert gerekmez)`);
     if (method === 'self_tap' && !tapping) bom.push(`Vidalar plastik için sac vidası tipinde seçilmeli (ön delik Ø${f(s.selftap_pilot)})`);
   }
@@ -1041,7 +1198,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
       lidT,
       zTop,
       lipBars: lipBars.map((l) => ({ min: l.min, max: l.max })),
-      standoffs: standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, z0: s.z0, z1: s.z1, countersink: s.countersink })),
+      standoffs: standoffs.map((s) => ({
+        x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, z0: s.z0, z1: s.z1, countersink: s.countersink,
+        integral: s.integral !== false, nutPocket: s.nutPocket || null, bottomCountersink: s.bottomCountersink || null,
+      })),
       lidTubes: lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, z0: t.z0, z1: t.z1, countersink: t.countersink || null })),
       cutouts,
       groove: grooveGeom,

@@ -68,7 +68,7 @@ export function createDesignUI({ viewer, setStatus }) {
     screwSpec: { type: 'iso7045', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match' },
     fmaterials: null, // fastener-materials.json
     inserts: null, // inserts.json
-    insertSpec: { type: 'auto', variant: 'auto' },
+    insertSpec: { type: 'auto', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' },
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -112,7 +112,9 @@ export function createDesignUI({ viewer, setStatus }) {
 
   const toolboxTypes = () => libraryTypes(state.toolbox, 'screws');
   const washerTypes = () => libraryTypes(state.toolbox, 'washers');
-  const insertTypes = () => libraryTypes(state.inserts);
+  const insertTypes = () => libraryTypes(state.inserts, 'inserts');
+  const standoffTypes = () => libraryTypes(state.inserts, 'standoffs');
+  const nutTypes = () => libraryTypes(state.toolbox, 'nuts');
 
   /** Toolbox seçimini uygula: kullanıcının elle değiştirmediği parametreler yeni vida/burca göre yeniden hesaplanır */
   function setToolboxSpec(spec, ispec = state.insertSpec) {
@@ -120,7 +122,10 @@ export function createDesignUI({ viewer, setStatus }) {
     const next = { type: spec.type, size: spec.size, length: spec.length, material: spec.material || 'auto', washer: spec.washer || 'none', washerMaterial: spec.washerMaterial || 'match' };
     if (t && next.material !== 'auto' && !(t.materials || []).includes(next.material)) next.material = 'auto';
     if (t && next.size !== 'auto' && !t.sizes[next.size]) next.size = 'auto';
-    const nextIns = { type: ispec.type || 'auto', variant: ispec.variant || 'auto' };
+    const nextIns = {
+      type: ispec.type || 'auto', variant: ispec.variant || 'auto', nut: ispec.nut || 'iso4032',
+      standoff: ispec.standoff || 'hex-ff', standoffMat: ispec.standoffMat || 'auto',
+    };
     if (!state.analysis || !state.rules || !state.params) {
       state.screwSpec = next;
       state.insertSpec = nextIns;
@@ -131,6 +136,8 @@ export function createDesignUI({ viewer, setStatus }) {
     state.screwSpec = next;
     state.insertSpec = nextIns;
     refreshAutoParams(prev);
+    // Toolbox'ta aralayıcı boyu seçildiyse PCB altı yükseklik bu boy olur
+    if (nextIns.type === 'standoff' && ispec.standoffLen) { state.params.standoffHeight = Number(ispec.standoffLen); renderParams(); }
     renderFastening();
     update();
   }
@@ -160,6 +167,7 @@ export function createDesignUI({ viewer, setStatus }) {
       standoffNow: state.params.standoffHeight,
       ruleMethod: state.rules.fastening || 'insert',
       helicoilD: state.rules.helicoil_length_d || 2,
+      process: state.rules.process,
     };
   }
 
@@ -177,12 +185,14 @@ export function createDesignUI({ viewer, setStatus }) {
     const st = d?.standoffs?.[0];
     const m = d?.fasteningMethod;
     const ins = st?.insert;
-    const kind = m === 'helicoil' ? 'helicoil' : m === 'insert' ? 'heatset' : 'tapped';
+    const kind = m === 'helicoil' ? 'helicoil' : m === 'insert' ? 'heatset' : m === 'nut' ? 'nut' : m === 'standoff' ? 'standoff' : 'tapped';
     $('#insert-pick-icon').innerHTML = insertIcon(kind);
     $('#insert-pick-title').textContent = !st ? 'Gövde tarafı'
-      : ins ? (ins.kind === 'helicoil' ? `Helicoil ${st.screw} × ${ins.id.replace('.', ',')} (${String(ins.L).replace('.', ',')} mm)` : ins.id)
+      : ins ? (ins.kind === 'helicoil' ? `Helicoil ${st.screw} × ${ins.id.replace('.', ',')} (${String(ins.L).replace('.', ',')} mm)`
+        : ins.kind === 'nut' ? `${ins.code} ${st.screw} ${ins.shape === 'hex' ? 'somun cebi (alttan)' : 'kare somun yuvası'}`
+          : ins.kind === 'standoff' ? `${st.screw} × ${String(ins.L).replace('.', ',')} aralayıcı ${ins.ends === 'ff' ? 'D-D' : 'E-D'}` : ins.id)
         : m === 'self_tap' ? `Ön delik Ø${String(st.holeD).replace('.', ',')}` : m === 'insert' ? `${st.screw} insert` : `${st.screw} kılavuz · Ø${String(st.holeD).replace('.', ',')}`;
-    const how = { insert: 'Isıyla gömülen insert', helicoil: 'Tel dişli burç', tapped: 'Doğrudan diş', self_tap: 'Sac vidası dişini kendisi açar' }[m] || '';
+    const how = { insert: 'Isıyla gömülen insert', helicoil: 'Tel dişli burç', tapped: 'Doğrudan diş', self_tap: 'Sac vidası dişini kendisi açar', nut: 'Somunda tutunur', standoff: `Hazır aralayıcı${ins?.material ? ', ' + ins.material.tag : ''}` }[m] || '';
     $('#insert-pick-sub').textContent = `${how}${state.insertSpec.type === 'auto' ? ' · kural dosyasına göre' : ' · elle seçildi'}`;
   }
 
@@ -252,7 +262,7 @@ export function createDesignUI({ viewer, setStatus }) {
     selectedHoles: state.selectedHoles,
     portOverrides: state.portOverrides,
     sealing: sealingLevel(),
-    toolbox: { types: toolboxTypes(), inserts: insertTypes(), washers: washerTypes(), materials: state.fmaterials?.materials || [], model: state.fmaterials?.model || null },
+    toolbox: { types: toolboxTypes(), inserts: insertTypes(), washers: washerTypes(), nuts: nutTypes(), standoffs: standoffTypes(), materials: state.fmaterials?.materials || [], model: state.fmaterials?.model || null },
     screwSpec: state.screwSpec,
     insertSpec: state.insertSpec,
   });
@@ -314,7 +324,9 @@ export function createDesignUI({ viewer, setStatus }) {
     if (key === 'screwType') { setScrewSpec({ ...state.screwSpec, type: value, length: 'auto' }); return; }
     if (key === 'screwSize') { setScrewSpec({ ...state.screwSpec, size: value, length: 'auto' }); return; }
     if (key === 'screwLength') { setScrewSpec({ ...state.screwSpec, length: Number(value) }); return; }
-    if (key === 'insertType') { setToolboxSpec(state.screwSpec, { type: value, variant: 'auto' }); return; }
+    if (key === 'insertType') { setToolboxSpec(state.screwSpec, { ...state.insertSpec, type: value, variant: 'auto' }); return; }
+    if (key === 'nutType') { setToolboxSpec(state.screwSpec, { ...state.insertSpec, type: 'nut', nut: value }); return; }
+    if (key === 'standoffType') { setToolboxSpec(state.screwSpec, { ...state.insertSpec, type: 'standoff', standoff: value }); return; }
     if (key === 'washer') { setScrewSpec({ ...state.screwSpec, washer: value }); return; }
     if (key === 'screwMaterial') { setScrewSpec({ ...state.screwSpec, material: value }); return; }
     state.params[key] = Number(value);

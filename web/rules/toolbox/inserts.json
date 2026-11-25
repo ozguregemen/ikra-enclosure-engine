@@ -49,6 +49,35 @@
           ]
         }
       ]
+    },
+    {
+      "id": "standoffs",
+      "label": "Aralayıcılar (standoff)",
+      "aciklama": "Hazır altıgen aralayıcılar (üretici serisi, standart yok). sw anahtar ağzı: M3 5,5 mm Würth WA-SSTII; erkek diş boyu 6 mm Würth/Ettinger M2.5 ve M3. Dişi-erkek tipte dişi diş derinliği üreticiye göre değişir (yaklaşık 0,65·L alınır). Boylar yaygın seri.",
+      "groups": [
+        {
+          "id": "hexspacers",
+          "label": "Altıgen aralayıcı",
+          "types": [
+            {
+              "id": "hex-ff", "kind": "standoff", "ends": "ff", "code": "Aralayıcı D-D", "name": "Altıgen aralayıcı, dişi-dişi", "short": "Dişi-dişi (alttan vida)",
+              "materials": ["brass-ni", "st-zn", "pa66"],
+              "sizes": {
+                "M2.5": { "sw": 5, "lengths": [5, 6, 8, 10, 12, 15, 20, 25, 30] },
+                "M3": { "sw": 5.5, "lengths": [5, 6, 8, 10, 12, 15, 20, 25, 30] }
+              }
+            },
+            {
+              "id": "hex-mf", "kind": "standoff", "ends": "mf", "code": "Aralayıcı E-D", "name": "Altıgen aralayıcı, erkek-dişi", "short": "Erkek-dişi (alttan somun)",
+              "materials": ["brass-ni", "st-zn", "pa66"],
+              "sizes": {
+                "M2.5": { "sw": 5, "male": 6, "lengths": [5, 6, 8, 10, 12, 15, 20, 25, 30] },
+                "M3": { "sw": 5.5, "male": 6, "lengths": [5, 6, 8, 10, 12, 15, 20, 25, 30] }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -335,3 +335,88 @@ export function buildInsert(b, mats) {
   group.add(new THREE.Mesh(ringBot, mats.brass));
   return group;
 }
+
+/* ---------- Somun ve aralayıcı ---------- */
+
+/** Dış dişli çubuk (z0 alt, z1 üst), metrik profil */
+function threadedRod(d, P, z0, z1, mat) {
+  const rMaj = d / 2;
+  const rMin = rMaj - 0.6134 * P;
+  const rows = Math.max(8, Math.ceil(((z1 - z0) / P) * 10));
+  const g = revolvedGrid(z0, z1, rows, 36, (t, z) => {
+    let r = rMin + (rMaj - rMin) * threadProfile(frac((z - z0) / P + t / TAU));
+    const lim = rMin * 0.92 + (z - z0) * 1.0; // uçta 45° pah
+    if (lim < r) r = Math.max(rMin * 0.92, lim);
+    return r;
+  });
+  return new THREE.Mesh(g, mat);
+}
+
+/** İç diş (delik yüzeyi), normaller eksene doğru */
+function threadedBore(d, P, z0, z1, mat) {
+  const rMaj = d / 2 + 0.02;
+  const rMin = rMaj - 0.54 * P;
+  const rows = Math.max(8, Math.ceil(((z1 - z0) / P) * 8));
+  return new THREE.Mesh(revolvedGrid(z0, z1, rows, 32, (t, z) => rMin + (rMaj - rMin) * (1 - threadProfile(frac(-z / P + t / TAU))), true), mat);
+}
+
+/** Delikli çokgen prizma (altıgen/kare), kenarları hafif pahlı; z 0..h */
+function holedPrism(points, holeR, h, mat, bevel) {
+  const shape = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(x, y)));
+  const hole = new THREE.Path();
+  hole.absarc(0, 0, holeR, 0, TAU, true);
+  shape.holes.push(hole);
+  const b = Math.min(bevel, h * 0.2);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.01, h - 2 * b), bevelEnabled: b > 0, bevelThickness: b, bevelSize: b, bevelSegments: 1, curveSegments: 28 });
+  g.translate(0, 0, b);
+  return new THREE.Mesh(g, mat);
+}
+
+const hexPoints = (s) => {
+  const R = s / Math.sqrt(3);
+  return Array.from({ length: 6 }, (_, i) => [R * Math.cos((Math.PI / 3) * i + Math.PI / 6), R * Math.sin((Math.PI / 3) * i + Math.PI / 6)]);
+};
+
+/**
+ * Somun. b: { shape: 'hex'|'square', s, m, dIn, P, locking, material: { finish } }
+ * Dönen grup üst yüz z=0, alt yüz z=−m (naylon halka alt tarafta, vidanın çıktığı yönde).
+ */
+export function buildNut(b, mats) {
+  const fm = finishOf(mats, b.material?.finish || 'stainless');
+  const group = new THREE.Group();
+  const P = b.P || pitchFor(null, b.dIn);
+  const metalH = b.locking ? 0.62 * b.m : b.m;
+  const pts = b.shape === 'square'
+    ? [[-b.s / 2, -b.s / 2], [b.s / 2, -b.s / 2], [b.s / 2, b.s / 2], [-b.s / 2, b.s / 2]]
+    : hexPoints(b.s);
+  const body = holedPrism(pts, b.dIn / 2 + 0.02, metalH, fm.body, 0.12);
+  body.position.z = -metalH;
+  group.add(body, threadedBore(b.dIn, P, -metalH, 0, fm.recess));
+  if (b.locking) {
+    // Naylon kilit halkası: daha küçük çaplı yuvarlak yaka + beyaz naylon iç halka
+    const collarH = b.m - metalH;
+    const rc = b.s * 0.47;
+    const collar = new THREE.Mesh(lathe([[b.dIn / 2, 0], [rc, 0], [rc, collarH * 0.8], [rc - 0.15, collarH], [b.dIn / 2, collarH], [b.dIn / 2, 0]], 32), fm.body);
+    collar.position.z = -b.m;
+    const nylon = new THREE.Mesh(lathe([[b.dIn / 2 * 0.92, 0], [rc * 0.82, 0], [rc * 0.82, collarH * 0.55], [b.dIn / 2 * 0.92, collarH * 0.55], [b.dIn / 2 * 0.92, 0]], 32), finishOf(mats, 'nylon').body);
+    nylon.position.z = -b.m - 0.01;
+    group.add(collar, nylon);
+  }
+  return group;
+}
+
+/**
+ * Altıgen aralayıcı. b: { ends: 'ff'|'mf', sw, L, male, dIn, P, material: { finish } }
+ * Dönen grup alt yüz z=0 (taban üstü), üst yüz z=L; erkek diş z<0.
+ */
+export function buildStandoff(b, mats) {
+  const fm = finishOf(mats, b.material?.finish || 'stainless');
+  const group = new THREE.Group();
+  const P = b.P || pitchFor(null, b.dIn);
+  group.add(holedPrism(hexPoints(b.sw), b.dIn / 2 + 0.02, b.L, fm.body, 0.15));
+  // İç diş: dişi-dişide boydan boya, erkek-dişide üstten ~0,65·L
+  const fd = b.ends === 'ff' ? b.L : Math.max(2.5, 0.65 * b.L);
+  group.add(threadedBore(b.dIn, P, b.L - fd, b.L, fm.recess));
+  if (b.ends === 'mf' && b.male) group.add(threadedRod(b.dIn, P, -b.male, 0.05, fm.body));
+  return group;
+}

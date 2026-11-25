@@ -212,9 +212,82 @@ export function washerFigure(w, z) {
   return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="${esc(w.code)} pul ölçü çizimi">${out.join('')}</svg>`;
 }
 
+/* ---------- Somun ve aralayıcı çizimleri ---------- */
+
+/** Somun: üstten (altıgen/kare) ve yan görünüş; s, e, m ölçüleri */
+export function nutFigure(nt, z) {
+  const VW = 320;
+  const VH = 270;
+  const sc = Math.min(110 / z.e, 18);
+  const out = [];
+  const cx = 160;
+  const cy = 90;
+  const poly = nt.kind === 'square'
+    ? [[-z.s / 2, -z.s / 2], [z.s / 2, -z.s / 2], [z.s / 2, z.s / 2], [-z.s / 2, z.s / 2]]
+    : Array.from({ length: 6 }, (_, i) => [(z.s / Math.sqrt(3)) * Math.cos((Math.PI / 3) * i), (z.s / Math.sqrt(3)) * Math.sin((Math.PI / 3) * i)]);
+  out.push(`<polygon class="tf-washer" points="${poly.map(([x, y]) => `${(cx + x * sc).toFixed(2)},${(cy + y * sc).toFixed(2)}`).join(' ')}"/>`);
+  const d = parseFloat(String(z.d || '').replace(',', '.')) || (z.s / 1.8);
+  out.push(`<circle class="tf-hole" cx="${cx}" cy="${cy}" r="${(d / 2) * sc}"/>`);
+  out.push(`<line class="tf-center" x1="${cx - z.e / 2 * sc - 8}" y1="${cy}" x2="${cx + z.e / 2 * sc + 8}" y2="${cy}"/>`);
+  out.push(`<line class="tf-center" x1="${cx}" y1="${cy - z.e / 2 * sc - 8}" x2="${cx}" y2="${cy + z.e / 2 * sc + 8}"/>`);
+  // Anahtar ağzı (düz kenarlar arası) ölçüsü
+  const yS = nt.kind === 'square' ? z.s / 2 : z.s / 2;
+  arrowLine(out, cx + z.e / 2 * sc + 14, cy - yS * sc, cx + z.e / 2 * sc + 14, cy + yS * sc);
+  out.push(`<text class="tf-txt" x="${cx + z.e / 2 * sc + 20}" y="${cy + 4}">s ${n(z.s)}</text>`);
+  // Yan görünüş: yükseklik m
+  const sy = 200;
+  const w = (nt.kind === 'square' ? z.s : z.e) * sc;
+  const hgt = Math.max(3, z.m * sc);
+  out.push(`<rect class="tf-washer" x="${cx - w / 2}" y="${sy}" width="${w}" height="${hgt}"/>`);
+  if (nt.locking) out.push(`<rect class="tf-hole" x="${cx - w * 0.45}" y="${sy + hgt * 0.62}" width="${w * 0.9}" height="${hgt * 0.38}"/>`);
+  arrowLine(out, cx - w / 2 - 14, sy, cx - w / 2 - 14, sy + hgt);
+  out.push(`<text class="tf-txt" x="${cx - w / 2 - 20}" y="${sy + hgt / 2 + 4}" text-anchor="end">${nt.locking ? 'h' : 'm'} ${n(z.m)}</text>`);
+  arrowLine(out, cx - w / 2, sy - 12, cx + w / 2, sy - 12);
+  out.push(`<text class="tf-txt" x="${cx}" y="${sy - 16}" text-anchor="middle">${nt.kind === 'square' ? 's' : 'e'} ${n(nt.kind === 'square' ? z.s : z.e)}</text>`);
+  out.push('<text class="tf-cap" x="8" y="14">Üstten ve yandan</text>');
+  return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="${esc(nt.code)} somun ölçü çizimi">${out.join('')}</svg>`;
+}
+
+/** Altıgen aralayıcı: yan görünüş, boy L, anahtar ağzı, erkek diş */
+export function standoffFigure(so, z, L, d) {
+  const VW = 320;
+  const VH = 270;
+  const male = so.ends === 'mf' ? z.male : 0;
+  const total = L + male;
+  const sc = Math.min(200 / total, 110 / (z.sw * 1.155), 16);
+  const out = [];
+  const cx = 150;
+  const top = 30 + (210 - total * sc) / 2;
+  const w = z.sw * 1.155 * sc;
+  out.push(`<rect class="tf-washer" x="${cx - w / 2}" y="${top}" width="${w}" height="${L * sc}"/>`);
+  out.push(`<line class="tf-thin" x1="${cx - w / 4}" y1="${top}" x2="${cx - w / 4}" y2="${top + L * sc}"/><line class="tf-thin" x1="${cx + w / 4}" y1="${top}" x2="${cx + w / 4}" y2="${top + L * sc}"/>`);
+  // İç diş (gizli çizgi)
+  const fd = so.ends === 'ff' ? L : Math.max(2.5, 0.65 * L);
+  out.push(`<path class="tf-thin tf-hid" d="M${cx - d / 2 * sc} ${top}V${top + fd * sc}M${cx + d / 2 * sc} ${top}V${top + fd * sc}"/>`);
+  if (male) out.push(`<rect class="tf-part" x="${cx - d / 2 * sc}" y="${top + L * sc}" width="${d * sc}" height="${male * sc}"/>`);
+  out.push(`<line class="tf-center" x1="${cx}" y1="${top - 8}" x2="${cx}" y2="${top + total * sc + 8}"/>`);
+  arrowLine(out, cx - w / 2 - 16, top, cx - w / 2 - 16, top + L * sc);
+  out.push(`<text class="tf-txt" x="${cx - w / 2 - 22}" y="${top + L * sc / 2 + 4}" text-anchor="end">L ${n(L)}</text>`);
+  arrowLine(out, cx - w / 2, top - 12, cx + w / 2, top - 12);
+  out.push(`<text class="tf-txt" x="${cx}" y="${top - 16}" text-anchor="middle">SW ${n(z.sw)}</text>`);
+  if (male) {
+    arrowLine(out, cx + w / 2 + 14, top + L * sc, cx + w / 2 + 14, top + total * sc);
+    out.push(`<text class="tf-txt" x="${cx + w / 2 + 20}" y="${top + (L + male / 2) * sc + 4}">${n(male)}</text>`);
+  }
+  out.push('<text class="tf-cap" x="8" y="14">Yan görünüş</text>');
+  return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="Aralayıcı ölçü çizimi">${out.join('')}</svg>`;
+}
+
 /* ---------- Dişli burç simgesi ve kesit çizimi ---------- */
 
 export function insertIcon(kind) {
+  if (kind === 'nut' || kind === 'squarenut') {
+    const body = kind === 'nut' ? '<path d="M8.5 4.5h11L25 13l-5.5 8.5h-11L3 13z"/>' : '<path d="M5 4h18v18H5z"/>';
+    return `<svg class="head-icon" viewBox="0 0 28 26" aria-hidden="true">${body}<circle cx="14" cy="13" r="4" style="fill:var(--surface-2)"/></svg>`;
+  }
+  if (kind === 'standoff') {
+    return '<svg class="head-icon" viewBox="0 0 28 26" aria-hidden="true"><path d="M8 2h12v20H8z"/><path class="hi-thread" d="M14 2v20M11 2v20M17 2v20"/><path d="M11.5 22h5v3h-5z"/></svg>';
+  }
   if (kind === 'helicoil') {
     return '<svg class="head-icon" viewBox="0 0 28 26" aria-hidden="true"><path class="hi-thread" d="M8 5l12 2.5M8 9l12 2.5M8 13l12 2.5M8 17l12 2.5M8 21l12 2.5"/>' +
       '<path d="M8 4v19M20 4v19" style="fill:none"/></svg>';
@@ -329,7 +402,11 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   const washerTypes = libraryTypes(screwLib, 'washers');
   const washerById = (id) => washerTypes.find((w) => w.id === id) || null;
   const matById = (id) => materials.find((m) => m.id === id) || null;
-  const insertTypes = libraryTypes(insertLib);
+  const insertTypes = libraryTypes(insertLib, 'inserts');
+  const standoffTypes = libraryTypes(insertLib, 'standoffs');
+  const nutTypes = libraryTypes(screwLib, 'nuts');
+  const nutById = (id) => nutTypes.find((x) => x.id === id) || nutTypes[0];
+  const standoffById = (id) => standoffTypes.find((x) => x.id === id) || standoffTypes[0];
   const closedGroups = new Set();
   let draft = null;
 
@@ -379,15 +456,115 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
               </button>
               <div class="tb-group-items">${g.types.map(itemFor(cat)).join('')}</div>
             </div>`).join('')}`).join('')}`;
-    q('#tb-tree').innerHTML = lib(screwLib, (cat) => (cat.id === 'washers' ? washerItem : screwItem), types.length + washerTypes.length) +
-      (insertLib ? lib(insertLib, () => insertItem, insertTypes.length) : '');
+    const nutItem = (t) => `
+      <button type="button" class="tb-item" role="treeitem" data-nut="${t.id}" aria-selected="${draft.view === 'nut' && t.id === draft.insert.nut}" title="${esc(t.name)}">
+        ${insertIcon(t.kind === 'square' ? 'squarenut' : 'nut')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'nut' && draft.insert.nut === t.id ? ' · seçili' : ''}</span></span>
+      </button>`;
+    const standoffItem = (t) => `
+      <button type="button" class="tb-item" role="treeitem" data-standoff="${t.id}" aria-selected="${draft.view === 'standoff' && t.id === draft.insert.standoff}" title="${esc(t.name)}">
+        ${insertIcon('standoff')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'standoff' && draft.insert.standoff === t.id ? ' · seçili' : ''}</span></span>
+      </button>`;
+    q('#tb-tree').innerHTML = lib(screwLib, (cat) => (cat.id === 'washers' ? washerItem : cat.id === 'nuts' ? nutItem : screwItem), types.length + washerTypes.length + nutTypes.length) +
+      (insertLib ? lib(insertLib, (cat) => (cat.id === 'standoffs' ? standoffItem : insertItem), insertTypes.length + standoffTypes.length) : '');
   }
 
   function render() {
     renderTree();
-    if (draft.view === 'insert') renderInsert();
+    if (draft.view === 'insert' && draft.insert.type === 'nut') draft.view = 'nut';
+    if (draft.view === 'insert' && draft.insert.type === 'standoff') draft.view = 'standoff';
+    if (draft.view === 'nut') renderNut();
+    else if (draft.view === 'standoff') renderStandoff();
+    else if (draft.view === 'insert') renderInsert();
     else if (draft.view === 'washer') renderWasher();
     else renderScrew();
+  }
+
+  /** Gövde tarafı seçim çipleri (insert, Helicoil, somun cebi, hazır aralayıcı, doğrudan kılavuz) */
+  function bodyChoice(ev) {
+    const ruleLabel = ev ? METHOD_LABEL[ev.ruleMethod] || '' : 'kural dosyası';
+    return [
+      ['auto', `Otomatik <span class="chip-sub">${esc(ruleLabel)}</span>`],
+      ...insertTypes.map((t) => [t.id, esc(t.kind === 'helicoil' ? 'Helicoil' : 'Isıyla gömülen insert')]),
+      ['nut', 'Somun cebi'],
+      ['standoff', 'Hazır aralayıcı'],
+      ['none', 'Doğrudan kılavuz'],
+    ].map(([id, label]) => `<button type="button" class="chip" data-itype="${id}" aria-checked="${draft.insert.type === id}">${label}</button>`).join('');
+  }
+
+  function renderNut() {
+    const ev = evaluate(draft.screw, { ...draft.insert, type: 'nut' });
+    const nt = nutById(draft.insert.nut);
+    const size = ev?.sel?.fastenInfo?.size || (draft.screw.size !== 'auto' ? draft.screw.size : 'M3');
+    const z = nt.sizes[size] || null;
+    const shown = z ? size : Object.keys(nt.sizes).slice(-1)[0];
+    const zz = z || nt.sizes[shown];
+    const mat = ev?.sel?.standoffs?.[0]?.insert?.material || null;
+    q('#tb-figure').innerHTML = nutFigure(nt, zz);
+    q('#tb-designation').textContent = `${nt.code} - ${shown}${mat ? ' - ' + mat.tag : ''}`;
+
+    const fit = ev?.process === 'fdm' ? 0.25 : 0.1;
+    const typeChips = nutTypes.map((t) => `<button type="button" class="chip" data-nut="${t.id}" aria-checked="${draft.insert.type === 'nut' && draft.insert.nut === t.id}"${t.sizes[size] ? '' : ` disabled title="${size} yok"`}>${esc(t.code)}</button>`).join('');
+    const rows = [
+      ['Standart', `${nt.code} · ${nt.name}`],
+      ['Boyut', `${shown}${z ? '' : ` (vida boyutu ${size} bu seride yok)`}`],
+      ['Anahtar ağzı s', `${n(zz.s)} mm`], ['Köşeler e', `Ø${n(zz.e)}`], [nt.locking ? 'Toplam yükseklik h' : 'Yükseklik m', `${n(zz.m)} mm`],
+      ['Cep', nt.kind === 'square' ? `yandan yuva ${n(zz.s + 2 * fit)} × ${n(zz.m + 0.2)} mm, kavite tarafına açık` : `tabandan altıgen cep SW ${n(zz.s + 2 * fit)}; derinlik vida boyuna göre (uç somundan 1,5·P taşar)`],
+      ['Vida boyu', 'somundan en az 1·P taşar, tabandan dışarı çıkmaz'],
+    ];
+    q('#tb-props').innerHTML = `
+      <section class="tb-group"><h4>Gövde tarafı</h4><div class="chips">${bodyChoice(ev)}</div></section>
+      <section class="tb-group"><h4>Somun</h4><div class="chips">${typeChips}</div></section>
+      <section class="tb-group">
+        <h4>Özellikler</h4>
+        <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
+        <button type="button" class="link-btn" data-view="screw">← Vida seçimine dön</button>
+      </section>
+      ${torqueSection(ev)}
+      ${fitSection(ev)}`;
+  }
+
+  function renderStandoff() {
+    const ev = evaluate(draft.screw, { ...draft.insert, type: 'standoff' });
+    const so = standoffById(draft.insert.standoff);
+    const size = ev?.sel?.fastenInfo?.size || (draft.screw.size !== 'auto' ? draft.screw.size : 'M3');
+    const z = so.sizes[size] || null;
+    const shown = z ? size : Object.keys(so.sizes).slice(-1)[0];
+    const zz = z || so.sizes[shown];
+    const L = draft.insert.standoffLen && draft.insert.standoffLen !== 'auto' ? Number(draft.insert.standoffLen) : (ev?.sel?.params?.standoffHeight ?? zz.lengths[3]);
+    const mat = resolveScrewMaterial(so, draft.insert.standoffMat, materials);
+    q('#tb-figure').innerHTML = standoffFigure(so, zz, L, parseFloat(shown.replace(/^M/, '')));
+    q('#tb-designation').textContent = `${shown} × ${n(L)} - SW ${n(zz.sw)} - ${so.ends === 'ff' ? 'D-D' : 'E-D'}${mat ? ' - ' + mat.tag : ''}`;
+    const typeChips = standoffTypes.map((t) => `<button type="button" class="chip" data-sotype="${t.id}" aria-checked="${draft.insert.type === 'standoff' && draft.insert.standoff === t.id}">${esc(t.ends === 'ff' ? 'Dişi-dişi' : 'Erkek-dişi')}</button>`).join('');
+    const matChips = (so.materials || []).map((id) => {
+      const m = matById(id);
+      const on = draft.insert.standoffMat === 'auto' || !draft.insert.standoffMat ? id === so.materials[0] : draft.insert.standoffMat === id;
+      return m ? `<button type="button" class="chip" data-somat="${id}" aria-checked="${on}">${esc(m.tag)}</button>` : '';
+    }).join('');
+    const cur = ev?.sel?.params?.standoffHeight;
+    const lenChips = zz.lengths.map((x) => `<button type="button" class="chip len ${cur !== undefined && Math.abs(cur - x) < 0.05 ? 'ok' : ''}" data-solen="${x}" aria-checked="${Number(draft.insert.standoffLen) === x}">${n(x)}</button>`).join('');
+    const rows = [
+      ['Tip', so.name], ['Boyut', `${shown}${z ? '' : ` (vida boyutu ${size} için aralayıcı yok)`}`], ['Anahtar ağzı', `SW ${n(zz.sw)}`],
+      ...(so.ends === 'mf' ? [['Erkek diş', `${shown} × ${n(zz.male)} mm`], ['Dişi diş derinliği', `≈ ${n(Math.max(2.5, 0.65 * L))} mm (üreticiye göre)`]] : [['Dişi diş', 'boydan boya']]),
+      ['Tabana bağlantı', so.ends === 'ff' ? 'alttan vida (üst vidayla aynı tip/malzeme)' : 'tabandan geçen erkek diş + altta ISO 4032 somun'],
+      ['Gövde', 'boss yok; tabanda geçiş deliği'],
+    ];
+    q('#tb-props').innerHTML = `
+      <section class="tb-group"><h4>Gövde tarafı</h4><div class="chips">${bodyChoice(ev)}</div></section>
+      <section class="tb-group"><h4>Aralayıcı</h4><div class="chips">${typeChips}</div></section>
+      <section class="tb-group"><h4>Malzeme</h4><div class="chips">${matChips}</div></section>
+      <section class="tb-group">
+        <h4>Boy = PCB altı yükseklik <span class="muted">(mm)</span></h4>
+        <div class="chips">${lenChips}</div>
+        <p class="muted small">${cur !== undefined ? `Şu an PCB altı ${n(cur)} mm. ` : ''}Seçilen boy uygulanınca PCB altı yükseklik bu boya ayarlanır.</p>
+      </section>
+      <section class="tb-group">
+        <h4>Özellikler</h4>
+        <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
+        <p class="muted small">Ölçüler üretici serisidir (M3 SW 5,5 Würth WA-SSTII; erkek diş 6 mm Würth/Ettinger); tedarikçinizle doğrulayın.</p>
+        <button type="button" class="link-btn" data-view="screw">← Vida seçimine dön</button>
+      </section>
+      ${torqueSection(ev)}
+      ${fitSection(ev)}`;
   }
 
   /** Sıkma torku bölümü: önerilen tork ve sınırlayan etkenler */
@@ -611,12 +788,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     const screwRow = (fasteners.screws || []).find((x) => x.size === size) || null;
 
     // Gövde tarafı seçimi
-    const ruleLabel = ev ? METHOD_LABEL[ev.ruleMethod] || '' : 'kural dosyası';
-    const choice = [
-      ['auto', `Otomatik <span class="chip-sub">${esc(ruleLabel)}</span>`],
-      ...insertTypes.map((t) => [t.id, esc(t.kind === 'helicoil' ? 'Helicoil' : 'Isıyla gömülen insert')]),
-      ['none', 'Doğrudan kılavuz'],
-    ].map(([id, label]) => `<button type="button" class="chip" data-itype="${id}" aria-checked="${draft.insert.type === id}">${label}</button>`).join('');
+    const choice = bodyChoice(ev);
 
     // Varyant (boy) seçimi ve durumları
     const fi = sel?.fastenInfo || null;
@@ -709,6 +881,10 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       renderTree();
       return;
     }
+    const nutEl = e.target.closest('[data-nut]');
+    if (nutEl) { draft.insert = { ...draft.insert, type: 'nut', nut: nutEl.dataset.nut }; draft.view = 'nut'; render(); return; }
+    const soEl = e.target.closest('[data-standoff]');
+    if (soEl) { draft.insert = { ...draft.insert, type: 'standoff', standoff: soEl.dataset.standoff }; draft.view = 'standoff'; render(); return; }
     const wsh = e.target.closest('[data-washer]');
     if (wsh) { draft.washerView = wsh.dataset.washer; draft.view = 'washer'; render(); return; }
     const ins = e.target.closest('[data-insert]');
@@ -732,11 +908,18 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     if (wlink) { draft.washerView = wlink.dataset.washer; draft.view = 'washer'; render(); return; }
     const wmat = e.target.closest('[data-wmat]');
     if (wmat) { draft.screw.washerMaterial = wmat.dataset.wmat; render(); return; }
-    const chip = e.target.closest('[data-size],[data-len],[data-itype],[data-variant],[data-mat],[data-wsel]');
+    const chip = e.target.closest('[data-size],[data-len],[data-itype],[data-variant],[data-mat],[data-wsel],[data-nut],[data-sotype],[data-somat],[data-solen]');
     if (!chip || chip.disabled) return;
     if (chip.dataset.size) { draft.screw.size = chip.dataset.size; draft.screw.length = 'auto'; }
     if (chip.dataset.len) draft.screw.length = chip.dataset.len === 'auto' ? 'auto' : Number(chip.dataset.len);
-    if (chip.dataset.itype) draft.insert = { type: chip.dataset.itype, variant: 'auto' };
+    if (chip.dataset.itype) {
+      draft.insert = { ...draft.insert, type: chip.dataset.itype, variant: 'auto' };
+      draft.view = chip.dataset.itype === 'nut' ? 'nut' : chip.dataset.itype === 'standoff' ? 'standoff' : 'insert';
+    }
+    if (chip.dataset.nut) { draft.insert = { ...draft.insert, type: 'nut', nut: chip.dataset.nut }; draft.view = 'nut'; }
+    if (chip.dataset.sotype) { draft.insert = { ...draft.insert, type: 'standoff', standoff: chip.dataset.sotype }; draft.view = 'standoff'; }
+    if (chip.dataset.somat) draft.insert = { ...draft.insert, type: 'standoff', standoffMat: chip.dataset.somat };
+    if (chip.dataset.solen) draft.insert = { ...draft.insert, type: 'standoff', standoffLen: Number(chip.dataset.solen) };
     if (chip.dataset.variant) draft.insert.variant = chip.dataset.variant;
     if (chip.dataset.mat) draft.screw.material = chip.dataset.mat;
     if (chip.dataset.wsel) { draft.screw.washer = chip.dataset.wsel; if (chip.dataset.wsel !== 'none') draft.washerView = chip.dataset.wsel; }

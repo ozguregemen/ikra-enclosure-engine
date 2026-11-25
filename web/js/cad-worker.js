@@ -9,6 +9,7 @@ import {
   setOC,
   drawRoundedRectangle,
   drawCircle,
+  draw,
   makeBox,
   makeCylinder,
   exportSTEP,
@@ -85,6 +86,26 @@ function countersinkCone(t, zTop) {
     .extrude(depth + over, { extrusionProfile: { profile: 'linear', endFactor: rt / rb } });
 }
 
+/**
+ * Somun cebi. Altıgen: tabandan açık altıgen prizma (anahtar ağzı s, köşeler X ekseninde).
+ * Kare: standoff ekseninden kavite merkezine doğru açılan yuva (genişlik s, yükseklik z0..z1).
+ */
+function nutPocketShape(st) {
+  const p = st.nutPocket;
+  if (p.shape === 'hex') {
+    const R = p.s / Math.sqrt(3);
+    let pen = draw([st.x + R, st.y]);
+    for (let i = 1; i < 6; i++) pen = pen.lineTo([st.x + R * Math.cos((Math.PI / 3) * i), st.y + R * Math.sin((Math.PI / 3) * i)]);
+    return pen.close().sketchOnPlane('XY', p.z0).extrude(p.z1 - p.z0);
+  }
+  const h = p.s / 2;
+  const min = [st.x - h, st.y - h, p.z0];
+  const max = [st.x + h, st.y + h, p.z1];
+  if (p.dir > 0) max[p.axis] = (p.axis === 0 ? st.x : st.y) + p.reach;
+  else min[p.axis] = (p.axis === 0 ? st.x : st.y) - p.reach;
+  return makeBox(min, max);
+}
+
 function buildEnclosure(g) {
   const [cx, cy] = g.center;
   const hBase = g.cavTop - g.z0;
@@ -98,13 +119,26 @@ function buildEnclosure(g) {
   // Standoff'lar: tabandan PCB alt yüzüne silindir (tabana 0,5 mm gömülü başlar)
   const standoffs = g.standoffs || [];
   for (const s of standoffs) {
+    // Hazır aralayıcıda gövdeyle tek parça boss yok (yalnızca tabanda delik)
+    if (s.integral === false) continue;
     base = base.fuse(makeCylinder(s.od / 2, s.z1 - s.z0 + 0.5, [s.x, s.y, s.z0 - 0.5], up));
   }
-  // İnsert / kılavuz / sac vidası deliği: üstten açık, kör delik
+  // İnsert / kılavuz / sac vidası deliği: üstten açık, kör delik (somun cebinde ve aralayıcıda boydan boya)
   for (const s of standoffs) {
     base = base.cut(makeCylinder(s.holeD / 2, s.depth + 0.5, [s.x, s.y, s.z1 - s.depth], up));
     // Helicoil yuvası girişinde 90° havşa
     if (s.countersink) base = base.cut(countersinkCone({ x: s.x, y: s.y, holeD: s.holeD, countersink: s.countersink }, s.z1));
+    // Somun cebi: altıgen tabandan, kare somun yandan yuva
+    if (s.nutPocket) base = base.cut(nutPocketShape(s));
+    // Aralayıcının alt vidası havşa başlıysa tabanın altına havşa
+    if (s.bottomCountersink) {
+      const c = s.bottomCountersink;
+      const rb = s.holeD / 2;
+      const over = 0.5;
+      const rt = c.dTop / 2 + over;
+      base = base.cut(drawCircle(rt).sketchOnPlane('XY', [s.x, s.y, c.zBase - over])
+        .extrude(c.depth + over, { extrusionProfile: { profile: 'linear', endFactor: rb / rt } }));
+    }
   }
   // Port açıklıkları (konnektörler için duvar kesimi)
   for (const c of g.cutouts || []) {

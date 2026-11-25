@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './viewcube.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildScrew, buildInsert, buildWasher, createFastenerMaterials } from './fastener-meshes.js';
+import { buildScrew, buildInsert, buildWasher, buildNut, buildStandoff, createFastenerMaterials } from './fastener-meshes.js';
 
 // Kameranın hedeften bakan yönü (izleyicinin bulunduğu taraf)
 const VIEW_DIRS = {
@@ -283,6 +283,32 @@ export class Viewer {
       (s.lid ? this.enclosure.lid : this.enclosure.base).add(g);
     }
     for (const b of inserts) {
+      if (b.kind === 'nut') {
+        const g = buildNut(b, mats);
+        g.position.set(b.x, b.y, b.zTop);
+        this.enclosure.base.add(g);
+        continue;
+      }
+      if (b.kind === 'standoff') {
+        const g = buildStandoff(b, mats);
+        g.position.set(b.x, b.y, b.zBottom);
+        this.enclosure.base.add(g);
+        if (b.bottom?.kind === 'screw' && b.bottom.length) {
+          // Alttan vida: üst vidayla aynı tip; ters çevrilip taban altına oturur
+          const top = screws.find((s) => Math.abs(s.x - b.x) < 1e-6 && Math.abs(s.y - b.y) < 1e-6) || screws[0];
+          if (top) {
+            const bs = buildScrew({ ...top, length: b.bottom.length, seat: 0, washer: null }, mats);
+            bs.rotation.x = Math.PI;
+            bs.position.set(b.x, b.y, b.zBase);
+            this.enclosure.base.add(bs);
+          }
+        } else if (b.bottom?.kind === 'nut') {
+          const n = buildNut({ shape: 'hex', s: b.bottom.s, m: b.bottom.m, dIn: b.dIn, P: b.P, material: b.bottom.material }, mats);
+          n.position.set(b.x, b.y, b.zBase);
+          this.enclosure.base.add(n);
+        }
+        continue;
+      }
       const g = buildInsert(b, mats);
       g.position.set(b.x, b.y, b.z);
       this.enclosure.base.add(g);
