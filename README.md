@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.5 (M0–M4 + Toolbox)
+## Şu anki durum: V1.6 (M0–M4 + Toolbox)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -106,6 +106,17 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   aralayıcı boyu = PCB altı yükseklik (standart seri, uymazsa bir sonraki standart boy önerilir)
 - 3B'de altıgen/kare/naylon kilitli somun, aralayıcı, alt vida ve alt somun; malzeme listesi ve teknik resim notları
 
+**Köşe kapak vidaları ve gömme baş (V1.6)**
+- Kapak bağlantısı: PCB vidalarıyla ortak (sandviç) / **köşe vidaları** / vidasız. Köşe modunda kapak 4 köşedeki,
+  duvarlara yaslı boss'lara bağlanır (insert / Helicoil / kılavuz / sac vidası gövde tarafı seçimine göre); PCB vidaları
+  yalnızca kartı tutar. Boss'lar PCB köşesine çarpmasın diye kavite bir eksende uzatılır: otomatik seçimde konnektör
+  olmayan kenarlar tercih edilir, X/Y elle seçilebilir; kapak dilleri boss'lardan önce biter
+- Köşe vidası için ayrı Toolbox seçimi (Vida grubu: PCB / köşe kapak); boy, kapak kalınlığına ve burç boyuna göre
+- Gömme baş (oyuk): silindir/bombe başlar için kapakta Ø ≈ dk + 1 (M3 imbus 6,5; M4 8) oyuk; kapak inceyse altına
+  boss'a oturan yastık eklenir, sandviç vidasında boru çapı büyür. Havşa başlı köşe vidasında da gerekirse yastık
+- Tornavida/anahtar erişimi: yalnızca PCB vidasının başının üstünde bileşen varsa uyarı
+- IP'de kapak sıkıştırma aralığı yetmezse köşe vidaları önerisi; teknik resimde C# köşe delikleri
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -141,7 +152,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.2 | Toolbox 13 tipe: yıldız, düz, imbus, torx, sac vidası (ST) |
 | V1.3 | Dişli burçlar: ısıyla gömülen insert, Helicoil; CNC'ye PEEK ve PTFE |
 | V1.4 | Pullar, vida malzemesi/kaplaması, sıkma torku önerisi |
-| **V1.5** | Somun cebi (altıgen/kare), hazır altıgen aralayıcılar |
+| V1.5 | Somun cebi (altıgen/kare), hazır altıgen aralayıcılar |
+| **V1.6** | Köşe kapak vidaları, ayrı vida grupları, gömme baş, tornavida erişimi |
 
 ## Yerelde çalıştırma
 

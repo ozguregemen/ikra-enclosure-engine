@@ -140,6 +140,16 @@ function buildEnclosure(g) {
         .extrude(c.depth + over, { extrusionProfile: { profile: 'linear', endFactor: rb / rt } }));
     }
   }
+  // Köşe kapak vidası boss'ları: duvarlara yaslı silindir + köşeyi dolduran blok, üstten vida deliği
+  for (const c of g.cornerBosses || []) {
+    base = base.fuse(makeCylinder(c.od / 2, c.z1 - c.z0 + 0.5, [c.x, c.y, c.z0 - 0.5], up));
+    const [wx, wy] = c.wall;
+    base = base.fuse(makeBox([Math.min(wx, c.x), Math.min(wy, c.y), c.z0 - 0.5], [Math.max(wx, c.x), Math.max(wy, c.y), c.z1]));
+  }
+  for (const c of g.cornerBosses || []) {
+    base = base.cut(makeCylinder(c.holeD / 2, c.depth + 0.5, [c.x, c.y, c.z1 - c.depth], up));
+    if (c.countersink) base = base.cut(countersinkCone({ x: c.x, y: c.y, holeD: c.holeD, countersink: c.countersink }, c.z1));
+  }
   // Port açıklıkları (konnektörler için duvar kesimi)
   for (const c of g.cutouts || []) {
     base = base.cut(cutoutPrism(c));
@@ -165,6 +175,17 @@ function buildEnclosure(g) {
   for (const t of tubes) {
     lid = lid.cut(makeCylinder(t.holeD / 2, g.zTop - t.z0 + 1, [t.x, t.y, t.z0 - 0.5], up));
     if (t.countersink) lid = lid.cut(countersinkCone(t, g.zTop));
+    if (t.counterbore) lid = lid.cut(makeCylinder(t.counterbore.d / 2, t.counterbore.depth + 0.5, [t.x, t.y, g.zTop - t.counterbore.depth], up));
+  }
+  // Köşe vidası kapak delikleri: gerekirse kapağın altına boss'a oturan yastık, geçiş deliği, havşa ya da gömme oyuk
+  for (const hh of g.lidHoles || []) {
+    if (hh.pad) lid = lid.fuse(makeCylinder(hh.pad.od / 2, hh.pad.h + 0.3, [hh.x, hh.y, g.cavTop - hh.pad.h], up));
+  }
+  for (const hh of g.lidHoles || []) {
+    const zb = g.cavTop - (hh.pad ? hh.pad.h : 0) - 0.5;
+    lid = lid.cut(makeCylinder(hh.holeD / 2, g.zTop - zb + 0.5, [hh.x, hh.y, zb], up));
+    if (hh.countersink) lid = lid.cut(countersinkCone({ x: hh.x, y: hh.y, holeD: hh.holeD, countersink: hh.countersink }, g.zTop));
+    if (hh.counterbore) lid = lid.cut(makeCylinder(hh.counterbore.d / 2, hh.counterbore.depth + 0.5, [hh.x, hh.y, g.zTop - hh.counterbore.depth], up));
   }
   return { base, lid };
 }

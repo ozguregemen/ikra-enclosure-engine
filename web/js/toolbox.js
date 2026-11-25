@@ -411,6 +411,8 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   let draft = null;
 
   const typeById = (id) => types.find((t) => t.id === id) || types[0];
+  /** Düzenlenen vida grubu: PCB (ve sandviç kapak) vidaları ya da köşe kapak vidaları */
+  const active = () => (draft.group === 'corner' ? draft.corner : draft.screw);
   const insertById = (id) => insertTypes.find((t) => t.id === id) || null;
 
   function normalize(spec) {
@@ -418,14 +420,20 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     const out = {
       type: t.id, size: spec.size, length: spec.length,
       material: spec.material && (spec.material === 'auto' || (t.materials || []).includes(spec.material)) ? spec.material : 'auto',
-      washer: spec.washer || 'none', washerMaterial: spec.washerMaterial || 'match',
+      washer: spec.washer || 'none', washerMaterial: spec.washerMaterial || 'match', headSeat: spec.headSeat || 'surface',
     };
     if (out.size !== 'auto' && !t.sizes[out.size]) out.size = 'auto';
     return out;
   }
 
-  function open(screwSpec, insertSpec, view = 'screw') {
-    draft = { screw: normalize(screwSpec), insert: { type: 'auto', variant: 'auto', ...insertSpec }, view, washerView: screwSpec.washer && screwSpec.washer !== 'none' ? screwSpec.washer : 'iso7089' };
+  function open(screwSpec, insertSpec, view = 'screw', extra = {}) {
+    const cornerMode = !!extra.cornerMode;
+    draft = {
+      screw: normalize(screwSpec), insert: { type: 'auto', variant: 'auto', ...insertSpec }, view,
+      corner: normalize(extra.corner || { ...screwSpec, size: 'auto', length: 'auto' }),
+      group: cornerMode && extra.group === 'corner' ? 'corner' : 'pcb', cornerMode,
+      washerView: screwSpec.washer && screwSpec.washer !== 'none' ? screwSpec.washer : 'iso7089',
+    };
     render();
     if (!dialog.open) dialog.showModal();
     q('.tb-item[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -433,7 +441,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
 
   function renderTree() {
     const screwItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-type="${t.id}" aria-selected="${draft.view === 'screw' && t.id === draft.screw.type}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" role="treeitem" data-type="${t.id}" aria-selected="${draft.view === 'screw' && t.id === active().type}" title="${esc(t.name)}">
         ${headIcon(t.head)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
       </button>`;
     const insertItem = (t) => `
@@ -442,7 +450,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       </button>`;
     const washerItem = (t) => `
       <button type="button" class="tb-item" role="treeitem" data-washer="${t.id}" aria-selected="${draft.view === 'washer' && t.id === draft.washerView}" title="${esc(t.name)}">
-        ${washerIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.screw.washer === t.id ? ' · seçili' : ''}</span></span>
+        ${washerIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${active().washer === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
     const lib = (L, itemFor, count) => `
       <div class="tb-node"><span class="tb-caret" aria-hidden="true"></span><strong>${esc(L.standard)}</strong><span class="tb-count">${count} tip</span></div>
@@ -492,7 +500,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   }
 
   function renderNut() {
-    const ev = evaluate(draft.screw, { ...draft.insert, type: 'nut' });
+    const ev = evaluate(draft.screw, { ...draft.insert, type: 'nut' }, draft.cornerMode ? draft.corner : null);
     const nt = nutById(draft.insert.nut);
     const size = ev?.sel?.fastenInfo?.size || (draft.screw.size !== 'auto' ? draft.screw.size : 'M3');
     const z = nt.sizes[size] || null;
@@ -524,7 +532,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   }
 
   function renderStandoff() {
-    const ev = evaluate(draft.screw, { ...draft.insert, type: 'standoff' });
+    const ev = evaluate(draft.screw, { ...draft.insert, type: 'standoff' }, draft.cornerMode ? draft.corner : null);
     const so = standoffById(draft.insert.standoff);
     const size = ev?.sel?.fastenInfo?.size || (draft.screw.size !== 'auto' ? draft.screw.size : 'M3');
     const z = so.sizes[size] || null;
@@ -570,7 +578,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   /** Sıkma torku bölümü: önerilen tork ve sınırlayan etkenler */
   function torqueSection(ev) {
     const tq = ev?.sel?.torque;
-    const t = tq?.lid || tq?.pcb;
+    const t = draft.group === 'corner' ? tq?.corner : tq?.lid || tq?.pcb;
     if (!t) return '';
     const row = (x) => `<tr class="${x.key === t.limit ? 'tq-lim' : ''}"><th>${esc(torqueLimitText(x.key))}</th><td>${n(Math.round(x.T * 100) / 100)} N·m</td></tr>`;
     const other = tq.lid && tq.pcb ? `<p class="muted small">PCB vidaları: ${n(tq.pcb.T)} N·m (${esc(torqueLimitText(tq.pcb.limit))})</p>` : '';
@@ -585,59 +593,63 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   }
 
   function renderScrew() {
-    const t = typeById(draft.screw.type);
+    const S = active();
+    const corner = draft.group === 'corner';
+    const t = typeById(S.type);
     const table = screwTable(fasteners, t);
     const screwBySize = (size) => table.find((x) => x.size === size) || null;
-    const ev = evaluate(draft.screw, draft.insert);
-    const info = ev?.auto?.fastenInfo || null;
-    const minHole = ev?.auto?.usedHoleMinD ?? null;
+    const ev = evaluate(draft.screw, draft.insert, draft.cornerMode ? draft.corner : null);
+    const info = (corner ? ev?.auto?.cornerInfo : ev?.auto?.fastenInfo) || null;
+    const minHole = corner ? null : ev?.auto?.usedHoleMinD ?? null;
     const sizes = Object.keys(t.sizes);
     const fits = (size) => minHole === null || (screwBySize(size)?.min_pcb_hole ?? 99) <= minHole + 1e-6;
     const autoSize = (info && sizes.includes(info.size) ? info.size : null) || [...sizes].reverse().find(fits) || sizes[0];
-    const effSize = draft.screw.size === 'auto' ? autoSize : draft.screw.size;
+    const effSize = S.size === 'auto' ? autoSize : S.size;
     const sz = t.sizes[effSize] || t.sizes[sizes[0]];
     const screw = screwBySize(effSize);
     // Boy durumları: otomatik boyun hesaplandığı tasarıma göre
-    const lid = ev?.auto?.screws?.find((x) => x.lid) || ev?.auto?.screws?.[0] || null;
+    const lid = corner ? ev?.auto?.screws?.find((x) => x.role === 'corner')
+      : ev?.auto?.screws?.find((x) => x.role === 'sandwich') || ev?.auto?.screws?.find((x) => x.role === 'pcb') || null;
     const autoL = lid?.length ?? null;
     const lenInfo = sz.lengths.map((L) => {
       if (!info || info.size !== effSize) return { L, status: 'na' };
       const eng = L - info.grip;
       if (eng < info.minEngage - 1e-9) return { L, status: 'short', eng };
       if (eng <= info.available - 0.3 + 1e-9) return { L, status: 'ok', eng };
+      if (corner) return { L, status: 'long', eng };
       const need = Math.ceil((L - info.grip + 0.3 - info.floor + 0.8) * 10) / 10;
       return { L, status: ev.standoffAuto ? 'adapt' : 'long', eng, need };
     });
-    if (draft.screw.length !== 'auto' && !sz.lengths.includes(Number(draft.screw.length))) draft.screw.length = 'auto';
-    const selL = draft.screw.length === 'auto' ? autoL : Number(draft.screw.length);
+    if (S.length !== 'auto' && !sz.lengths.includes(Number(S.length))) S.length = 'auto';
+    const selL = S.length === 'auto' ? autoL : Number(S.length);
     const figL = selL ?? sz.lengths[Math.floor(sz.lengths.length / 2)];
 
-    const mat = resolveScrewMaterial(t, draft.screw.material, materials);
+    const mat = resolveScrewMaterial(t, S.material, materials);
     const sunkHead = t.head === 'countersunk';
-    const wt = !sunkHead && draft.screw.washer !== 'none' ? washerById(draft.screw.washer) : null;
+    const wt = !sunkHead && S.washer !== 'none' ? washerById(S.washer) : null;
     const wz = wt ? wt.sizes[washerSizeFor(effSize)] : null;
     q('#tb-figure').innerHTML = screwFigure(t, sz, effSize, screw ? screw.d : parseFloat(effSize.replace(/^[A-Z]+/, '')), figL, wz);
     q('#tb-designation').textContent = designation(t, effSize, figL) + (mat ? ` - ${mat.tag}` : '');
     const matChips = (t.materials || []).map((id) => {
       const m = matById(id);
       if (!m) return '';
-      const on = draft.screw.material === 'auto' ? id === t.materials[0] : draft.screw.material === id;
+      const on = S.material === 'auto' ? id === t.materials[0] : S.material === id;
       return `<button type="button" class="chip" data-mat="${id}" aria-checked="${on}" title="${esc(m.label)}">${esc(m.tag)}</button>`;
     }).join('');
-    const wChips = [`<button type="button" class="chip" data-wsel="none" aria-checked="${draft.screw.washer === 'none'}">Yok</button>`]
+    const wChips = [`<button type="button" class="chip" data-wsel="none" aria-checked="${S.washer === 'none'}">Yok</button>`]
       .concat(washerTypes.map((w) => {
         const has = !!w.sizes[washerSizeFor(effSize)];
         const dis = sunkHead || !has;
-        return `<button type="button" class="chip" data-wsel="${w.id}" aria-checked="${draft.screw.washer === w.id}"${dis ? ` disabled title="${sunkHead ? 'Havşa başta pul kullanılmaz' : `${washerSizeFor(effSize)} boyutu yok`}"` : ''}>${esc(w.code)}</button>`;
+        return `<button type="button" class="chip" data-wsel="${w.id}" aria-checked="${S.washer === w.id}"${dis ? ` disabled title="${sunkHead ? 'Havşa başta pul kullanılmaz' : `${washerSizeFor(effSize)} boyutu yok`}"` : ''}>${esc(w.code)}</button>`;
       })).join('');
-    const wMat = wt ? resolveWasherMaterial(wt, draft.screw.washerMaterial, mat, materials) : null;
+    const wMat = wt ? resolveWasherMaterial(wt, S.washerMaterial, mat, materials) : null;
 
-    const sizeChips = [`<button type="button" class="chip" data-size="auto" aria-checked="${draft.screw.size === 'auto'}">Otomatik <span class="chip-sub">${esc(autoSize)}</span></button>`]
-      .concat(sizes.map((size) => `<button type="button" class="chip ${fits(size) ? '' : 'bad'}" data-size="${esc(size)}" aria-checked="${draft.screw.size === size}"` +
+    const sizeChips = [`<button type="button" class="chip" data-size="auto" aria-checked="${S.size === 'auto'}">Otomatik <span class="chip-sub">${esc(autoSize)}</span></button>`]
+      .concat(sizes.map((size) => `<button type="button" class="chip ${fits(size) ? '' : 'bad'}" data-size="${esc(size)}" aria-checked="${S.size === size}"` +
         ` ${fits(size) ? '' : `disabled title="Ø${n(minHole)} PCB deliğinden geçmez"`}>${esc(size)}</button>`)).join('');
     const stLabel = { ok: 'uygun', short: 'kısa', adapt: 'uyarlanır', long: 'uzun', na: '' };
-    const lenChips = [`<button type="button" class="chip" data-len="auto" aria-checked="${draft.screw.length === 'auto'}">Otomatik <span class="chip-sub">${autoL ? n(autoL) + ' mm' : '–'}</span></button>`]
-      .concat(lenInfo.map((li) => `<button type="button" class="chip len ${li.status}" data-len="${li.L}" aria-checked="${String(draft.screw.length) === String(li.L)}"` +
+    const lenChips = [`<button type="button" class="chip" data-len="auto" aria-checked="${S.length === 'auto'}">Otomatik <span class="chip-sub">${autoL ? n(autoL) + ' mm' : '–'}</span></button>`]
+      .concat(lenInfo.map((li) => `<button type="button" class="chip len ${li.status}" data-len="${li.L}" aria-checked="${String(S.length) === String(li.L)}"` +
         ` title="${esc(li.status === 'na' ? '' : `${stLabel[li.status]}${li.eng === undefined ? '' : li.eng <= 0 ? " · standoff'a ulaşmıyor" : ` · ${n(li.eng)} mm tutunur`}${li.need ? ` · PCB altı ${n(li.need)} mm olur` : ''}`)}">${n(li.L)}</button>`)).join('');
 
     const selInfo = lenInfo.find((li) => li.L === selL);
@@ -667,7 +679,26 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       ['Gövde tarafı', bodySide],
       ['Boy ölçüsü', t.length_includes_head ? 'başı da kapsar (havşa üst yüzünden)' : 'baş altından uca'],
     ];
+    const groupRow = draft.cornerMode ? `<section class="tb-group">
+        <h4>Vida grubu</h4>
+        <div class="chips">
+          <button type="button" class="chip" data-group-sel="pcb" aria-checked="${!corner}">PCB vidaları</button>
+          <button type="button" class="chip" data-group-sel="corner" aria-checked="${corner}">Köşe (kapak) vidaları</button>
+        </div>
+        <p class="muted small">${corner ? 'Kapak 4 köşedeki boss\'lara bu vidayla bağlanır; boy kapak kalınlığına göre.' : 'Köşe vidalı kapakta PCB vidaları yalnızca kartı tutar (baş PCB üstünde).'}</p>
+      </section>` : '';
+    const seatRow = `<section class="tb-group">
+        <h4>Baş yerleşimi</h4>
+        <div class="chips">
+          <button type="button" class="chip" data-seat="surface" aria-checked="${(S.headSeat || 'surface') === 'surface'}">Yüzeyde</button>
+          <button type="button" class="chip" data-seat="counterbore" aria-checked="${S.headSeat === 'counterbore'}"${sunk ? ' disabled title="Havşa başta havşa açılır"' : ''}>Gömme (oyuk)</button>
+        </div>
+        <p class="muted small">${sunk ? 'Havşa başlı vida kapakla aynı hizada biter.'
+          : S.headSeat === 'counterbore' ? `Kapakta Ø${n(Math.max((sz.dk_actual || sz.dk) + 1, wz ? wz.d2 + 0.6 : 0))} oyuk, derinlik ${n(sz.k + (wz ? wz.s : 0) + 0.3)} mm; gerekirse kapak altına yastık eklenir.${corner ? '' : ' Yalnızca kapak vidalarına uygulanır.'}`
+            : 'Baş kapak yüzeyinin üstünde kalır.'}</p>
+      </section>`;
     q('#tb-props').innerHTML = `
+      ${groupRow}
       <section class="tb-group">
         <h4>Boyut</h4>
         <div class="chips">${sizeChips}</div>
@@ -688,10 +719,11 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
         <h4>Baş altı pulu</h4>
         <div class="chips">${wChips}</div>
         ${wt && wz ? `<p class="muted small">${esc(wt.name)} ${esc(washerSizeFor(effSize))}: Ø${n(wz.d1)}/Ø${n(wz.d2)} × ${n(wz.s)} mm${wMat ? ` · ${esc(wMat.tag)}` : ''}
-          ${wt.materials.includes('pa66') ? ` · <button type="button" class="link-btn" data-wmat="${draft.screw.washerMaterial === 'pa66' ? 'match' : 'pa66'}">${draft.screw.washerMaterial === 'pa66' ? 'vidaya uygun malzeme' : 'PA66 yalıtım pulu yap'}</button>` : ''}
+          ${wt.materials.includes('pa66') ? ` · <button type="button" class="link-btn" data-wmat="${S.washerMaterial === 'pa66' ? 'match' : 'pa66'}">${S.washerMaterial === 'pa66' ? 'vidaya uygun malzeme' : 'PA66 yalıtım pulu yap'}</button>` : ''}
           · <button type="button" class="link-btn" data-washer="${wt.id}">ayrıntı →</button></p>`
           : sunkHead ? '<p class="muted small">Havşa başlı vidada baş altı pulu kullanılmaz.</p>' : ''}
       </section>
+      ${seatRow}
       ${torqueSection(ev)}
       <section class="tb-group">
         <h4>Özellikler</h4>
@@ -702,17 +734,18 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   }
 
   function renderWasher() {
+    const S = active();
     const w = washerById(draft.washerView) || washerTypes[0];
-    const t = typeById(draft.screw.type);
-    const ev = evaluate(draft.screw, draft.insert);
-    const size = washerSizeFor(ev?.sel?.fastenInfo?.size || (draft.screw.size !== 'auto' ? draft.screw.size : 'M3'));
+    const t = typeById(S.type);
+    const ev = evaluate(draft.screw, draft.insert, draft.cornerMode ? draft.corner : null);
+    const size = washerSizeFor(ev?.sel?.fastenInfo?.size || (S.size !== 'auto' ? S.size : 'M3'));
     const sizes = Object.keys(w.sizes);
     const z = w.sizes[size] || w.sizes[sizes[sizes.length - 1]];
     const shownSize = w.sizes[size] ? size : sizes[sizes.length - 1];
-    const mat = resolveWasherMaterial(w, draft.screw.washerMaterial, resolveScrewMaterial(t, draft.screw.material, materials), materials);
+    const mat = resolveWasherMaterial(w, S.washerMaterial, resolveScrewMaterial(t, S.material, materials), materials);
     q('#tb-figure').innerHTML = washerFigure(w, z);
     q('#tb-designation').textContent = `${w.code} - ${shownSize.replace(/^M/, '')}${mat ? ' - ' + mat.tag : ''}`;
-    const inUse = draft.screw.washer === w.id;
+    const inUse = S.washer === w.id;
     const sunk = t.head === 'countersunk';
     const rows = [
       ['Standart', `${w.code} · ${w.name}`],
@@ -733,15 +766,15 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
         <h4>Kullanım</h4>
         <div class="chips">
           <button type="button" class="chip" data-wsel="${w.id}" aria-checked="${inUse}"${sunk || !w.sizes[size] ? ' disabled' : ''}>Bu pulu kullan</button>
-          <button type="button" class="chip" data-wsel="none" aria-checked="${draft.screw.washer === 'none'}">Pul yok</button>
+          <button type="button" class="chip" data-wsel="none" aria-checked="${S.washer === 'none'}">Pul yok</button>
         </div>
         ${sunk ? '<p class="small"><span class="t-warn">Havşa başlı vida seçili:</span> baş altı pulu kullanılmaz.</p>' : ''}
       </section>
       ${w.materials.includes('pa66') ? `<section class="tb-group">
         <h4>Malzeme</h4>
         <div class="chips">
-          <button type="button" class="chip" data-wmat="match" aria-checked="${draft.screw.washerMaterial !== 'pa66'}">Vidaya uygun${mat && draft.screw.washerMaterial !== 'pa66' ? ` <span class="chip-sub">${esc(mat.tag)}</span>` : ''}</button>
-          <button type="button" class="chip" data-wmat="pa66" aria-checked="${draft.screw.washerMaterial === 'pa66'}">PA66 yalıtım</button>
+          <button type="button" class="chip" data-wmat="match" aria-checked="${S.washerMaterial !== 'pa66'}">Vidaya uygun${mat && S.washerMaterial !== 'pa66' ? ` <span class="chip-sub">${esc(mat.tag)}</span>` : ''}</button>
+          <button type="button" class="chip" data-wmat="pa66" aria-checked="${S.washerMaterial === 'pa66'}">PA66 yalıtım</button>
         </div>
       </section>` : ''}
       <section class="tb-group">
@@ -775,7 +808,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   }
 
   function renderInsert() {
-    const ev = evaluate(draft.screw, draft.insert);
+    const ev = evaluate(draft.screw, draft.insert, draft.cornerMode ? draft.corner : null);
     const sel = ev?.sel;
     const st0 = sel?.standoffs?.[0] || null;
     const method = sel?.fasteningMethod || null;
@@ -896,8 +929,9 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     }
     const item = e.target.closest('[data-type]');
     if (!item) return;
-    if (item.dataset.type === draft.screw.type && draft.view === 'screw') return;
-    draft.screw = normalize({ ...draft.screw, type: item.dataset.type });
+    if (item.dataset.type === active().type && draft.view === 'screw') return;
+    if (draft.group === 'corner') draft.corner = normalize({ ...draft.corner, type: item.dataset.type });
+    else draft.screw = normalize({ ...draft.screw, type: item.dataset.type });
     draft.view = 'screw';
     render();
   });
@@ -907,11 +941,15 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     const wlink = e.target.closest('[data-washer]');
     if (wlink) { draft.washerView = wlink.dataset.washer; draft.view = 'washer'; render(); return; }
     const wmat = e.target.closest('[data-wmat]');
-    if (wmat) { draft.screw.washerMaterial = wmat.dataset.wmat; render(); return; }
+    if (wmat) { active().washerMaterial = wmat.dataset.wmat; render(); return; }
+    const grp = e.target.closest('[data-group-sel]');
+    if (grp) { draft.group = grp.dataset.groupSel; render(); return; }
+    const seat = e.target.closest('[data-seat]');
+    if (seat && !seat.disabled) { active().headSeat = seat.dataset.seat; render(); return; }
     const chip = e.target.closest('[data-size],[data-len],[data-itype],[data-variant],[data-mat],[data-wsel],[data-nut],[data-sotype],[data-somat],[data-solen]');
     if (!chip || chip.disabled) return;
-    if (chip.dataset.size) { draft.screw.size = chip.dataset.size; draft.screw.length = 'auto'; }
-    if (chip.dataset.len) draft.screw.length = chip.dataset.len === 'auto' ? 'auto' : Number(chip.dataset.len);
+    if (chip.dataset.size) { active().size = chip.dataset.size; active().length = 'auto'; }
+    if (chip.dataset.len) active().length = chip.dataset.len === 'auto' ? 'auto' : Number(chip.dataset.len);
     if (chip.dataset.itype) {
       draft.insert = { ...draft.insert, type: chip.dataset.itype, variant: 'auto' };
       draft.view = chip.dataset.itype === 'nut' ? 'nut' : chip.dataset.itype === 'standoff' ? 'standoff' : 'insert';
@@ -921,12 +959,12 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     if (chip.dataset.somat) draft.insert = { ...draft.insert, type: 'standoff', standoffMat: chip.dataset.somat };
     if (chip.dataset.solen) draft.insert = { ...draft.insert, type: 'standoff', standoffLen: Number(chip.dataset.solen) };
     if (chip.dataset.variant) draft.insert.variant = chip.dataset.variant;
-    if (chip.dataset.mat) draft.screw.material = chip.dataset.mat;
-    if (chip.dataset.wsel) { draft.screw.washer = chip.dataset.wsel; if (chip.dataset.wsel !== 'none') draft.washerView = chip.dataset.wsel; }
+    if (chip.dataset.mat) active().material = chip.dataset.mat;
+    if (chip.dataset.wsel) { active().washer = chip.dataset.wsel; if (chip.dataset.wsel !== 'none') draft.washerView = chip.dataset.wsel; }
     render();
   });
   q('#tb-apply').addEventListener('click', () => {
-    onApply({ ...draft.screw }, { ...draft.insert });
+    onApply({ ...draft.screw }, { ...draft.insert }, draft.cornerMode ? { ...draft.corner } : undefined);
     dialog.close();
   });
   q('#tb-cancel').addEventListener('click', () => dialog.close());

@@ -307,6 +307,12 @@ function baseSheet(ctx) {
     balloon(out, px, py, tx, py - 5, `H${i + 1}`);
     holeRows.push([`H${i + 1}`, d2(st.x - datum[0]), d2(st.y - datum[1]), `Ø${d2(st.holeD)}`, d2(st.depth), `${st.screw} ${METHOD_NOTE[d.fasteningMethod] || ''}`]);
   });
+  (d.geometry.cornerBosses || []).forEach((c, i) => {
+    const [px, py] = pt.toPaper([c.x, c.y, 0]);
+    centerMark(out, px, py, (c.holeD / 2) * s);
+    balloon(out, px, py, px + (px < (pt.x0 + pt.x1) / 2 ? 6 : -6), py - 5, `C${i + 1}`);
+    holeRows.push([`C${i + 1}`, d2(c.x - datum[0]), d2(c.y - datum[1]), `Ø${d2(c.holeD)}`, d2(c.depth), `köşe boss Ø${d1(c.od)}`]);
+  });
 
   // Port açıklıkları — ilgili görünüşte balon
   const portRows = [];
@@ -388,7 +394,15 @@ function lidSheet(ctx) {
     balloon(out, px, py, px + (px < (pt.x0 + pt.x1) / 2 ? 6 : -6), py - 5, `K${i + 1}`);
     rows.push([`K${i + 1}`, d2(t.x - datum[0]), d2(t.y - datum[1]), `Ø${d2(t.holeD)}`,
       t.countersink ? `havşa Ø${d2(t.countersink.dTop)}` : 'boydan boya',
-      t.countersink ? `90° · boru Ø${d1(t.od)}` : `boru Ø${d1(t.od)}`]);
+      t.countersink ? `90° · boru Ø${d1(t.od)}` : t.counterbore ? `oyuk Ø${d1(t.counterbore.d)}×${d1(t.counterbore.depth)}` : `boru Ø${d1(t.od)}`]);
+  });
+  (d.geometry.lidHoles || []).forEach((hh, i) => {
+    const [px, py] = pt.toPaper([hh.x, hh.y, 0]);
+    centerMark(out, px, py, (hh.holeD / 2) * s);
+    balloon(out, px, py, px + (px < (pt.x0 + pt.x1) / 2 ? 6 : -6), py - 5, `C${i + 1}`);
+    rows.push([`C${i + 1}`, d2(hh.x - datum[0]), d2(hh.y - datum[1]), `Ø${d2(hh.holeD)}`,
+      hh.countersink ? `havşa Ø${d2(hh.countersink.dTop)}` : hh.counterbore ? `oyuk Ø${d1(hh.counterbore.d)}` : 'boydan boya',
+      `köşe vidası${hh.pad ? ` · yastık ${d1(hh.pad.h)}` : ''}`]);
   });
 
   let y = 24;

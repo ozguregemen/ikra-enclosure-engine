@@ -309,6 +309,8 @@ kbd {
   padding: 3px; gap: 2px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
 }
 .seg-full.two { grid-template-columns: repeat(2, 1fr); }
+.seg-full.three { grid-template-columns: repeat(3, 1fr); }
+.corner-pick-wrap { display: flex; flex-direction: column; gap: 10px; }
 .seg-full.four { grid-template-columns: repeat(4, 1fr); }
 .seg-full button {
   border: 0; background: transparent; padding: 7px 6px; font-size: 12.5px; border-radius: 7px; cursor: pointer; color: var(--muted);

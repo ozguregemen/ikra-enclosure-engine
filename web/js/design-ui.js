@@ -56,6 +56,8 @@ export function createDesignUI({ viewer, setStatus }) {
     firstBuild: true,
     fasteners: null,
     lidMode: 'screw',
+    cornerAxis: 'auto',
+    cornerSpec: null, // köşe kapak vidaları (null: PCB vidasıyla aynı tip, boyut otomatik)
     selectedHoles: new Set(),
     portOverrides: new Map(),
     sealingIndex: null,
@@ -105,9 +107,22 @@ export function createDesignUI({ viewer, setStatus }) {
         materials: state.fmaterials.materials,
         fasteners: state.fasteners,
         evaluate: evaluateSpec,
-        onApply: (spec, ispec) => setToolboxSpec(spec, ispec),
+        onApply: (spec, ispec, cspec) => setToolboxSpec(spec, ispec, cspec),
       });
     }
+  }
+
+  /** Vida seçimini doğrula: tipte olmayan boyut/malzeme 'auto' olur */
+  function normalizeSpec(spec) {
+    if (!spec) return null;
+    const t = toolboxTypes().find((x) => x.id === spec.type);
+    const next = {
+      type: spec.type, size: spec.size, length: spec.length, material: spec.material || 'auto',
+      washer: spec.washer || 'none', washerMaterial: spec.washerMaterial || 'match', headSeat: spec.headSeat || 'surface',
+    };
+    if (t && next.material !== 'auto' && !(t.materials || []).includes(next.material)) next.material = 'auto';
+    if (t && next.size !== 'auto' && !t.sizes[next.size]) next.size = 'auto';
+    return next;
   }
 
   const toolboxTypes = () => libraryTypes(state.toolbox, 'screws');
@@ -117,11 +132,9 @@ export function createDesignUI({ viewer, setStatus }) {
   const nutTypes = () => libraryTypes(state.toolbox, 'nuts');
 
   /** Toolbox seçimini uygula: kullanıcının elle değiştirmediği parametreler yeni vida/burca göre yeniden hesaplanır */
-  function setToolboxSpec(spec, ispec = state.insertSpec) {
-    const t = toolboxTypes().find((x) => x.id === spec.type);
-    const next = { type: spec.type, size: spec.size, length: spec.length, material: spec.material || 'auto', washer: spec.washer || 'none', washerMaterial: spec.washerMaterial || 'match' };
-    if (t && next.material !== 'auto' && !(t.materials || []).includes(next.material)) next.material = 'auto';
-    if (t && next.size !== 'auto' && !t.sizes[next.size]) next.size = 'auto';
+  function setToolboxSpec(spec, ispec = state.insertSpec, cspec = state.cornerSpec) {
+    const next = normalizeSpec(spec);
+    state.cornerSpec = normalizeSpec(cspec);
     const nextIns = {
       type: ispec.type || 'auto', variant: ispec.variant || 'auto', nut: ispec.nut || 'iso4032',
       standoff: ispec.standoff || 'hex-ff', standoffMat: ispec.standoffMat || 'auto',
@@ -147,19 +160,21 @@ export function createDesignUI({ viewer, setStatus }) {
    * Toolbox penceresinin canlı hesabı: seçilen vida tipine/boyutuna göre otomatik boylu tasarım (boy durumları için)
    * ve tam seçimli tasarım (uygulanınca oluşacak parametrelerle).
    */
-  function evaluateSpec(spec, ispec = state.insertSpec) {
+  function evaluateSpec(spec, ispec = state.insertSpec, cspec = state.cornerSpec) {
     if (!state.analysis || !state.rules || !state.params || !state.analysis.board || state.analysis.board.axes.n !== 'Z') return null;
-    const opts = (sp, ip) => ({ ...designOptions(), screwSpec: sp, insertSpec: ip });
+    const opts = (sp, ip, cp) => ({ ...designOptions(), screwSpec: sp, insertSpec: ip, cornerSpec: cp });
     const prev = currentDefaults();
-    const adapt = (sp, ip) => {
-      const next = defaultParams(state.analysis, state.rules, opts(sp, ip));
+    const adapt = (sp, ip, cp) => {
+      const next = defaultParams(state.analysis, state.rules, opts(sp, ip, cp));
       const p = { ...state.params };
       for (const key of Object.keys(next)) if (Math.abs(p[key] - prev[key]) < 1e-9) p[key] = next[key];
       return p;
     };
     const autoSpec = { ...spec, length: 'auto' };
-    const auto = computeDesign(state.analysis, state.rules, adapt(autoSpec, ispec), opts(autoSpec, ispec));
-    const sel = spec.length === 'auto' ? auto : computeDesign(state.analysis, state.rules, adapt(spec, ispec), opts(spec, ispec));
+    const autoC = cspec ? { ...cspec, length: 'auto' } : null;
+    const auto = computeDesign(state.analysis, state.rules, adapt(autoSpec, ispec, autoC), opts(autoSpec, ispec, autoC));
+    const same = spec.length === 'auto' && (!cspec || cspec.length === 'auto');
+    const sel = same ? auto : computeDesign(state.analysis, state.rules, adapt(spec, ispec, cspec), opts(spec, ispec, cspec));
     return {
       auto,
       sel,
@@ -171,14 +186,47 @@ export function createDesignUI({ viewer, setStatus }) {
     };
   }
 
-  function openToolbox(view = 'screw') {
+  function openToolbox(view = 'screw', group = 'pcb') {
     loadToolbox()
-      .then(() => state.toolboxUI.open(state.screwSpec, state.insertSpec, view))
+      .then(() => state.toolboxUI.open(state.screwSpec, state.insertSpec, view, {
+        corner: state.cornerSpec, group, cornerMode: state.lidMode === 'corner',
+      }))
       .catch((err) => setStatus(err.message, { error: true }));
   }
   $('#toolbox-btn').addEventListener('click', () => openToolbox('screw'));
-  $('#screw-pick').addEventListener('click', () => openToolbox('screw'));
+  $('#screw-pick').addEventListener('click', () => openToolbox('screw', 'pcb'));
+  $('#corner-pick').addEventListener('click', () => openToolbox('screw', 'corner'));
   $('#insert-pick').addEventListener('click', () => openToolbox('insert'));
+
+  /** Bağlantı kartındaki köşe (kapak) vidası satırı */
+  function renderCornerPick(d = state.design) {
+    const show = state.lidMode === 'corner';
+    $('#corner-pick-wrap').classList.toggle('hidden', !show);
+    if (!show) return;
+    const cs = (d?.screws || []).filter((s) => s.role === 'corner');
+    const sc = cs[0];
+    const t = toolboxTypes().find((x) => x.id === (sc?.type || state.cornerSpec?.type || state.screwSpec.type));
+    if (t) $('#corner-pick-icon').innerHTML = headIcon(t.head);
+    $('#corner-pick-title').textContent = sc
+      ? `${sc.code ? sc.code + ' · ' : ''}${sc.size} × ${String(sc.length ?? '?').replace('.', ',')}${sc.material ? ' ' + sc.material.tag : ''}`
+      : 'Köşe vidası';
+    const tq = d?.torque?.corner;
+    const cp = d?.cornerPlan;
+    $('#corner-pick-sub').textContent = [
+      `${cs.length} köşe`, sc?.counterbore ? 'gömme baş' : null, tq ? `${String(tq.T).replace('.', ',')} N·m` : null,
+      cp && cp.extra > 0 ? `kavite ${cp.axis === 0 ? 'X' : 'Y'} +${String(Math.round(cp.extra * 10) / 10).replace('.', ',')} mm/uç` : null,
+    ].filter(Boolean).join(' · ');
+    $('#corner-axis').innerHTML = [['auto', 'Otomatik'], ['x', 'X ekseni'], ['y', 'Y ekseni']].map(([id, label]) =>
+      `<button type="button" role="radio" data-axis="${id}" aria-checked="${state.cornerAxis === id}">${label}</button>`).join('');
+  }
+  $('#corner-axis').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-axis]');
+    if (!btn || btn.dataset.axis === state.cornerAxis) return;
+    const prev = currentDefaults();
+    state.cornerAxis = btn.dataset.axis;
+    refreshAutoParams(prev);
+    update();
+  });
 
   /** Bağlantı kartındaki gövde tarafı satırı: burç / kılavuz / ön delik */
   function renderInsertPick(d = state.design) {
@@ -202,7 +250,7 @@ export function createDesignUI({ viewer, setStatus }) {
     if (!t) return;
     $('#screw-pick-icon').innerHTML = headIcon(t.head);
     const groups = new Map();
-    for (const s of d?.screws || []) {
+    for (const s of (d?.screws || []).filter((x) => x.role !== 'corner')) {
       const key = `${s.size}×${s.length === null || s.length === undefined ? '?' : String(s.length).replace('.', ',')}`;
       groups.set(key, (groups.get(key) || 0) + 1);
     }
@@ -259,6 +307,8 @@ export function createDesignUI({ viewer, setStatus }) {
   const designOptions = () => ({
     fasteners: state.fasteners,
     lidMode: state.lidMode,
+    cornerAxis: state.cornerAxis,
+    cornerSpec: state.cornerSpec,
     selectedHoles: state.selectedHoles,
     portOverrides: state.portOverrides,
     sealing: sealingLevel(),
@@ -328,6 +378,8 @@ export function createDesignUI({ viewer, setStatus }) {
     if (key === 'nutType') { setToolboxSpec(state.screwSpec, { ...state.insertSpec, type: 'nut', nut: value }); return; }
     if (key === 'standoffType') { setToolboxSpec(state.screwSpec, { ...state.insertSpec, type: 'standoff', standoff: value }); return; }
     if (key === 'washer') { setScrewSpec({ ...state.screwSpec, washer: value }); return; }
+    if (key === 'lidMode') { const prev = currentDefaults(); state.lidMode = value; renderFastening(); refreshAutoParams(prev); update(); return; }
+    if (key === 'cornerAxis') { const prev = currentDefaults(); state.cornerAxis = value; refreshAutoParams(prev); update(); return; }
     if (key === 'screwMaterial') { setScrewSpec({ ...state.screwSpec, material: value }); return; }
     state.params[key] = Number(value);
     renderParams();
@@ -346,7 +398,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const holes = state.analysis.holes || [];
     const mount = holes.map((h, i) => ({ ...h, index: i })).filter((h) => h.mount);
     $('#holes-summary').textContent = mount.length
-      ? `${state.selectedHoles.size}/${mount.length} delik · ${state.lidMode === 'screw' ? 'vidalı kapak' : 'geçme kapak'}`
+      ? `${state.selectedHoles.size}/${mount.length} delik · ${{ screw: 'vidalı kapak', corner: 'köşe vidalı kapak', none: 'geçme kapak' }[state.lidMode]}`
       : 'montaj deliği yok';
     const t = toolboxTypes().find((x) => x.id === state.screwSpec.type);
     const allowed = t ? Object.keys(t.sizes) : null;
@@ -478,6 +530,7 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#bom-list').innerHTML = bom.map((line) => `<li>${esc(line)}</li>`).join('');
     renderScrewPick(d);
     renderInsertPick(d);
+    renderCornerPick(d);
 
     const errEl = $('#design-error');
     errEl.classList.toggle('hidden', !d.error);
@@ -497,7 +550,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const sc = d.screws && d.screws[0];
     $('#holes-summary').textContent = mountCount
       ? `${state.selectedHoles.size}/${mountCount} delik` + (sc ? ` · ${sc.code ? sc.code + ' ' : ''}${sc.size}×${sc.length === null || sc.length === undefined ? '?' : String(sc.length).replace('.', ',')}` : '') +
-        (state.lidMode === 'screw' ? '' : ' · geçme kapak')
+        (state.lidMode === 'screw' ? '' : state.lidMode === 'corner' ? ' · köşe vidalı kapak' : ' · geçme kapak')
       : 'montaj deliği yok';
     const counts = { error: 0, warn: 0 };
     for (const c of d.checks || []) if (c.level in counts) counts[c.level]++;
@@ -594,9 +647,9 @@ export function createDesignUI({ viewer, setStatus }) {
       x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
       head: s.head, headDActual: s.head_d_actual, driveKind: s.driveKind, drive: s.driveVal, driveA: s.driveA, driveM: s.driveM,
       size: s.size, P: s.P, tapping: s.tapping, seat: s.seat || 0, washer: s.washer, finish: s.material?.finish || 'stainless',
-      z: s.lid ? d.geometry.zTop : state.analysis.board.top,
+      z: s.zSeat ?? (s.lid ? d.geometry.zTop : state.analysis.board.top),
     }));
-    const inserts = d.standoffs.filter((s) => s.insert).map((s) => ({ x: s.x, y: s.y, z: s.z1, ...s.insert }));
+    const inserts = [...d.standoffs, ...(d.cornerBosses || [])].filter((s) => s.insert).map((s) => ({ x: s.x, y: s.y, z: s.z1, ...s.insert }));
     viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws, inserts });
     const first = state.firstBuild;
     if (first) viewer.setView('iso');
@@ -744,6 +797,8 @@ export function createDesignUI({ viewer, setStatus }) {
     state.lidMode = 'screw';
     state.screwSpec = { ...state.screwSpec, length: 'auto' }; // tip ve boyut korunur; boy yeni karta göre
     state.insertSpec = { ...state.insertSpec, variant: 'auto' };
+    if (state.cornerSpec) state.cornerSpec = { ...state.cornerSpec, length: 'auto' };
+    state.cornerAxis = 'auto'; // köşe payı ekseni karta göre yeniden seçilir
     state.portOverrides = new Map();
     state.sheets = null;
     state.drawingId = null;

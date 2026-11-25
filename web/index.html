@@ -31,7 +31,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">V1.5 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">V1.6 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez; tüm hesap bu tarayıcıda yapılır">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -148,7 +148,20 @@
                   <h3 class="sub-title">Montaj delikleri</h3>
                   <div class="hole-list" id="hole-list"></div>
                   <h3 class="sub-title">Kapak bağlantısı</h3>
-                  <div class="seg-full two" id="lid-mode" role="radiogroup" aria-label="Kapak bağlantısı"></div>
+                  <div class="seg-full three" id="lid-mode" role="radiogroup" aria-label="Kapak bağlantısı"></div>
+                  <div class="corner-pick-wrap hidden" id="corner-pick-wrap">
+                    <h3 class="sub-title">Köşe (kapak) vidası <span class="muted">· Toolbox</span></h3>
+                    <button type="button" class="screw-pick" id="corner-pick" title="Toolbox: köşe kapak vidası tipi, boyu, gömme baş">
+                      <span class="screw-pick-icon" id="corner-pick-icon"></span>
+                      <span class="screw-pick-text">
+                        <strong id="corner-pick-title">Köşe vidası</strong>
+                        <span id="corner-pick-sub"></span>
+                      </span>
+                      <span class="screw-pick-action">Değiştir</span>
+                    </button>
+                    <h3 class="sub-title">Köşe payı (kavite hangi eksende uzasın)</h3>
+                    <div class="seg-full three" id="corner-axis" role="radiogroup" aria-label="Köşe payı ekseni"></div>
+                  </div>
                 </div>
               </details>
 
@@ -324,6 +337,7 @@
         <li class="step done"><span class="num">8</span>Dişli burçlar: ısıyla gömülen insert, Helicoil<span class="tag">V1.3</span></li>
         <li class="step done"><span class="num">9</span>Pullar, vida malzemesi ve sıkma torku<span class="tag">V1.4</span></li>
         <li class="step done"><span class="num">10</span>Somun cebi ve hazır aralayıcılar<span class="tag">V1.5</span></li>
+        <li class="step done"><span class="num">11</span>Köşe kapak vidaları, gömme baş<span class="tag">V1.6</span></li>
       </ol>
     </div>
   </dialog>
