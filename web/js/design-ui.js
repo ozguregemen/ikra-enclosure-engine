@@ -1100,9 +1100,12 @@ export function createDesignUI({ viewer, setStatus }) {
     state.pendingId = null;
     if (msg.type === 'error') {
       setBusy(false);
+      state.buildError = msg.message;
       setStatus('Muhafaza oluşturulamadı: ' + msg.message, { error: true });
+      document.dispatchEvent(new CustomEvent('ikra:build-error', { detail: { message: msg.message } }));
       return;
     }
+    state.buildError = null;
     const d = state.pendingDesign;
     state.result = { ...msg, design: d };
     state.generated = true;
@@ -1507,5 +1510,20 @@ export function createDesignUI({ viewer, setStatus }) {
 
   const hasDesign = () => !!(state.rules && state.params && state.analysis);
 
-  return { setAnalysis, reportSection, exportState, importState, hasDesign };
+  /** Otomatik test (tools/selftest.ps1): tasarımın ve son katı modelin özeti */
+  function selfTest() {
+    const r = state.result;
+    return {
+      report: reportSection(),
+      state: exportState(),
+      built: !!r && r.design === state.design,
+      volumes: r ? r.volumes : null,
+      files: r ? Object.keys(r.files).filter((k) => r.files[k]) : [],
+      treatReport: r?.treatReport || null,
+      loop: state.loop ? { status: state.loop.status, stop: state.loop.stop, iterations: state.loop.iterations, counts: state.loop.counts, changes: state.loop.changes, findings: state.loop.findings } : null,
+      buildError: state.buildError || null,
+    };
+  }
+
+  return { setAnalysis, reportSection, exportState, importState, hasDesign, selfTest };
 }

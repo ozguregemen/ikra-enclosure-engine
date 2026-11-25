@@ -541,3 +541,43 @@ function downloadReport() {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/* ---------- Otomatik test kancası (tools/selftest.ps1) ----------
+ * index.html?selftest=<örnek-kart-id>&cfg=<JSON tasarım ayarları>&build=0|1
+ * Örnek kart yüklenir, ayarlar proje dosyası gibi uygulanır, (build=1 ise) katı model üretilir;
+ * sonuç konsola "IKRA-SELFTEST-RESULT <json>" ve ardından "IKRA-SELFTEST-DONE" olarak yazılır.
+ */
+(() => {
+  const q = new URLSearchParams(location.search);
+  const sample = q.get('selftest');
+  if (!sample) return;
+  const wantBuild = q.get('build') !== '0';
+  let cfg = {};
+  try { cfg = q.get('cfg') ? JSON.parse(q.get('cfg')) : {}; } catch (err) { console.log('IKRA-SELFTEST-ERROR cfg ' + err.message); }
+  let done = false;
+  const finish = (why) => {
+    if (done) return;
+    done = true;
+    let out;
+    try { out = { why, ...designUI.selfTest() }; } catch (err) { out = { why, error: String(err && err.stack || err) }; }
+    console.log('IKRA-SELFTEST-RESULT ' + JSON.stringify(out));
+    console.log('IKRA-SELFTEST-DONE');
+  };
+  window.addEventListener('error', (e) => console.log('IKRA-SELFTEST-ERROR ' + (e.message || e.error)));
+  window.addEventListener('unhandledrejection', (e) => console.log('IKRA-SELFTEST-ERROR ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+  document.addEventListener('ikra:built', () => finish('built'));
+  document.addEventListener('ikra:build-error', () => finish('build-error'));
+  pendingProject = { name: 'selftest', design: { process: 'fdm', material: 'pla', ...cfg } };
+  loadSample(sample);
+  // Tasarım hatalıysa ya da yalnızca hesap isteniyorsa katı model beklenmez
+  const poll = setInterval(() => {
+    if (done) { clearInterval(poll); return; }
+    if (!designUI.hasDesign()) return;
+    const st = designUI.selfTest();
+    if (!wantBuild || (st.report && st.report.checks && st.report.checks.some((c) => c.level === 'error') && !st.built)) {
+      setTimeout(() => finish(wantBuild ? 'design-error' : 'no-build'), 1500);
+      clearInterval(poll);
+    }
+  }, 500);
+  setTimeout(() => finish('timeout'), 170000);
+})();
