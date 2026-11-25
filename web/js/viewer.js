@@ -79,6 +79,7 @@ export class Viewer {
     this.encOpts = { base: true, lid: true, pcb: true, transparent: true, exploded: false };
     this.enclosureMaterial = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
     this.enclosureEdgeMaterial = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.55 });
+    this.screwMaterial = new THREE.MeshStandardMaterial({ color: 0xb9c0c8, metalness: 0.6, roughness: 0.35 });
 
     this.highlightMaterial = new THREE.MeshStandardMaterial({
       roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide,
@@ -225,8 +226,11 @@ export class Viewer {
     return box;
   }
 
-  /** meshes: { base: {position, normal, index}, lid: {...} } — cad-worker çıktısı */
-  setEnclosure(meshes, { explodeOffset = 20 } = {}) {
+  /**
+   * meshes: { base: {position, normal, index}, lid: {...} } — cad-worker çıktısı
+   * screws: [{x, y, z (baş alt yüzü), d, headD, headH, length, lid}] — yalnızca görsel
+   */
+  setEnclosure(meshes, { explodeOffset = 20, screws = [] } = {}) {
     this.clearEnclosure();
     this.enclosure = {};
     for (const key of ['base', 'lid']) {
@@ -240,6 +244,16 @@ export class Viewer {
       holder.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 25), this.enclosureEdgeMaterial));
       this.enclosureGroup.add(holder);
       this.enclosure[key] = holder;
+    }
+    for (const s of screws) {
+      if (!s.length) continue;
+      const shank = new THREE.Mesh(new THREE.CylinderGeometry(s.d / 2, s.d / 2, s.length, 16), this.screwMaterial);
+      shank.rotation.x = Math.PI / 2;
+      shank.position.set(s.x, s.y, s.z - s.length / 2);
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(s.headD / 2, s.headD / 2, s.headH, 24), this.screwMaterial);
+      head.rotation.x = Math.PI / 2;
+      head.position.set(s.x, s.y, s.z + s.headH / 2);
+      (s.lid ? this.enclosure.lid : this.enclosure.base).add(shank, head);
     }
     this.explodeOffset = explodeOffset;
     this.applyEnclosureOptions();
@@ -289,6 +303,19 @@ export class Viewer {
       const boardHelper = new THREE.Box3Helper(toBox3(a.board.box), new THREE.Color(cssVar('--accent')));
       const envHelper = new THREE.Box3Helper(toBox3(a.envelope.box), new THREE.Color(cssVar('--envelope')));
       this.guideGroup.add(envHelper, boardHelper);
+
+      // Montaj deliği işaretleri
+      const ringMat = new THREE.LineBasicMaterial({ color: new THREE.Color(cssVar('--accent')) });
+      for (const h of a.holes || []) {
+        if (!h.mount) continue;
+        const pts = [];
+        const r = h.d / 2 + 0.8;
+        for (let i = 0; i < 48; i++) {
+          const t = (i / 48) * Math.PI * 2;
+          pts.push(new THREE.Vector3(h.x + r * Math.cos(t), h.y + r * Math.sin(t), a.board.top + 0.05));
+        }
+        this.guideGroup.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), ringMat));
+      }
     }
     const size = box.getSize(new THREE.Vector3());
     const axes = new THREE.AxesHelper(Math.max(size.x, size.y, size.z) * 0.22);

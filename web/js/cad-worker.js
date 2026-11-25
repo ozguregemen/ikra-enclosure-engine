@@ -9,6 +9,7 @@ import {
   setOC,
   drawRoundedRectangle,
   makeBox,
+  makeCylinder,
   exportSTEP,
   measureVolume,
 } from 'https://cdn.jsdelivr.net/npm/replicad@1.2.1/+esm';
@@ -37,12 +38,30 @@ function buildEnclosure(g) {
   // Alt gövde: dış blok − iç cep (cep üstten açık)
   const outerBlock = roundedSlab(g.outer.L, g.outer.W, g.outer.r, cx, cy, g.z0, hBase);
   const pocket = roundedSlab(g.cavity.L, g.cavity.W, g.cavity.r, cx, cy, g.z0 + g.floor, hBase);
-  const base = outerBlock.cut(pocket);
+  let base = outerBlock.cut(pocket);
+  const up = [0, 0, 1];
 
-  // Kapak: düz plaka + kenarlara konumlandırma dili
+  // Standoff'lar: tabandan PCB alt yüzüne silindir (tabana 0,5 mm gömülü başlar)
+  const standoffs = g.standoffs || [];
+  for (const s of standoffs) {
+    base = base.fuse(makeCylinder(s.od / 2, s.z1 - s.z0 + 0.5, [s.x, s.y, s.z0 - 0.5], up));
+  }
+  // İnsert / kılavuz / sac vidası deliği: üstten açık, kör delik
+  for (const s of standoffs) {
+    base = base.cut(makeCylinder(s.holeD / 2, s.depth + 0.5, [s.x, s.y, s.z1 - s.depth], up));
+  }
+
+  // Kapak: düz plaka + kenarlara konumlandırma dili + PCB'ye inen vida boruları
   let lid = roundedSlab(g.outer.L, g.outer.W, g.outer.r, cx, cy, g.cavTop, g.lidT);
   for (const bar of g.lipBars) {
     lid = lid.fuse(makeBox(bar.min, bar.max));
+  }
+  const tubes = g.lidTubes || [];
+  for (const t of tubes) {
+    lid = lid.fuse(makeCylinder(t.od / 2, t.z1 - t.z0 + 0.5, [t.x, t.y, t.z0], up));
+  }
+  for (const t of tubes) {
+    lid = lid.cut(makeCylinder(t.holeD / 2, g.zTop - t.z0 + 1, [t.x, t.y, t.z0 - 0.5], up));
   }
   return { base, lid };
 }

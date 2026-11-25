@@ -6,7 +6,7 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.2.0 (M1)';
+const APP_VERSION = '0.3.0 (M2)';
 const SAMPLE_URL = 'samples/ornek-kart.step';
 const LARGE_FILE_MB = 50;
 
@@ -224,6 +224,11 @@ function renderSummary({ fileName, sizeBytes, seconds, analysis: a }) {
       'Kart + tüm bileşenler, taşan konnektörler dahil. Boşluk/et kalınlığı M1\'de eklenecek.', 'wide accent');
     html += stat('Bileşen', `${int.format(a.partCount - 1)}`, `üst ${a.counts.top} · alt ${a.counts.bottom}`);
     html += stat('Kenarda / taşan', `${a.counts.edge} <span class="unit">/ ${a.counts.overhang}</span>`, 'konnektör adayı');
+    const mount = (a.holes || []).filter((h) => h.mount);
+    const sizes = [...new Set(mount.map((h) => 'Ø' + fmt(h.d)))].join(', ');
+    const pinHoles = (a.holes || []).length - mount.length;
+    html += stat('Montaj deliği', `${mount.length}`,
+      mount.length ? `${sizes}${pinHoles ? ` · ${pinHoles} pin deliği ayrıca` : ''}` : 'kart gövdesinde bulunamadı', 'wide');
   } else {
     const s = a.assemblySize;
     html += stat('Montaj ölçüsü (sınır kutusu)', `${fmt(s[0])} × ${fmt(s[1])} × ${fmt(s[2])} <span class="unit">mm</span>`, 'X × Y × Z', 'wide accent');
@@ -308,6 +313,7 @@ function downloadReport() {
     maxBelow: a.maxBelow,
     envelope: a.envelope && { ...a.envelope, box: { min: r3(a.envelope.box.min), max: r3(a.envelope.box.max) } },
     counts: a.counts,
+    holes: (a.holes || []).map((h) => ({ x: h.x, y: h.y, d: h.d, mount: h.mount, occupiedBy: h.occupiedBy })),
     warnings: a.warnings,
     design: designUI.reportSection(),
     parts: a.parts.map((p) => ({

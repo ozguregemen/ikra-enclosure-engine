@@ -2,7 +2,7 @@
  * Tasarım paneli (M1): süreç/malzeme seçimi, parametreler, muhafaza üretimi ve indirme.
  * Hesap design.js'te, katı model üretimi cad-worker.js'te yapılır.
  */
-import { computeDesign, defaultParams, paramHint, PARAM_FIELDS } from './design.js';
+import { computeDesign, defaultParams, paramHint, pickScrew, LID_MODES, PARAM_FIELDS } from './design.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -52,6 +52,9 @@ export function createDesignUI({ viewer, setStatus }) {
     generated: false,
     autoTimer: null,
     firstBuild: true,
+    fasteners: null,
+    lidMode: 'screw',
+    selectedHoles: new Set(),
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -61,6 +64,11 @@ export function createDesignUI({ viewer, setStatus }) {
       const res = await fetch('rules/index.json');
       if (!res.ok) throw new Error('Kural listesi yüklenemedi.');
       state.index = await res.json();
+    }
+    if (!state.fasteners) {
+      const res = await fetch('rules/fasteners.json');
+      if (!res.ok) throw new Error('Vida tablosu yüklenemedi.');
+      state.fasteners = await res.json();
     }
     return state.index;
   }
@@ -102,6 +110,17 @@ export function createDesignUI({ viewer, setStatus }) {
     await applyRules();
   });
 
+  const designOptions = () => ({ fasteners: state.fasteners, lidMode: state.lidMode, selectedHoles: state.selectedHoles });
+  const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
+
+  /** Bağlantı seçimi değişince, kullanıcı elle değiştirmediyse PCB altı yüksekliği yeni varsayılana çek */
+  function refreshAutoStandoff(prevDefaults) {
+    if (Math.abs(state.params.standoffHeight - prevDefaults.standoffHeight) < 1e-9) {
+      state.params.standoffHeight = currentDefaults().standoffHeight;
+    }
+    renderParams();
+  }
+
   async function applyRules() {
     try {
       await loadRules();
@@ -109,7 +128,7 @@ export function createDesignUI({ viewer, setStatus }) {
       setStatus(err.message, { error: true });
       return;
     }
-    state.params = defaultParams(state.analysis, state.rules);
+    state.params = currentDefaults();
     renderSelectors();
     renderParams();
     update();
@@ -118,7 +137,7 @@ export function createDesignUI({ viewer, setStatus }) {
   /* ---------- Parametreler ---------- */
 
   function renderParams() {
-    const defaults = defaultParams(state.analysis, state.rules);
+    const defaults = currentDefaults();
     $('#params').innerHTML = PARAM_FIELDS.map((fld) => `
       <div class="param">
         <label for="p-${fld.key}">${esc(fld.label)}</label>
@@ -127,7 +146,7 @@ export function createDesignUI({ viewer, setStatus }) {
             value="${inputText(state.params[fld.key])}" class="${Math.abs(state.params[fld.key] - defaults[fld.key]) > 1e-9 ? 'changed' : ''}">
           <span class="unit">mm</span>
         </div>
-        <span class="hint muted">${esc(paramHint(fld.key, state.rules, state.analysis))}</span>
+        <span class="hint muted">${esc(paramHint(fld.key, state.rules, state.analysis, defaults))}</span>
       </div>`).join('');
   }
 
@@ -136,14 +155,61 @@ export function createDesignUI({ viewer, setStatus }) {
     if (!input) return;
     const key = input.dataset.key;
     state.params[key] = parseInput(input.value);
-    const def = defaultParams(state.analysis, state.rules)[key];
+    const def = currentDefaults()[key];
     input.classList.toggle('changed', !(Math.abs(state.params[key] - def) < 1e-9));
+    update();
+  });
+  $('#dfm-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-fix-key]');
+    if (!btn || !state.params) return;
+    state.params[btn.dataset.fixKey] = Number(btn.dataset.fixValue);
+    renderParams();
     update();
   });
   $('#params-reset').addEventListener('click', () => {
     if (!state.rules) return;
-    state.params = defaultParams(state.analysis, state.rules);
+    state.params = currentDefaults();
     renderParams();
+    update();
+  });
+
+  /* ---------- Bağlantı: delikler ve kapak modu ---------- */
+
+  function renderFastening() {
+    const holes = state.analysis.holes || [];
+    const mount = holes.map((h, i) => ({ ...h, index: i })).filter((h) => h.mount);
+    const others = holes.length - mount.length;
+    $('#holes-summary').textContent = holes.length
+      ? `${mount.length} montaj deliği${others ? ` · ${others} pin deliği yok sayıldı` : ''}`
+      : '';
+    $('#hole-list').innerHTML = mount.length
+      ? mount.map((h, k) => {
+        const s = state.fasteners ? pickScrew(h.d, state.fasteners.screws) : null;
+        return `<label class="hole-row"><input type="checkbox" data-hole="${h.index}" ${state.selectedHoles.has(h.index) ? 'checked' : ''}>` +
+          `<span>Delik ${k + 1} · Ø${f2(h.d)}${s ? ` · ${s.size}` : ''}</span>` +
+          `<span class="pos">${f2(h.x)}; ${f2(h.y)}</span></label>`;
+      }).join('')
+      : '<div class="hole-empty">Kartta montaj deliği bulunamadı. PCB tutucu üretilemez; kart kenarı tutucuları sonraki sürümlerde.</div>';
+    $('#lid-mode').innerHTML = LID_MODES.map((m) =>
+      `<button type="button" role="radio" data-lid="${m.id}" aria-checked="${m.id === state.lidMode}">${esc(m.label)}</button>`).join('');
+  }
+
+  $('#hole-list').addEventListener('change', (e) => {
+    const cb = e.target.closest('input[data-hole]');
+    if (!cb) return;
+    const idx = Number(cb.dataset.hole);
+    const prev = currentDefaults();
+    if (cb.checked) state.selectedHoles.add(idx); else state.selectedHoles.delete(idx);
+    refreshAutoStandoff(prev);
+    update();
+  });
+  $('#lid-mode').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-lid]');
+    if (!btn || btn.dataset.lid === state.lidMode) return;
+    const prev = currentDefaults();
+    state.lidMode = btn.dataset.lid;
+    renderFastening();
+    refreshAutoStandoff(prev);
     update();
   });
 
@@ -151,8 +217,15 @@ export function createDesignUI({ viewer, setStatus }) {
 
   function update() {
     if (!state.analysis || !state.rules) return;
-    const d = computeDesign(state.analysis, state.rules, state.params);
+    const d = computeDesign(state.analysis, state.rules, state.params, {
+      fasteners: state.fasteners,
+      lidMode: state.lidMode,
+      selectedHoles: state.selectedHoles,
+    });
     state.design = d;
+    const bom = d.bom || [];
+    $('#bom-title').classList.toggle('hidden', !bom.length);
+    $('#bom-list').innerHTML = bom.map((line) => `<li>${esc(line)}</li>`).join('');
 
     const errEl = $('#design-error');
     errEl.classList.toggle('hidden', !d.error);
@@ -161,7 +234,9 @@ export function createDesignUI({ viewer, setStatus }) {
 
     renderStats();
     $('#dfm-list').innerHTML = (d.checks || []).map((c) =>
-      `<li class="note ${c.level === 'info' ? '' : c.level}">${esc(c.text)}</li>`).join('');
+      `<li class="note ${c.level === 'info' ? '' : c.level}"><span>${esc(c.text)}` +
+      (c.fix ? ` <button type="button" class="link-btn" data-fix-key="${esc(c.fix.key)}" data-fix-value="${c.fix.value}">${esc(c.fix.label)}</button>` : '') +
+      '</span></li>').join('');
 
     if (state.generated) {
       $('#stale-tag').classList.toggle('hidden', false);
@@ -186,7 +261,9 @@ export function createDesignUI({ viewer, setStatus }) {
       stat('İç cep', dims(d.cavity.L, d.cavity.W, d.cavity.H), 'PCB + boşluklar') +
       stat('Et / taban / kapak', `${f2(d.params.wall)} <span class="unit">mm</span>`, `kapak dili ${f2(d.params.lipT)} mm, boşluk ${f2(d.params.fit)} mm`) +
       stat('Tahmini kütle', mass, massSub) +
-      stat('Kapak dili', `${d.lipBars.length} <span class="unit">/ 4 kenar</span>`, d.lipRemoved.length ? `kaldırılan: ${d.lipRemoved.map((x) => x.side).join(', ')}` : 'tüm kenarlarda');
+      stat('Kapak dili', `${d.lipBars.length} <span class="unit">/ 4 kenar</span>`, d.lipRemoved.length ? `kaldırılan: ${d.lipRemoved.map((x) => x.side).join(', ')}` : 'tüm kenarlarda') +
+      stat('Bağlantı', `${d.screws.length} <span class="unit">vida</span>`,
+        d.standoffs.length ? `${d.standoffs.length} standoff · ${d.lidTubes.length} kapak borusu` : 'montaj deliği yok');
   }
 
   const processLabel = () => state.index.processes.find((p) => p.id === state.process).label;
@@ -244,7 +321,11 @@ export function createDesignUI({ viewer, setStatus }) {
     const d = state.pendingDesign;
     state.result = { ...msg, design: d };
     state.generated = true;
-    viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10) });
+    const screws = d.screws.map((s) => ({
+      x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
+      z: s.lid ? d.geometry.zTop : state.analysis.board.top,
+    }));
+    viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws });
     if (state.firstBuild) viewer.setView('iso');
     state.firstBuild = false;
     $('#enc-toggles').classList.remove('hidden');
@@ -306,9 +387,12 @@ export function createDesignUI({ viewer, setStatus }) {
       return;
     }
     $('#design-panel').classList.remove('hidden');
-    state.params = defaultParams(state.analysis, state.rules);
+    state.selectedHoles = new Set((state.analysis.holes || []).map((h, i) => (h.mount ? i : -1)).filter((i) => i >= 0));
+    state.lidMode = 'screw';
+    state.params = currentDefaults();
     renderSelectors();
     renderParams();
+    renderFastening();
     update();
     setBusy(false);
   }
@@ -326,6 +410,12 @@ export function createDesignUI({ viewer, setStatus }) {
       z: d.z,
       lipBars: d.lipBars.map((l) => ({ side: l.side, depth: l.depth })),
       ports: d.ports.map((p) => ({ name: p.name, side: p.side, width: p.width, height: p.height })),
+      lidMode: state.lidMode,
+      fastening: d.fasteningMethod,
+      standoffs: d.standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, screw: s.screw })),
+      lidTubes: d.lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, length: t.length })),
+      screws: d.screws.map((s) => ({ size: s.size, length: s.length, engagement: s.engagement, lid: s.lid, x: s.x, y: s.y })),
+      bom: d.bom,
       volumes_mm3: state.result ? state.result.volumes : null,
       checks: d.checks,
     };

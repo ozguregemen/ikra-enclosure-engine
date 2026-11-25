@@ -27,8 +27,46 @@ function Add-Entity([string]$text) {
 function Add-Point([double[]]$p) { return Add-Entity "CARTESIAN_POINT('',($(F $p[0]),$(F $p[1]),$(F $p[2])))" }
 function Add-Direction([double[]]$d) { return Add-Entity "DIRECTION('',($(F $d[0]),$(F $d[1]),$(F $d[2])))" }
 
-# Eksene hizali kutu katisi: 8 kose, 12 kenar, 6 duzlemsel yuz (normaller disari bakar)
-function Add-BoxSolid([double[]]$a, [double[]]$b, [string]$name) {
+# Dik silindirik delik: ust/alt yuz icin ic sinirlar + silindirik yan yuz.
+# Yonler: ust yuzde delik saat yonunde (malzeme solda), alt yuzde tersi; silindir yuzunun
+# normali eksene bakar (same_sense .F.), dikis (seam) kenari dongude iki kez, iki yonde kullanilir.
+function Add-Hole([double]$hx, [double]$hy, [double]$r, [double]$z0, [double]$z1) {
+    $zDir = Add-Direction @(0, 0, 1)
+    $xDir = Add-Direction @(1, 0, 0)
+    $vTop = Add-Entity "VERTEX_POINT('',#$(Add-Point @(($hx + $r), $hy, $z1)))"
+    $vBot = Add-Entity "VERTEX_POINT('',#$(Add-Point @(($hx + $r), $hy, $z0)))"
+    $axTop = Add-Entity "AXIS2_PLACEMENT_3D('',#$(Add-Point @($hx, $hy, $z1)),#$zDir,#$xDir)"
+    $axBot = Add-Entity "AXIS2_PLACEMENT_3D('',#$(Add-Point @($hx, $hy, $z0)),#$zDir,#$xDir)"
+    $circTop = Add-Entity "CIRCLE('',#$axTop,$(F $r))"
+    $circBot = Add-Entity "CIRCLE('',#$axBot,$(F $r))"
+    $eTop = Add-Entity "EDGE_CURVE('',#$vTop,#$vTop,#$circTop,.T.)"
+    $eBot = Add-Entity "EDGE_CURVE('',#$vBot,#$vBot,#$circBot,.T.)"
+    $seamVec = Add-Entity "VECTOR('',#$zDir,1.)"
+    $seamLine = Add-Entity "LINE('',#$(Add-Point @(($hx + $r), $hy, $z0)),#$seamVec)"
+    $eSeam = Add-Entity "EDGE_CURVE('',#$vBot,#$vTop,#$seamLine,.T.)"
+    $cyl = Add-Entity "CYLINDRICAL_SURFACE('',#$axBot,$(F $r))"
+
+    $o1 = Add-Entity "ORIENTED_EDGE('',*,*,#$eTop,.T.)"
+    $o2 = Add-Entity "ORIENTED_EDGE('',*,*,#$eSeam,.F.)"
+    $o3 = Add-Entity "ORIENTED_EDGE('',*,*,#$eBot,.F.)"
+    $o4 = Add-Entity "ORIENTED_EDGE('',*,*,#$eSeam,.T.)"
+    $cylLoop = Add-Entity "EDGE_LOOP('',(#$o1,#$o2,#$o3,#$o4))"
+    $cylBound = Add-Entity "FACE_OUTER_BOUND('',#$cylLoop,.T.)"
+    $cylFace = Add-Entity "ADVANCED_FACE('',(#$cylBound),#$cyl,.F.)"
+
+    $oTop = Add-Entity "ORIENTED_EDGE('',*,*,#$eTop,.F.)"
+    $topLoop = Add-Entity "EDGE_LOOP('',(#$oTop))"
+    $topBound = Add-Entity "FACE_BOUND('',#$topLoop,.T.)"
+    $oBot = Add-Entity "ORIENTED_EDGE('',*,*,#$eBot,.T.)"
+    $botLoop = Add-Entity "EDGE_LOOP('',(#$oBot))"
+    $botBound = Add-Entity "FACE_BOUND('',#$botLoop,.T.)"
+    return @{ face = $cylFace; top = $topBound; bottom = $botBound }
+}
+
+# Eksene hizali kutu katisi: 8 kose, 12 kenar, 6 duzlemsel yuz (normaller disari bakar).
+# $holes: @(@{x; y; r}, ...) verilirse Z yonunde boydan boya delikler acilir.
+function Add-BoxSolid([double[]]$a, [double[]]$b, [string]$name, [object[]]$holes = @()) {
+    $holeParts = @(foreach ($hole in $holes) { Add-Hole $hole.x $hole.y $hole.r $a[2] $b[2] })
     # Not: PowerShell degisken adlari buyuk/kucuk harf duyarsizdir; dongu degiskenleri farkli adlandirildi.
     $verts = @(
         @($a[0], $a[1], $a[2]), @($b[0], $a[1], $a[2]), @($b[0], $b[1], $a[2]), @($a[0], $b[1], $a[2]),
@@ -56,7 +94,8 @@ function Add-BoxSolid([double[]]$a, [double[]]$b, [string]$name) {
         @{ n = @(1, 0, 0);  r = @(0, 1, 0); p = $verts[1]; loop = @(@(1, '.T.'), @(10, '.T.'), @(5, '.F.'), @(9, '.F.')) },
         @{ n = @(-1, 0, 0); r = @(0, 1, 0); p = $verts[0]; loop = @(@(3, '.T.'), @(8, '.T.'), @(7, '.F.'), @(11, '.F.')) }
     )
-    $faceIds = foreach ($f in $faceDefs) {
+    $faceIds = for ($fi = 0; $fi -lt $faceDefs.Count; $fi++) {
+        $f = $faceDefs[$fi]
         $pt = Add-Point $f.p
         $nd = Add-Direction $f.n
         $rd = Add-Direction $f.r
@@ -66,8 +105,12 @@ function Add-BoxSolid([double[]]$a, [double[]]$b, [string]$name) {
         $loopRefs = ($oe | ForEach-Object { "#$_" }) -join ','
         $el = Add-Entity "EDGE_LOOP('',($loopRefs))"
         $fb = Add-Entity "FACE_OUTER_BOUND('',#$el,.T.)"
-        Add-Entity "ADVANCED_FACE('',(#$fb),#$pl,.T.)"
+        $bounds = @("#$fb")
+        if ($fi -eq 0) { $bounds += @($holeParts | ForEach-Object { "#$($_.bottom)" }) }
+        if ($fi -eq 1) { $bounds += @($holeParts | ForEach-Object { "#$($_.top)" }) }
+        Add-Entity "ADVANCED_FACE('',($($bounds -join ',')),#$pl,.T.)"
     }
+    $faceIds = @($faceIds) + @($holeParts | ForEach-Object { $_.face })
     $faceRefs = ($faceIds | ForEach-Object { "#$_" }) -join ','
     $shell = Add-Entity "CLOSED_SHELL('',($faceRefs))"
     return Add-Entity "MANIFOLD_SOLID_BREP('$name',#$shell)"
@@ -99,7 +142,8 @@ $ctx = Add-Entity "( GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSI
 # Her parca ayri bir urun (serbest sekil) olarak yazilir
 function Add-Part([string]$name, [object[]]$boxes) {
     $solids = foreach ($bx in $boxes) {
-        $s = Add-BoxSolid $bx.min $bx.max $name
+        $boxHoles = if ($bx.ContainsKey('holes')) { $bx.holes } else { @() }
+        $s = Add-BoxSolid $bx.min $bx.max $name $boxHoles
         Add-Color $s $bx.rgb
         $s
     }
@@ -129,8 +173,13 @@ $teal = @(0.10, 0.55, 0.55)
 $red = @(0.85, 0.15, 0.12)
 $gray = @(0.35, 0.36, 0.38)
 
-# Kart: X 0..60, Y 0..40, Z 0..1.6 (ust yuzey Z = 1.6)
-Add-Part 'ORNEK_KART_PCB' @(B @(0, 0, 0) @(60, 40, 1.6) $green)
+# Kart: X 0..60, Y 0..40, Z 0..1.6 (ust yuzey Z = 1.6), koselerde 4 x M3 montaj deligi (O3,2)
+$pcb = B @(0, 0, 0) @(60, 40, 1.6) $green
+$pcb.holes = @(
+    @{ x = 3.5; y = 3.5; r = 1.6 }, @{ x = 56.5; y = 3.5; r = 1.6 },
+    @{ x = 3.5; y = 36.5; r = 1.6 }, @{ x = 56.5; y = 36.5; r = 1.6 }
+)
+Add-Part 'ORNEK_KART_PCB' @($pcb)
 Add-Part 'USB_C_Receptacle' @(B @(-1.2, 15.5, 1.6) @(6.3, 24.5, 4.86) $metal)
 Add-Part 'SMA_Edge_Mount' @(B @(55, 16.8, 1.6) @(66, 23.2, 7.95) $gold)
 Add-Part 'CP_Elec_8x10' @(B @(30, 26, 1.6) @(38, 34, 11.6) $blue)

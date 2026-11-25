@@ -23,6 +23,8 @@
   "cutout_clearance_z": 0.2,
   "boss_min_diameter": 5.0,
   "boss_outer_wall": 1.2,
+  "fastening": "self_tap",
+  "thread_engagement_d": 2.0,
   "draft_angle_min": 1.0,
   "shrink_factor": 0.006,
   "rib_ratio_max": 0.6,

@@ -29,14 +29,17 @@ export const PARAM_FIELDS = [
   { key: 'cornerRadius', label: 'İç köşe radyüsü', step: 0.1 },
 ];
 
-export function paramHint(key, rules, analysis) {
+export function paramHint(key, rules, analysis, defaults = null) {
   switch (key) {
     case 'wall': return `kural: ${f(rules.recommended_wall_min)}–${f(rules.recommended_wall_max)} (en az ${f(rules.min_wall)})`;
     case 'pcbClearance': return `kural: ${f(rules.pcb_clearance_xy)}`;
     case 'topClearance': return `kural: ${f(rules.component_clearance_z)}`;
     case 'standoffHeight': {
       const below = analysis.maxBelow ? analysis.maxBelow.value : 0;
-      return `alttan taşan ${f(below)} + ${f(rules.under_board_clearance)}; en az ${f(rules.min_standoff_height)}`;
+      const base = Math.max(rules.min_standoff_height, below + rules.under_board_clearance);
+      const auto = defaults && defaults.standoffHeight > base + 1e-6
+        ? ` · insert/vida boyuna göre ${f(defaults.standoffHeight)} seçildi` : '';
+      return `alttan taşan ${f(below)} + ${f(rules.under_board_clearance)}; en az ${f(rules.min_standoff_height)}${auto}`;
     }
     case 'cornerRadius': return rules.process === 'cnc'
       ? `takım Ø${f(rules.process_params.tool_diameter)} → en az ${f(rules.process_params.tool_diameter / 2)}`
@@ -47,15 +50,62 @@ export function paramHint(key, rules, analysis) {
 
 const round2 = (v) => Math.round(v * 100) / 100;
 
-export function defaultParams(analysis, rules) {
+/**
+ * Kural dosyasından başlangıç parametreleri. options (fasteners, lidMode, selectedHoles) verilirse
+ * PCB altı yükseklik; insert/diş derinliğine ve standart vida boyunun tam oturmasına göre yükseltilir.
+ */
+export function defaultParams(analysis, rules, options = {}) {
   const below = analysis.maxBelow ? analysis.maxBelow.value : 0;
-  return {
+  const params = {
     wall: rules.default_wall,
     pcbClearance: rules.pcb_clearance_xy,
     topClearance: rules.component_clearance_z,
     standoffHeight: round2(Math.max(rules.min_standoff_height, below + rules.under_board_clearance)),
     cornerRadius: rules.corner_radius_min,
   };
+  if (options.fasteners && analysis.board && (analysis.holes || []).some((h) => h.mount)) {
+    for (let i = 0; i < 4; i++) {
+      const d = computeDesign(analysis, rules, params, options);
+      const fixes = (d.checks || []).filter((c) => c.fix && c.fix.key === 'standoffHeight' && c.fix.value > params.standoffHeight + 1e-9);
+      if (!fixes.length) break;
+      params.standoffHeight = Math.max(...fixes.map((c) => c.fix.value));
+    }
+  }
+  return params;
+}
+
+const MIN_FLOOR_UNDER_HOLE = 0.8; // mm: vida deliği altında kalacak en az taban
+const TUBE_GAP = 0.1; // mm: kapak borusu ile PCB üst yüzü arası
+const FASTENER_OBSTACLE_GAP = 0.2; // mm
+
+export const LID_MODES = [
+  { id: 'screw', label: 'Vidalı (PCB vidalarıyla ortak)' },
+  { id: 'none', label: 'Vidasız (yalnızca geçme)' },
+];
+
+const METHOD_TEXT = { insert: 'ısıyla gömülen insert', tapped: 'kılavuz çekilmiş diş', self_tap: 'sac vidası (plastik için)' };
+
+/** PCB deliğinden geçebilecek en büyük metrik vida */
+export function pickScrew(holeD, screws) {
+  let best = null;
+  for (const s of screws) if (s.min_pcb_hole <= holeD + 1e-6 && (!best || s.d > best.d)) best = s;
+  return best;
+}
+
+function distToBoxXY(box, x, y) {
+  const nx = Math.max(box.min[0], Math.min(x, box.max[0]));
+  const ny = Math.max(box.min[1], Math.min(y, box.max[1]));
+  return Math.hypot(nx - x, ny - y);
+}
+
+/** Standart boylardan, delik derinliğine sığan en uzun vidayı seçer. */
+function pickLength(lengths, grip, depthAvail, minEngage) {
+  const maxL = grip + depthAvail - 0.3;
+  const fit = lengths.filter((L) => L <= maxL + 1e-9);
+  const L = fit.length ? fit[fit.length - 1] : null;
+  const engagement = L ? L - grip : 0;
+  const next = lengths.find((len) => len > maxL + 1e-9) ?? null;
+  return { L, engagement, ok: L !== null && engagement >= minEngage - 1e-9, next };
 }
 
 function overlaps2D(box, rect, gap) {
@@ -63,9 +113,10 @@ function overlaps2D(box, rect, gap) {
     box.max[1] > rect.min[1] - gap && box.min[1] < rect.max[1] + gap;
 }
 
-export function computeDesign(analysis, rules, params) {
+export function computeDesign(analysis, rules, params, options = {}) {
   const checks = [];
-  const add = (level, text) => checks.push({ level, text });
+  // fix: { key, value, label } — arayüzde tek tıkla uygulanabilecek parametre önerisi
+  const add = (level, text, fix = null) => checks.push({ level, text, fix });
   const b = analysis.board;
   if (!b) return { ok: false, error: 'PCB tespit edilemediği için muhafaza oluşturulamıyor.' };
   if (b.axes.n !== 'Z') {
@@ -178,6 +229,104 @@ export function computeDesign(analysis, rules, params) {
     return { ...pm, width: pm.max[along] - pm.min[along], height: pm.max[2] - pm.min[2] };
   });
 
+  // --- Bağlantı (M2): montaj deliklerinden standoff, kapak borusu ve vidalar ---
+  const fasteners = options.fasteners;
+  const lidMode = options.lidMode || 'screw';
+  const method = rules.fastening || 'insert';
+  const mountHoles = (analysis.holes || []).map((h, i) => ({ ...h, index: i })).filter((h) => h.mount);
+  const usedHoles = options.selectedHoles ? mountHoles.filter((h) => options.selectedHoles.has(h.index)) : mountHoles;
+  const standoffs = [];
+  const lidTubes = [];
+  const screws = [];
+  const fastenChecks = [];
+  const lengthIssues = new Map(); // aynı vida boyu sorunu tüm deliklerde tek satır
+  const depthIssues = new Map(); // aynı derinlik sorunu tüm deliklerde tek satır
+  const at = (h) => `(${f(h.x)}; ${f(h.y)})`;
+  const available = p.standoffHeight + floor - MIN_FLOOR_UNDER_HOLE;
+
+  if (fasteners) {
+    for (const h of usedHoles) {
+      const s = pickScrew(h.d, fasteners.screws);
+      if (!s) { fastenChecks.push(['warn', `Ø${f(h.d)} delik ${at(h)} için tablodaki vidalardan hiçbiri uygun değil.`]); continue; }
+      const featureD = method === 'insert' ? s.insert_hole : method === 'tapped' ? s.tap_drill : s.selftap_pilot;
+      const required = method === 'insert' ? s.insert_length + 0.5 : rules.thread_engagement_d * s.d + 0.5;
+      const minEngage = method === 'insert' ? 0.7 * s.insert_length : rules.thread_engagement_d * s.d;
+      let od = Math.max(rules.boss_min_diameter, featureD + 2 * rules.boss_outer_wall);
+      if (method === 'self_tap') od = Math.max(od, 2.2 * s.d);
+
+      if (available < required - 1e-6) {
+        const need = Math.ceil((required - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10;
+        const text = `${s.size} ${METHOD_TEXT[method]} için ${f(required)} mm derinlik gerekir; PCB altı yükseklik + taban ${f(available)} mm veriyor.`;
+        if (!depthIssues.has(text)) {
+          depthIssues.set(text, { count: 0, where: at(h), text, fix: { key: 'standoffHeight', value: need, label: `${f(need)} mm uygula` } });
+        }
+        depthIssues.get(text).count++;
+      }
+      const under = obstacles.find((o) => o.box.max[2] > floorTop + 0.01 && o.box.min[2] < b.bottom - 0.01 &&
+        distToBoxXY(o.box, h.x, h.y) < od / 2 + FASTENER_OBSTACLE_GAP);
+      if (under) fastenChecks.push(['error', `Standoff ${at(h)}, kartın altındaki ${under.name} ile çakışıyor.`]);
+
+      // Kapak borusu: deliğin üstündeki sütun boşsa kapaktan PCB'ye iner
+      let tube = null;
+      if (lidMode === 'screw') {
+        const tubeOd = Math.max(rules.boss_min_diameter, s.clearance + 2 * rules.boss_outer_wall);
+        const above = obstacles.find((o) => o.box.max[2] > b.top + 0.01 && o.box.min[2] < cavTop &&
+          distToBoxXY(o.box, h.x, h.y) < tubeOd / 2 + FASTENER_OBSTACLE_GAP);
+        if (above) {
+          fastenChecks.push(['info', `Delik ${at(h)} üstünde ${above.name} var: burada kapak borusu yok, yalnızca PCB vidası.`]);
+        } else {
+          tube = { x: h.x, y: h.y, od: tubeOd, holeD: s.clearance, z0: b.top + TUBE_GAP, z1: cavTop, length: cavTop - b.top - TUBE_GAP };
+          lidTubes.push(tube);
+        }
+      }
+
+      // Vida boyu: baş kapak (veya PCB) üstünde, uç standoff deliğinde
+      const grip = tube ? zTop - b.bottom : b.thickness;
+      const len = pickLength(fasteners.standard_lengths, grip, available, minEngage);
+      const depth = Math.min(available, Math.max(required, (len.L ? len.L - grip : 0) + 0.5));
+      if (!len.ok) {
+        const needAvail = len.next !== null ? len.next - grip + 0.3 : null;
+        const needStandoff = needAvail !== null ? Math.ceil((needAvail - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10 : null;
+        const text = (len.L ? `${s.size}×${len.L} vida yalnızca ${f(len.engagement)} mm tutunur (en az ${f(minEngage)} mm önerilir).` : `${s.size} için uygun standart boy yok.`) +
+          (needStandoff !== null ? ` PCB altı yüksekliği ${f(needStandoff)} mm yapılırsa ${s.size}×${len.next} tam oturur.` : '');
+        const key = text;
+        if (!lengthIssues.has(key)) {
+          lengthIssues.set(key, {
+            count: 0, where: at(h), text,
+            fix: needStandoff !== null ? { key: 'standoffHeight', value: needStandoff, label: `${f(needStandoff)} mm uygula` } : null,
+          });
+        }
+        lengthIssues.get(key).count++;
+      }
+      standoffs.push({ x: h.x, y: h.y, od, holeD: featureD, depth, z0: floorTop, z1: b.bottom, screw: s.size });
+      screws.push({ size: s.size, length: len.L, engagement: len.engagement, ok: len.ok, lid: !!tube, x: h.x, y: h.y, head_d: s.head_d, head_h: s.head_h, d: s.d, grip });
+    }
+    for (const di of depthIssues.values()) {
+      fastenChecks.push(['error', (di.count > 1 ? `${di.count} delikte: ` : `Delik ${di.where}: `) + di.text, di.fix]);
+    }
+    for (const li of lengthIssues.values()) {
+      fastenChecks.push(['warn', (li.count > 1 ? `${li.count} delikte: ` : `Delik ${li.where}: `) + li.text, li.fix]);
+    }
+  }
+
+  // Malzeme listesi (BOM)
+  const bom = [];
+  const groups = new Map();
+  for (const sc of screws) {
+    const key = `${sc.size}|${sc.length}|${sc.lid}`;
+    if (!groups.has(key)) groups.set(key, { ...sc, count: 0 });
+    groups.get(key).count++;
+  }
+  for (const g of groups.values()) {
+    bom.push(`${g.count} × ${g.size}×${g.length ?? '?'} yıldız başlı vida (ISO 7045) — ${g.lid ? 'kapak + PCB' : 'PCB'}`);
+  }
+  if (standoffs.length && fasteners) {
+    const s = fasteners.screws.find((x) => x.size === standoffs[0].screw);
+    if (method === 'insert') bom.push(`${standoffs.length} × ${s.size} ısıyla gömülen insert (L ${f(s.insert_length)}; delik Ø${f(s.insert_hole)})`);
+    if (method === 'tapped') bom.push(`${standoffs.length} × ${s.size} kılavuz (matkap Ø${f(s.tap_drill)})`);
+    if (method === 'self_tap') bom.push(`Vidalar plastik için sac vidası tipinde seçilmeli (ön delik Ø${f(s.selftap_pilot)})`);
+  }
+
   // --- DFM kontrolleri ---
   if (wall < rules.min_wall) {
     add('error', `Et kalınlığı ${f(wall)} mm, ${rules.label} için en az ${f(rules.min_wall)} mm olmalı.`);
@@ -245,7 +394,41 @@ export function computeDesign(analysis, rules, params) {
     add('info', `Kapak dili ${s.side} kenarında ${f(s.depth)} mm'ye kısaltıldı${s.who ? ` (${s.who})` : ''}.`);
   }
   if (lipBars.length === 0) add('warn', 'Kapağı konumlayacak dil hiçbir kenara sığmadı; bileşen üstü boşluğu artırmayı dene.');
-  add('info', `PCB tutucuları (standoff) ve vidalar M2'de eklenecek; şimdilik PCB altında ${f(p.standoffHeight)} mm boşluk bırakıldı.`);
+
+  // Bağlantı kontrolleri
+  if (!mountHoles.length) {
+    add('warn', 'Kartta montaj deliği bulunamadı: PCB tutucu (standoff) üretilmedi, kart muhafaza içinde serbest kalır.');
+    if (lidMode === 'screw') add('info', 'Kapak vidası montaj deliklerine bağlı olduğundan kapak yalnızca geçmeyle tutunur.');
+  } else if (!usedHoles.length) {
+    add('warn', 'Hiçbir montaj deliği seçilmedi: PCB tutucu üretilmedi.');
+  }
+  for (const [level, text, fix] of fastenChecks) add(level, text, fix);
+  if (standoffs.length) {
+    const st = standoffs[0];
+    const slender = p.standoffHeight / st.od;
+    if (slender > 4) add('warn', `Standoff boyu/çapı oranı ${f(slender)}: ince uzun, kırılma ve titreşim riski. Duvara kaburgayla bağlamayı düşün.`);
+    else add('ok', `${standoffs.length} standoff (Ø${f(st.od)} × ${f(p.standoffHeight)} mm), ${METHOD_TEXT[method]} ile.`);
+    if (method === 'insert' && rules.process === 'fdm') add('info', 'İnsertleri havya ucuyla dik bastır (PLA ~200 °C, PETG/ABS ~230 °C).');
+    if (rules.process === 'injection') {
+      const bossWall = (st.od - st.holeD) / 2;
+      if (bossWall > wall) add('warn', `Boss duvarı (${f(bossWall)} mm) et kalınlığından kalın: karşı yüzde çöküntü riski. Boss'u kaburgayla yan duvara bağla.`);
+    }
+  }
+  if (lidTubes.length) {
+    const t = lidTubes[0];
+    const ratio = t.length / t.od;
+    if (rules.process === 'cnc' && ratio > 3) {
+      add('warn', `Kapaktaki ${f(t.length)} mm boyundaki borular CNC'de çok malzeme kaldırmayı gerektirir; hazır metal aralayıcı (spacer) kullanmayı düşün.`);
+    } else if (ratio > 6) {
+      add('warn', `Kapak boruları ince uzun (boy/çap ${f(ratio)}): ${rules.process === 'injection' ? 'maça pimi eğilebilir, dolum zorlaşır' : 'baskıda titreşebilir'}.`);
+    } else {
+      add('ok', `${lidTubes.length} kapak borusu kapak ile PCB'yi aynı vidayla sıkıştırıyor.`);
+    }
+  } else if (standoffs.length && lidMode === 'screw') {
+    add('warn', 'Hiçbir montaj deliğinin üstü boş değil: kapak yalnızca geçmeyle tutunur.');
+  } else if (lidMode === 'none') {
+    add('info', 'Kapak vidasız: yalnızca konumlandırma diliyle tutunur.');
+  }
 
   return {
     ok: !checks.some((c) => c.level === 'error'),
@@ -262,11 +445,20 @@ export function computeDesign(analysis, rules, params) {
       floor,
       cavTop,
       lidT,
+      zTop,
       lipBars: lipBars.map((l) => ({ min: l.min, max: l.max })),
+      standoffs: standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, z0: s.z0, z1: s.z1 })),
+      lidTubes: lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, z0: t.z0, z1: t.z1 })),
     },
     ports,
     lipBars,
     lipRemoved,
+    mountHoles,
+    standoffs,
+    lidTubes,
+    screws,
+    bom,
+    fasteningMethod: method,
     checks,
   };
 }

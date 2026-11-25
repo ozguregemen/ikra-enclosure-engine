@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: M1
+## Şu anki durum: M2
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -23,20 +23,28 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   draft ve çöküntü riski (enjeksiyon), metal muhafazada RF uyarısı, duvardan geçen konnektörler
 - STEP (gövde + kapak, PCB ile aynı koordinatlarda) ve STL indirme
 
+**Bağlantı (M2)**
+- PCB gövdesindeki montaj deliklerini tespit (pin delikleri ayıklanır), delik çapından vida boyutu (M2–M4)
+- Gövdede standoff: FDM'de ısıyla gömülen insert, CNC'de kılavuz veya insert, enjeksiyonda sac vidası ön deliği
+- Kapakta PCB'ye inen vida boruları: aynı vida kapağı ve kartı birlikte sıkıştırır (deliğin üstü doluysa yalnızca PCB vidası)
+- Standart vida boyu seçimi; PCB altı yükseklik insert derinliği ve vida boyuna göre otomatik ayarlanır
+- Bağlantı elemanları listesi (vida, insert/kılavuz), uyarılarda tek tıkla uygulanan öneriler
+
 ## Kural dosyaları
 
 `web/rules/<süreç>/<malzeme>.json` dosyaları süreç × malzeme kural setlerini tutar
 (`min_wall`, `recommended_wall_min/max`, `pcb_clearance_xy`, `lid_fit_clearance`, `corner_radius_min`,
 `draft_angle_min`, `shrink_factor` …). Değerler genel endüstri pratiğine dayanan başlangıç değerleridir;
 kurum standardına göre düzenlenmesi beklenir. Yeni malzeme eklemek için dosyayı oluşturup `web/rules/index.json`'a ekle.
+Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş ölçüleri, standart boylar) `web/rules/fasteners.json` içindedir.
 
 ## Yol haritası (V1)
 
 | Aşama | İçerik |
 |---|---|
 | M0 | STEP yükle, 3B göster, PCB ve bileşen analizi |
-| **M1** | Kural dosyaları (süreç × malzeme), parametrik alt gövde + kapak, STEP/STL indir |
-| M2 | Montaj deliklerini tanıma, standoff/boss ve vida noktaları |
+| M1 | Kural dosyaları (süreç × malzeme), parametrik alt gövde + kapak, STEP/STL indir |
+| **M2** | Montaj deliklerini tanıma, standoff/boss ve vida noktaları |
 | M3 | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
 | M4 | IP65/66/67 conta kanalı, temel PDF teknik resim |
 
@@ -69,6 +77,7 @@ web/                  Yayınlanan statik site
   js/step-worker.js   STEP okuma (Web Worker, occt-import-js)
   js/step-names.js    Düzleştirilmiş montajlarda gövde adlarını kurtarma
   js/analysis.js      PCB / bileşen analizi (saf fonksiyonlar)
+  js/holes.js         Montaj deliği tespiti (B-rep yüzlerine çember uydurma)
   js/design.js        Muhafaza ölçüleri ve DFM kontrolleri (saf fonksiyonlar)
   js/design-ui.js     Süreç/malzeme/parametre paneli, üretim ve indirme
   js/cad-worker.js    Katı model üretimi ve STEP/STL çıktısı (Web Worker, replicad)

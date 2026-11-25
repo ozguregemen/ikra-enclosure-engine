@@ -6,6 +6,8 @@
  * Saf fonksiyonlardır; three.js veya DOM'a bağımlı değildir.
  */
 
+import { detectBoardHoles } from './holes.js';
+
 export const AXES = ['X', 'Y', 'Z'];
 
 const BOARD_NAME = /(pcb|board|kart|plaket)/i;
@@ -195,6 +197,8 @@ export function analyzeAssembly(root, meshes, options = {}) {
     counts: { top: 0, bottom: 0, edge: 0, overhang: 0, outside: 0 },
     parts,
     meshBoxes,
+    holes: [],
+    notches: 0,
     warnings,
     options: opts,
   };
@@ -292,6 +296,15 @@ export function analyzeAssembly(root, meshes, options = {}) {
     width: inPlane.max[1] - inPlane.min[1],
     height: bs[n] + maxAbove.value + maxBelow.value,
   };
+
+  // Montaj delikleri (yalnızca yatay kartlarda: delikler XY düzleminde çember)
+  if (n === 2) {
+    const obstacleBoxes = parts.filter((p) => p !== board)
+      .flatMap((p) => p.meshIdx.map((mi) => ({ box: meshBoxes[mi], name: p.name })));
+    const info = detectBoardHoles(meshes, board.meshIdx, result.board, obstacleBoxes);
+    result.holes = info.holes;
+    result.notches = info.notches;
+  }
 
   if (result.counts.outside > 0) {
     warnings.push({
