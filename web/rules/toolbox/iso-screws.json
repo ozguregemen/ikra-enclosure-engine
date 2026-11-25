@@ -11,7 +11,7 @@
           "label": "Yıldız başlı (Phillips)",
           "types": [
             {
-              "id": "iso7045", "code": "ISO 7045", "name": "Yıldız başlı bombe vida", "short": "Yıldız bombe baş",
+              "id": "iso7045", "code": "ISO 7045", "materials": ["a2-70", "st48zn", "a4-80", "brass", "pa66"], "name": "Yıldız başlı bombe vida", "short": "Yıldız bombe baş",
               "head": "pan", "drive_kind": "cross", "recess": "H", "thread": "M", "length_includes_head": false,
               "sizes": {
                 "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 0, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
@@ -21,7 +21,7 @@
               }
             },
             {
-              "id": "iso7046", "code": "ISO 7046-1", "alt": "iso7045", "name": "Yıldız havşa başlı vida", "short": "Yıldız havşa baş",
+              "id": "iso7046", "code": "ISO 7046-1", "materials": ["a2-70", "st48zn", "a4-80", "brass"], "alt": "iso7045", "name": "Yıldız havşa başlı vida", "short": "Yıldız havşa baş",
               "head": "countersunk", "drive_kind": "cross", "recess": "H", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
               "sizes": {
                 "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 0, "m": 1.9, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
@@ -37,7 +37,7 @@
           "label": "Düz (tornavida) başlı",
           "types": [
             {
-              "id": "iso1207", "code": "ISO 1207", "name": "Düz silindir başlı vida", "short": "Düz silindir baş",
+              "id": "iso1207", "code": "ISO 1207", "materials": ["a2-70", "st48zn", "brass", "pa66"], "name": "Düz silindir başlı vida", "short": "Düz silindir baş",
               "head": "cheese", "drive_kind": "slot", "thread": "M", "length_includes_head": false,
               "sizes": {
                 "M2": { "dk": 3.8, "k": 1.4, "P": 0.4, "drive": 0.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
@@ -47,7 +47,7 @@
               }
             },
             {
-              "id": "iso1580", "code": "ISO 1580", "name": "Düz bombe başlı vida", "short": "Düz bombe baş",
+              "id": "iso1580", "code": "ISO 1580", "materials": ["a2-70", "st48zn", "brass", "pa66"], "name": "Düz bombe başlı vida", "short": "Düz bombe baş",
               "head": "pan", "drive_kind": "slot", "thread": "M", "length_includes_head": false,
               "sizes": {
                 "M2": { "dk": 4.0, "k": 1.3, "P": 0.4, "drive": 0.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
@@ -57,7 +57,7 @@
               }
             },
             {
-              "id": "iso2009", "code": "ISO 2009", "alt": "iso1580", "name": "Düz havşa başlı vida", "short": "Düz havşa baş",
+              "id": "iso2009", "code": "ISO 2009", "materials": ["a2-70", "st48zn", "brass"], "alt": "iso1580", "name": "Düz havşa başlı vida", "short": "Düz havşa baş",
               "head": "countersunk", "drive_kind": "slot", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
               "sizes": {
                 "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 0.5, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
@@ -73,7 +73,7 @@
           "label": "İmbus (iç altıgen)",
           "types": [
             {
-              "id": "iso4762", "code": "ISO 4762", "name": "İmbus silindir başlı cıvata", "short": "İmbus silindir baş",
+              "id": "iso4762", "code": "ISO 4762", "materials": ["a2-70", "st88zn", "st129bl", "a4-80", "pa66"], "name": "İmbus silindir başlı cıvata", "short": "İmbus silindir baş",
               "head": "socket", "drive_kind": "hex", "thread": "M", "length_includes_head": false,
               "sizes": {
                 "M2": { "dk": 3.8, "k": 2.0, "P": 0.4, "drive": 1.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
@@ -83,7 +83,7 @@
               }
             },
             {
-              "id": "iso7380", "code": "ISO 7380-1", "name": "İmbus mercimek başlı cıvata", "short": "İmbus mercimek baş",
+              "id": "iso7380", "code": "ISO 7380-1", "materials": ["a2-70", "st109zn"], "name": "İmbus mercimek başlı cıvata", "short": "İmbus mercimek baş",
               "head": "button", "drive_kind": "hex", "thread": "M", "length_includes_head": false,
               "sizes": {
                 "M3": { "dk": 5.7, "k": 1.65, "P": 0.5, "drive": 2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
@@ -91,7 +91,7 @@
               }
             },
             {
-              "id": "iso10642", "code": "ISO 10642", "alt": "iso4762", "name": "İmbus havşa başlı cıvata", "short": "İmbus havşa baş",
+              "id": "iso10642", "code": "ISO 10642", "materials": ["a2-70", "st88zn", "st129bl"], "alt": "iso4762", "name": "İmbus havşa başlı cıvata", "short": "İmbus havşa baş",
               "head": "countersunk", "drive_kind": "hex", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
               "sizes": {
                 "M3": { "dk": 6.72, "k": 1.86, "P": 0.5, "drive": 2, "lengths": [8, 10, 12, 16, 20, 25, 30] },
@@ -105,7 +105,7 @@
           "label": "Torx (iç yıldız)",
           "types": [
             {
-              "id": "iso14580", "code": "ISO 14580", "name": "Torx silindir başlı cıvata", "short": "Torx silindir baş",
+              "id": "iso14580", "code": "ISO 14580", "materials": ["a2-70", "st88zn"], "name": "Torx silindir başlı cıvata", "short": "Torx silindir baş",
               "head": "cheese", "drive_kind": "torx", "thread": "M", "length_includes_head": false,
               "sizes": {
                 "M2": { "dk": 3.8, "k": 1.55, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
@@ -115,7 +115,7 @@
               }
             },
             {
-              "id": "iso14583", "code": "ISO 14583", "name": "Torx bombe başlı vida", "short": "Torx bombe baş",
+              "id": "iso14583", "code": "ISO 14583", "materials": ["a2-70", "st48zn", "a4-80"], "name": "Torx bombe başlı vida", "short": "Torx bombe baş",
               "head": "pan", "drive_kind": "torx", "thread": "M", "length_includes_head": false,
               "sizes": {
                 "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
@@ -125,7 +125,7 @@
               }
             },
             {
-              "id": "iso14581", "code": "ISO 14581", "alt": "iso14583", "name": "Torx havşa başlı vida", "short": "Torx havşa baş",
+              "id": "iso14581", "code": "ISO 14581", "materials": ["a2-70", "st48zn", "a4-80"], "alt": "iso14583", "name": "Torx havşa başlı vida", "short": "Torx havşa baş",
               "head": "countersunk", "drive_kind": "torx", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
               "sizes": {
                 "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
@@ -141,7 +141,7 @@
           "label": "Sac vidaları (plastiğe doğrudan)",
           "types": [
             {
-              "id": "iso7049", "code": "ISO 7049", "name": "Yıldız bombe başlı sac vidası", "short": "Sac vidası, bombe baş",
+              "id": "iso7049", "code": "ISO 7049", "materials": ["sttap", "a2"], "name": "Yıldız bombe başlı sac vidası", "short": "Sac vidası, bombe baş",
               "head": "pan", "drive_kind": "cross", "recess": "H", "form": "C", "thread": "ST", "length_includes_head": false,
               "sizes": {
                 "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.2, "k": 1.8, "P": 0.8, "drive": 1, "lengths": [4.5, 6.5, 9.5, 13, 16] },
@@ -151,7 +151,7 @@
               }
             },
             {
-              "id": "iso7050", "code": "ISO 7050", "alt": "iso7049", "name": "Yıldız havşa başlı sac vidası", "short": "Sac vidası, havşa baş",
+              "id": "iso7050", "code": "ISO 7050", "materials": ["sttap", "a2"], "alt": "iso7049", "name": "Yıldız havşa başlı sac vidası", "short": "Sac vidası, havşa baş",
               "head": "countersunk", "drive_kind": "cross", "recess": "H", "form": "C", "thread": "ST", "countersink_angle": 90, "length_includes_head": true,
               "sizes": {
                 "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.4, "dk_actual": 3.8, "k": 1.1, "P": 0.8, "drive": 0, "m": 1.9, "lengths": [6.5, 9.5, 13, 16] },
@@ -164,7 +164,74 @@
         }
       ]
     },
-    { "id": "nuts", "label": "Somunlar", "soon": true, "groups": [] },
-    { "id": "washers", "label": "Pullar", "soon": true, "groups": [] }
+    {
+      "id": "washers",
+      "label": "Pullar",
+      "kind": "washer",
+      "aciklama": "d1 iç çap, d2 dış çap, s kalınlık (mm); fasten.it standart tabloları. DIN 6798 ve DIN 127 geri çekilmiş standartlardır ama piyasada yaygındır.",
+      "groups": [
+        {
+          "id": "flat",
+          "label": "Düz pullar",
+          "types": [
+            {
+              "id": "iso7089", "code": "ISO 7089", "name": "Düz pul, normal seri", "short": "Normal seri", "kind": "flat",
+              "materials": ["a2", "st200zn", "brass", "pa66"],
+              "sizes": {
+                "M2": { "d1": 2.2, "d2": 5, "s": 0.3 },
+                "M2.5": { "d1": 2.7, "d2": 6, "s": 0.5 },
+                "M3": { "d1": 3.2, "d2": 7, "s": 0.5 },
+                "M4": { "d1": 4.3, "d2": 9, "s": 0.8 }
+              }
+            },
+            {
+              "id": "iso7092", "code": "ISO 7092", "name": "Düz pul, küçük seri", "short": "Küçük seri (silindir baş)", "kind": "flat",
+              "materials": ["a2", "st200zn", "pa66"],
+              "sizes": {
+                "M2": { "d1": 2.2, "d2": 4.5, "s": 0.3 },
+                "M2.5": { "d1": 2.7, "d2": 5, "s": 0.5 },
+                "M3": { "d1": 3.2, "d2": 6, "s": 0.5 },
+                "M4": { "d1": 4.3, "d2": 8, "s": 0.5 }
+              }
+            },
+            {
+              "id": "iso7093", "code": "ISO 7093-1", "name": "Düz pul, geniş seri", "short": "Geniş seri (plastik yüzey)", "kind": "flat",
+              "materials": ["a2", "st200zn", "pa66"],
+              "sizes": {
+                "M3": { "d1": 3.2, "d2": 9, "s": 0.8 },
+                "M4": { "d1": 4.3, "d2": 12, "s": 1.0 }
+              }
+            }
+          ]
+        },
+        {
+          "id": "lock",
+          "label": "Kilit pulları (DIN)",
+          "types": [
+            {
+              "id": "din6798a", "code": "DIN 6798 A", "name": "Tırtıllı kilit pulu, dış dişli", "short": "Tırtıllı (dış diş)", "kind": "serrated",
+              "materials": ["a2", "springzn"],
+              "sizes": {
+                "M2": { "d1": 2.2, "d2": 4.5, "s": 0.3, "teeth": 9 },
+                "M2.5": { "d1": 2.7, "d2": 5.5, "s": 0.4, "teeth": 9 },
+                "M3": { "d1": 3.2, "d2": 6, "s": 0.4, "teeth": 9 },
+                "M4": { "d1": 4.3, "d2": 8, "s": 0.5, "teeth": 11 }
+              }
+            },
+            {
+              "id": "din127b", "code": "DIN 127 B", "name": "Yaylı rondela, düz uçlu", "short": "Yaylı rondela", "kind": "spring",
+              "materials": ["a2", "springzn"],
+              "sizes": {
+                "M2": { "d1": 2.1, "d2": 4.4, "s": 0.5, "b": 0.9 },
+                "M2.5": { "d1": 2.6, "d2": 5.1, "s": 0.6, "b": 1.0 },
+                "M3": { "d1": 3.1, "d2": 6.2, "s": 0.8, "b": 1.3 },
+                "M4": { "d1": 4.1, "d2": 7.6, "s": 0.9, "b": 1.5 }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    { "id": "nuts", "label": "Somunlar", "soon": true, "groups": [] }
   ]
 }

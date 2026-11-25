@@ -24,6 +24,8 @@
   "boss_min_diameter": 6.0,
   "boss_outer_wall": 1.6,
   "fastening": "insert",
+  "tensile_strength_mpa": 32,
+  "bearing_pressure_mpa": 25,
   "thread_engagement_d": 2.0,
   "draft_angle_min": 0,
   "shrink_factor": 0,

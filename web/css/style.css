@@ -555,6 +555,11 @@ kbd {
 .tb-figure-svg .tf-brass { fill: #c9a54a; stroke: #6b5520; stroke-width: 1; stroke-linejoin: round; }
 .tb-figure-svg .tf-steel { fill: #b9c0c8; stroke: #4b5560; stroke-width: .7; }
 .chip.len.rec { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent); }
+.tb-figure-svg .tf-washer { fill: color-mix(in srgb, var(--muted) 35%, var(--surface-3)); stroke: var(--text); stroke-width: 1.1; stroke-linejoin: round; }
+.tb-figure-svg .tf-hole { fill: var(--surface); stroke: var(--text); stroke-width: 1.1; }
+.tq-value { font-size: 20px; font-family: var(--mono); color: var(--accent); }
+.tq-value strong { font-weight: 650; }
+.tq-table tr.tq-lim th, .tq-table tr.tq-lim td { color: var(--accent); font-weight: 600; }
 
 @media (max-width: 900px) {
   .tb-body { grid-template-columns: minmax(0, 1fr); }

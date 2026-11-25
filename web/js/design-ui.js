@@ -65,7 +65,8 @@ export function createDesignUI({ viewer, setStatus }) {
     sheetIdx: 0,
     toolbox: null, // iso-screws.json
     toolboxUI: null,
-    screwSpec: { type: 'iso7045', size: 'auto', length: 'auto' },
+    screwSpec: { type: 'iso7045', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match' },
+    fmaterials: null, // fastener-materials.json
     inserts: null, // inserts.json
     insertSpec: { type: 'auto', variant: 'auto' },
   };
@@ -95,11 +96,13 @@ export function createDesignUI({ viewer, setStatus }) {
     };
     if (!state.toolbox) state.toolbox = await getJson('rules/toolbox/iso-screws.json', 'Toolbox vida kütüphanesi yüklenemedi.');
     if (!state.inserts) state.inserts = await getJson('rules/toolbox/inserts.json', 'Toolbox burç kütüphanesi yüklenemedi.');
+    if (!state.fmaterials) state.fmaterials = await getJson('rules/toolbox/fastener-materials.json', 'Bağlantı elemanı malzemeleri yüklenemedi.');
     if (!state.fasteners) state.fasteners = await getJson('rules/fasteners.json', 'Vida tablosu yüklenemedi.');
     if (!state.toolboxUI) {
       state.toolboxUI = createToolbox({
         dialog: $('#toolbox-dialog'),
         libraries: [state.toolbox, state.inserts],
+        materials: state.fmaterials.materials,
         fasteners: state.fasteners,
         evaluate: evaluateSpec,
         onApply: (spec, ispec) => setToolboxSpec(spec, ispec),
@@ -107,13 +110,15 @@ export function createDesignUI({ viewer, setStatus }) {
     }
   }
 
-  const toolboxTypes = () => libraryTypes(state.toolbox);
+  const toolboxTypes = () => libraryTypes(state.toolbox, 'screws');
+  const washerTypes = () => libraryTypes(state.toolbox, 'washers');
   const insertTypes = () => libraryTypes(state.inserts);
 
   /** Toolbox seçimini uygula: kullanıcının elle değiştirmediği parametreler yeni vida/burca göre yeniden hesaplanır */
   function setToolboxSpec(spec, ispec = state.insertSpec) {
     const t = toolboxTypes().find((x) => x.id === spec.type);
-    const next = { type: spec.type, size: spec.size, length: spec.length };
+    const next = { type: spec.type, size: spec.size, length: spec.length, material: spec.material || 'auto', washer: spec.washer || 'none', washerMaterial: spec.washerMaterial || 'match' };
+    if (t && next.material !== 'auto' && !(t.materials || []).includes(next.material)) next.material = 'auto';
     if (t && next.size !== 'auto' && !t.sizes[next.size]) next.size = 'auto';
     const nextIns = { type: ispec.type || 'auto', variant: ispec.variant || 'auto' };
     if (!state.analysis || !state.rules || !state.params) {
@@ -192,9 +197,15 @@ export function createDesignUI({ viewer, setStatus }) {
       groups.set(key, (groups.get(key) || 0) + 1);
     }
     const list = [...groups.keys()];
-    $('#screw-pick-title').textContent = list.length ? `${t.code} · ${list.join(', ').replace(/×/g, ' × ')}` : t.code;
+    const mat = d?.screwMaterial?.tag;
+    $('#screw-pick-title').textContent = (list.length ? `${t.code} · ${list.join(', ').replace(/×/g, ' × ')}` : t.code) + (mat ? ` ${mat}` : '');
+    const parts = [t.short];
+    if (d?.washer) parts.push(`${d.washer.code} pul${d.washer.material ? ' ' + d.washer.material : ''}`);
+    const tq = d?.torque?.lid || d?.torque?.pcb;
+    if (tq) parts.push(`${String(tq.T).replace('.', ',')} N·m`);
     const auto = [state.screwSpec.size === 'auto' ? 'boyut' : null, state.screwSpec.length === 'auto' ? 'boy' : null].filter(Boolean);
-    $('#screw-pick-sub').textContent = `${t.short}` + (auto.length ? ` · ${auto.join(' ve ')} otomatik` : ' · elle seçildi');
+    if (auto.length) parts.push(`${auto.join(' ve ')} otomatik`);
+    $('#screw-pick-sub').textContent = parts.join(' · ');
   }
 
   async function loadRules() {
@@ -241,7 +252,7 @@ export function createDesignUI({ viewer, setStatus }) {
     selectedHoles: state.selectedHoles,
     portOverrides: state.portOverrides,
     sealing: sealingLevel(),
-    toolbox: { types: toolboxTypes(), inserts: insertTypes() },
+    toolbox: { types: toolboxTypes(), inserts: insertTypes(), washers: washerTypes(), materials: state.fmaterials?.materials || [], model: state.fmaterials?.model || null },
     screwSpec: state.screwSpec,
     insertSpec: state.insertSpec,
   });
@@ -304,6 +315,8 @@ export function createDesignUI({ viewer, setStatus }) {
     if (key === 'screwSize') { setScrewSpec({ ...state.screwSpec, size: value, length: 'auto' }); return; }
     if (key === 'screwLength') { setScrewSpec({ ...state.screwSpec, length: Number(value) }); return; }
     if (key === 'insertType') { setToolboxSpec(state.screwSpec, { type: value, variant: 'auto' }); return; }
+    if (key === 'washer') { setScrewSpec({ ...state.screwSpec, washer: value }); return; }
+    if (key === 'screwMaterial') { setScrewSpec({ ...state.screwSpec, material: value }); return; }
     state.params[key] = Number(value);
     renderParams();
     update();
@@ -568,7 +581,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const screws = d.screws.map((s) => ({
       x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
       head: s.head, headDActual: s.head_d_actual, driveKind: s.driveKind, drive: s.driveVal, driveA: s.driveA, driveM: s.driveM,
-      size: s.size, P: s.P, tapping: s.tapping,
+      size: s.size, P: s.P, tapping: s.tapping, seat: s.seat || 0, washer: s.washer, finish: s.material?.finish || 'stainless',
       z: s.lid ? d.geometry.zTop : state.analysis.board.top,
     }));
     const inserts = d.standoffs.filter((s) => s.insert).map((s) => ({ x: s.x, y: s.y, z: s.z1, ...s.insert }));
@@ -756,7 +769,8 @@ export function createDesignUI({ viewer, setStatus }) {
       inserts: d.standoffs.map((s) => s.insert).filter(Boolean),
       screws: d.screws.map((s) => ({
         standard: s.code, name: s.name, size: s.size, length: s.length, engagement: s.engagement, lid: s.lid, x: s.x, y: s.y,
-        head: s.head, drive: s.driveText, designation: s.designation,
+        head: s.head, drive: s.driveText, designation: s.designation, material: s.material?.label || null,
+        washer: s.washer ? `${s.washer.code} ${s.washer.size} ${s.washer.material?.tag || ''}`.trim() : null, torque_Nm: s.torque?.T ?? null, torque_limit: s.torque?.limit ?? null,
       })),
       bom: d.bom,
       volumes_mm3: state.result ? state.result.volumes : null,

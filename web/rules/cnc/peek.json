@@ -24,6 +24,8 @@
   "boss_min_diameter": 6.0,
   "boss_outer_wall": 2.0,
   "fastening": "helicoil",
+  "tensile_strength_mpa": 95,
+  "bearing_pressure_mpa": 80,
   "helicoil_length_d": 2.0,
   "thread_engagement_d": 2.0,
   "draft_angle_min": 0,

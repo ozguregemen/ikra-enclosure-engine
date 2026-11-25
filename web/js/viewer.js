@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './viewcube.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildScrew, buildInsert, createFastenerMaterials } from './fastener-meshes.js';
+import { buildScrew, buildInsert, buildWasher, createFastenerMaterials } from './fastener-meshes.js';
 
 // Kameranın hedeften bakan yönü (izleyicinin bulunduğu taraf)
 const VIEW_DIRS = {
@@ -274,7 +274,12 @@ export class Viewer {
     for (const s of screws) {
       if (!s.length) continue;
       const g = buildScrew(s, mats);
-      g.position.set(s.x, s.y, s.z);
+      g.position.set(s.x, s.y, s.z + (s.seat || 0));
+      if (s.washer) {
+        const w = buildWasher(s.washer, mats);
+        w.position.set(s.x, s.y, s.z);
+        (s.lid ? this.enclosure.lid : this.enclosure.base).add(w);
+      }
       (s.lid ? this.enclosure.lid : this.enclosure.base).add(g);
     }
     for (const b of inserts) {

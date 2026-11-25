@@ -16,13 +16,78 @@ export const pitchFor = (size, d) => COARSE_P[size] ?? Math.max(0.35, 0.15 * d);
 /** Paylaşılan PBR malzemeler; envMap verilirse metal yansıması gerçekçi görünür */
 export function createFastenerMaterials(envMap = null) {
   const common = envMap ? { envMap, envMapIntensity: 1.0 } : {};
+  const pair = (color, metalness, roughness, recessColor) => ({
+    body: new THREE.MeshStandardMaterial({ color, metalness, roughness, ...common }),
+    recess: new THREE.MeshStandardMaterial({ color: recessColor, metalness, roughness: Math.min(1, roughness + 0.15), side: THREE.DoubleSide, ...common }),
+  });
+  const finishes = {
+    stainless: pair(0xd3d7dc, 1.0, 0.3, 0x8e959c),
+    zinc: pair(0xc3ccd9, 1.0, 0.35, 0x86909c),
+    black: pair(0x2c2e33, 0.8, 0.45, 0x17181b),
+    brass: pair(0xd9ad55, 1.0, 0.32, 0x9a7a35),
+    nylon: pair(0xece7da, 0.0, 0.55, 0xc9c3b4),
+  };
   return {
-    steel: new THREE.MeshStandardMaterial({ color: 0xd3d7dc, metalness: 1.0, roughness: 0.3, ...common }),
-    steelDark: new THREE.MeshStandardMaterial({ color: 0x8e959c, metalness: 1.0, roughness: 0.45, side: THREE.DoubleSide, ...common }),
-    brass: new THREE.MeshStandardMaterial({ color: 0xd9ad55, metalness: 1.0, roughness: 0.32, ...common }),
+    steel: finishes.stainless.body,
+    steelDark: finishes.stainless.recess,
+    brass: finishes.brass.body,
     brassInner: new THREE.MeshStandardMaterial({ color: 0xb08a3c, metalness: 1.0, roughness: 0.4, side: THREE.BackSide, ...common }),
     wire: new THREE.MeshStandardMaterial({ color: 0xc9ced4, metalness: 1.0, roughness: 0.25, ...common }),
+    finishes,
   };
+}
+
+const finishOf = (mats, finish) => mats.finishes?.[finish] || mats.finishes?.stainless || { body: mats.steel, recess: mats.steelDark };
+
+/* ---------- Pul ---------- */
+
+/**
+ * w: { kind: 'flat' | 'serrated' | 'spring', d1, d2, s, teeth?, b?, material: { finish } }
+ * Dönen grup alt yüz z=0, üst yüz z=s.
+ */
+export function buildWasher(w, mats) {
+  const mat = finishOf(mats, w.material?.finish || 'stainless').body;
+  const r1 = w.d1 / 2;
+  const r2 = w.d2 / 2;
+  const group = new THREE.Group();
+  if (w.kind === 'flat') {
+    const c = Math.min(0.08, w.s * 0.25);
+    group.add(new THREE.Mesh(lathe([[r1, 0], [r2 - c, 0], [r2, c], [r2, w.s - c], [r2 - c, w.s], [r1, w.s], [r1, 0]], 48), mat));
+    return group;
+  }
+  const shape = new THREE.Shape();
+  if (w.kind === 'serrated') {
+    // Dış dişli tırtıllı pul: dişler hafif bükük (üst yüzde çapraz eğim yerine basit sivri dişler)
+    const n = (w.teeth || 9) * 2;
+    for (let i = 0; i <= n * 3; i++) {
+      const a = (i / (n * 3)) * TAU;
+      const ph = (i % 3) / 3;
+      const rr = i % 6 < 3 ? r2 - (r2 - r1) * 0.35 * ph : r2 - (r2 - r1) * 0.35 * (1 - ph);
+      if (i === 0) shape.moveTo(rr * Math.cos(a), rr * Math.sin(a)); else shape.lineTo(rr * Math.cos(a), rr * Math.sin(a));
+    }
+    const hole = new THREE.Path();
+    hole.absarc(0, 0, r1, 0, TAU, true);
+    shape.holes.push(hole);
+    const g = new THREE.ExtrudeGeometry(shape, { depth: w.s, bevelEnabled: false, curveSegments: 32 });
+    group.add(new THREE.Mesh(g, mat));
+    return group;
+  }
+  // Yaylı rondela: yarıklı halka, yarık uçları kalınlık kadar ayrık (helisel)
+  const gap = 0.12;
+  shape.absarc(0, 0, r2, gap, TAU - gap, false);
+  shape.absarc(0, 0, r1, TAU - gap, gap, true);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: w.s, bevelEnabled: false, curveSegments: 40 });
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const a = Math.atan2(pos.getY(i), pos.getX(i));
+    const t = ((a + TAU) % TAU) / TAU; // 0..1 çevre boyunca
+    pos.setZ(i, pos.getZ(i) + (t - 0.5) * w.s * 0.8);
+  }
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat);
+  m.position.z = w.s * 0.4;
+  group.add(m);
+  return group;
 }
 
 /* ---------- Yardımcılar ---------- */
@@ -127,6 +192,7 @@ function recessGeometry(outline, depth, bottomScale, cone) {
  * Dönen grup oturma yüzü z=0 olacak şekilde; çağıran (x, y, z) konumuna taşır.
  */
 export function buildScrew(s, mats) {
+  const fm = finishOf(mats, s.finish);
   const group = new THREE.Group();
   const k = s.headH;
   const sunk = s.head === 'countersunk';
@@ -144,14 +210,14 @@ export function buildScrew(s, mats) {
     const ch = outer[2][1]; // pahın başladığı yükseklik
     const N = Math.max(18, Math.round((Math.PI * s.headD) / 0.5));
     const kd = Math.min(0.08, 0.015 * s.headD);
-    group.add(new THREE.Mesh(lathe(outer.slice(0, 2), 48), mats.steel));
+    group.add(new THREE.Mesh(lathe(outer.slice(0, 2), 48), fm.body));
     group.add(new THREE.Mesh(revolvedGrid(0, ch, 2, N * 4, (t) => {
       const w = frac((N * t) / TAU);
       return r - kd * 2 * Math.abs(w - 0.5);
-    }), mats.steel));
-    group.add(new THREE.Mesh(lathe(outer.slice(2), 48), mats.steel));
+    }), fm.body));
+    group.add(new THREE.Mesh(lathe(outer.slice(2), 48), fm.body));
   } else {
-    group.add(new THREE.Mesh(lathe(outer, 48), mats.steel));
+    group.add(new THREE.Mesh(lathe(outer, 48), fm.body));
   }
 
   let outline = (driveOutline(shape)[0] || []).map(([x, y]) => [x, y]);
@@ -164,7 +230,7 @@ export function buildScrew(s, mats) {
   if (outline.length) face.holes.push(new THREE.Path(outline.map(([x, y]) => new THREE.Vector2(x, y))));
   const faceGeom = new THREE.ShapeGeometry(face, 48);
   faceGeom.translate(0, 0, topZ);
-  group.add(new THREE.Mesh(faceGeom, mats.steel));
+  group.add(new THREE.Mesh(faceGeom, fm.body));
 
   if (outline.length) {
     const kind = s.driveKind;
@@ -174,7 +240,7 @@ export function buildScrew(s, mats) {
     const cone = kind === 'slot' ? 0 : kind === 'cross' ? 0.35 * maxR : maxR * 0.94 * Math.tan((31 * Math.PI) / 180);
     const rec = recessGeometry(outline, Math.min(depth, 0.85 * (sunk ? k : k)), bottomScale, cone);
     rec.translate(0, 0, topZ);
-    group.add(new THREE.Mesh(rec, mats.steelDark));
+    group.add(new THREE.Mesh(rec, fm.recess));
   }
 
   // Gövde: helisel diş; metrikte 45° pah, sac vidasında sivri uç (form C)
@@ -195,12 +261,12 @@ export function buildScrew(s, mats) {
     if (lim < r) r = Math.max(rTip, lim);
     return r;
   });
-  group.add(new THREE.Mesh(shaft, mats.steel));
+  group.add(new THREE.Mesh(shaft, fm.body));
   // Uç kapağı
   const cap = new THREE.CircleGeometry(rTip * 1.02, 24);
   cap.rotateX(Math.PI);
   cap.translate(0, 0, zTip);
-  group.add(new THREE.Mesh(cap, mats.steel));
+  group.add(new THREE.Mesh(cap, fm.body));
   return group;
 }
 

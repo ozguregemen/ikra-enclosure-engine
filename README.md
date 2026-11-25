@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.3 (M0–M4 + Toolbox)
+## Şu anki durum: V1.4 (M0–M4 + Toolbox)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -84,6 +84,18 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   baskıda doğrudan diş aşınır, enjeksiyonda Helicoil sonradan işleme ister; sac vidası seçiliyse burç kullanılmaz
 - 3B önizlemede pirinç insert ve Helicoil standoff içinde; malzeme listesi ve teknik resim notları burca göre
 
+**Pullar, malzeme ve sıkma torku (V1.4)**
+- Pullar (Toolbox › ISO › Pullar): ISO 7089 normal, ISO 7092 küçük, ISO 7093-1 geniş seri; DIN 6798 A tırtıllı ve
+  DIN 127 B yaylı (geri çekilmiş standartlar, uyarıyla). Pul kalınlığı vida boyu hesabına girer; havşa başta pul yok;
+  PA66 yalıtım pulu seçeneği
+- Vida malzemesi/kaplaması tipe göre: A2-70, A4-80, 4.8 / 8.8 / 10.9 galvaniz, 12.9 siyah oksit, pirinç, PA66;
+  tanım, malzeme listesi ve 3B renk buna göre
+- Sıkma torku önerisi (VDI 2230 yaklaşımı): vida dayanımı, kapakta/PCB'de baş-pul yüzey basıncı ve gövdede diş /
+  insert / Helicoil sıyırma sınırlarının en küçüğü; sınırlayan etken ve ön yük gösterilir, geniş pul önerisi tek tıkla
+- Kontroller: alüminyumda paslanmaz/pirinç vida (galvanik), metal gövdede şase bağlantısı, anten/GNSS yakınında
+  manyetik vida, PA66 vidanın sınırları, yalnızca PCB vidasının baş/pulunun bileşene çarpması
+- Kural dosyalarına `tensile_strength_mpa` ve `bearing_pressure_mpa`; malzeme verisi `rules/toolbox/fastener-materials.json`
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -117,7 +129,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | M4 | IP65/66/67 conta kanalı, temel PDF teknik resim |
 | V1.1 | Toolbox: ISO vidalar (tip, boyut, boy), havşa |
 | V1.2 | Toolbox 13 tipe: yıldız, düz, imbus, torx, sac vidası (ST) |
-| **V1.3** | Dişli burçlar: ısıyla gömülen insert, Helicoil; CNC'ye PEEK ve PTFE |
+| V1.3 | Dişli burçlar: ısıyla gömülen insert, Helicoil; CNC'ye PEEK ve PTFE |
+| **V1.4** | Pullar, vida malzemesi/kaplaması, sıkma torku önerisi |
 
 ## Yerelde çalıştırma
 

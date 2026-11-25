@@ -145,9 +145,59 @@ function typeSize(ttype, size) {
 }
 
 /** Toolbox kütüphanesindeki tüm tipler (kategori › grup › tip) */
-export function libraryTypes(lib) {
-  return lib ? lib.categories.flatMap((c) => (c.groups || []).flatMap((g) => g.types)) : [];
+export function libraryTypes(lib, categoryId = null) {
+  if (!lib) return [];
+  return lib.categories.filter((c) => !categoryId || c.id === categoryId).flatMap((c) => (c.groups || []).flatMap((g) => g.types));
 }
+
+/** Pul boyutu: metrikte aynı, sac vidasında (ST) diş dış çapını geçen en küçük metrik pul */
+const ST_WASHER = { 'ST2.2': 'M2.5', 'ST2.9': 'M3', 'ST3.5': 'M4', 'ST4.2': 'M4' };
+export const washerSizeFor = (size) => ST_WASHER[size] || size;
+
+/** Vida malzemesi: seçim tipte izinliyse o, değilse tipin varsayılanı (listenin ilki) */
+export function resolveScrewMaterial(ttype, want, materials) {
+  const allowed = ttype?.materials || [];
+  const id = want && want !== 'auto' && allowed.includes(want) ? want : allowed[0];
+  return materials.find((m) => m.id === id) || null;
+}
+
+/** Pul malzemesi: 'pa66' (yalıtım) ya da vidaya uygun olan */
+export function resolveWasherMaterial(wtype, want, screwMat, materials) {
+  const allowed = wtype?.materials || [];
+  let id;
+  if (want === 'pa66' && allowed.includes('pa66')) id = 'pa66';
+  else if (screwMat?.family === 'stainless') id = 'a2';
+  else if (screwMat?.family === 'plastic') id = allowed.includes('pa66') ? 'pa66' : 'a2';
+  else if (screwMat?.family === 'brass') id = allowed.includes('brass') ? 'brass' : 'a2';
+  else id = wtype?.kind === 'flat' ? 'st200zn' : 'springzn';
+  if (!allowed.includes(id)) id = allowed[0];
+  return materials.find((m) => m.id === id) || null;
+}
+
+/**
+ * VDI 2230 yaklaşımıyla vida ön yükü ve en büyük sıkma torku.
+ * d, P: diş; rp: akma (MPa); mu: sürtünme; nu: kullanım oranı; dw: baş/pul oturma çapı; dh: delik çapı.
+ * Dönen kT: birim ön yük başına tork (N·mm/N) — bağlantı sınırlarını torka çevirmek için.
+ */
+export function screwTorque({ d, P, rp, mu, nu = 0.9, dw, dh, countersunk = false }) {
+  const d2 = d - 0.6495 * P;
+  const d3 = d - 1.2269 * P;
+  const ds = (d2 + d3) / 2;
+  const As = (Math.PI / 4) * ds * ds;
+  const k = 1.5 * (d2 / ds) * (P / (Math.PI * d2) + 1.155 * mu);
+  const F = (nu * rp * As) / Math.sqrt(1 + 3 * k * k);
+  const muK = countersunk ? mu / Math.cos(Math.PI / 4) : mu;
+  const Dkm = (dw + dh) / 2;
+  const kT = 0.16 * P + 0.58 * mu * d2 + (muK * Dkm) / 2;
+  return { F, T: (F * kT) / 1000, kT };
+}
+
+const roundTorque = (t) => (t >= 1 ? Math.round(t * 10) / 10 : Math.round(t * 100) / 100);
+const LIMIT_TEXT = {
+  screw: 'vida dayanımı', bearing_lid: 'kapakta baş/pul baskısı', bearing_pcb: 'PCB yüzeyinde baş/pul baskısı',
+  strip: 'gövdede diş sıyırma', insert: 'insertin plastikten sökülmesi', helicoil: 'Helicoil yuvası (gövde)',
+};
+export const torqueLimitText = (k) => LIMIT_TEXT[k] || k;
 
 /** Sac vidası (ST dişi): dişini plastikte kendisi açar */
 export const isTapping = (ttype) => !!ttype && ttype.thread === 'ST';
@@ -407,6 +457,16 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const specIssues = new Map();
   const noteSpec = (level, text, fix = null) => { if (!specIssues.has(text)) specIssues.set(text, [level, text, fix]); };
   let fastenInfo = null;
+  // Malzeme / kaplama, baş altı pulu ve tork modeli (Toolbox)
+  const matList = options.toolbox?.materials || [];
+  const tmodel = { nu: 0.9, plastic_safety: 2, metal_safety: 1.25, pcb_bearing_mpa: 100, ...(options.toolbox?.model || {}) };
+  const screwMat = resolveScrewMaterial(ttype, spec.material, matList);
+  const wtype = !spec.washer || spec.washer === 'none' ? null
+    : (options.toolbox?.washers || []).find((w) => w.id === spec.washer) || null;
+  if (wtype && countersunk) noteSpec('info', `Havşa başlı vidada baş altı pulu kullanılmaz; ${wtype.code} yok sayıldı.`);
+  const useWasher = wtype && !countersunk ? wtype : null;
+  const washerMat = useWasher ? resolveWasherMaterial(useWasher, spec.washerMaterial, screwMat, matList) : null;
+  const torqueOf = []; // her vida için tork özeti
 
   if (fasteners) {
     for (const h of usedHoles) {
@@ -511,7 +571,18 @@ export function computeDesign(analysis, rules, params, options = {}) {
 
       // Vida boyu: baş kapak (veya PCB) üstünde, uç standoff deliğinde.
       // Havşa başlıda boy başı da kapsar ve baş kapakla aynı hizada biter: uç yine üst yüz − L'dedir.
-      const grip = tube ? zTop - b.bottom : b.thickness;
+      // Baş altı pulu kalınlığı sıkıştırılan boya eklenir (yaylı rondelada ezilmiş kalınlık s)
+      const wz = useWasher ? useWasher.sizes[washerSizeFor(s.size)] || null : null;
+      if (useWasher && !wz) noteSpec('info', `${useWasher.code} ${washerSizeFor(s.size)} boyutunda yok; bu deliklerde pul kullanılmadı.`);
+      const ws = wz ? wz.s : 0;
+      const grip = (tube ? zTop - b.bottom : b.thickness) + ws;
+      // Yalnızca PCB vidası: baş/pul kart üstündeki bileşenlere değmemeli
+      if (!tube) {
+        const headR = (wz ? Math.max(wz.d2, ts?.dk_actual ?? headD) : ts?.dk_actual ?? headD) / 2;
+        const hit = obstacles.find((o) => o.box.max[2] > b.top + 0.01 && o.box.min[2] < b.top + ws + headH &&
+          distToBoxXY(o.box, h.x, h.y) < headR + 0.2);
+        if (hit) fastenChecks.push(['warn', `Delik ${at(h)}: vida başı${wz ? '/pul' : ''} (Ø${f(2 * headR)}) ${hit.name} bileşenine değiyor; daha küçük başlı vida ya da pulsuz montaj seç.`]);
+      }
       if (!fastenInfo || (tube && !fastenInfo.lidScrew)) {
         fastenInfo = { grip, available, method, size: s.size, lidScrew: !!tube, minEngage, lengths, floor, required,
           insert: ins ? { type: itype.id, kind: itype.kind, variant: ins.v.id, L: ins.v.L } : null };
@@ -558,6 +629,34 @@ export function computeDesign(analysis, rules, params, options = {}) {
         }
         lengthIssues.get(key).count++;
       }
+      // Sıkma torku: vida dayanımı, baş/pul altı yüzey basıncı ve gövdede diş/burç sıyırma sınırlarının en küçüğü
+      let tqInfo = null;
+      if (screwMat && screwMat.rp) {
+        const P = ts?.P ?? 0.15 * s.d + 0.05;
+        const dw = wz ? wz.d2 : (ts?.dk_actual ?? headD);
+        const dh = tube ? s.clearance : h.d;
+        const tq = screwTorque({ d: s.d, P, rp: screwMat.rp, mu: screwMat.mu, nu: screwMat.nu || tmodel.nu, dw, dh, countersunk });
+        const limits = [{ key: 'screw', T: tq.T }];
+        const pAllow = tube ? rules.bearing_pressure_mpa : tmodel.pcb_bearing_mpa;
+        if (pAllow) {
+          const A = (Math.PI / 4) * Math.max(0, dw * dw - dh * dh);
+          limits.push({ key: tube ? 'bearing_lid' : 'bearing_pcb', T: (tq.kT * pAllow * A) / 1000 });
+        }
+        if (rules.tensile_strength_mpa) {
+          const tau = 0.6 * rules.tensile_strength_mpa;
+          const S = rules.conductive ? tmodel.metal_safety : tmodel.plastic_safety;
+          const Le = Math.max(0, Math.min(len.engagement ?? 0, depth));
+          let A = null;
+          let key = 'strip';
+          if (method === 'insert') { A = Math.PI * (ins ? ins.v.d1 : s.insert_hole) * (ins ? ins.v.L : s.insert_length) * 0.6; key = 'insert'; }
+          else if (method === 'helicoil' && ins) { A = Math.PI * ins.dhc * ins.v.L * 0.6; key = 'helicoil'; }
+          else if (Le > 0) A = Math.PI * s.d * Le * 0.6;
+          if (A) limits.push({ key, T: (tq.kT * (tau * A) / S) / 1000 });
+        }
+        const lim = limits.reduce((a, c) => (c.T < a.T ? c : a));
+        tqInfo = { lid: !!tube, T: roundTorque(lim.T), limit: lim.key, limits, preload: (lim.T * 1000) / tq.kT, Tscrew: tq.T };
+        torqueOf.push(tqInfo);
+      }
       // Helicoil girişinde 90° havşa (Ø yuva dişi dış çapı + 0,1, Böllhoff); burç bilgisi 3B önizleme ve BOM içindir
       const insertInfo = ins ? (itype.kind === 'helicoil'
         ? { kind: 'helicoil', id: ins.v.id, L: ins.v.L, dOut: ins.dhc, dIn: s.d, drill: ins.drill, P: ins.P, csk: ins.dhc + 0.1 }
@@ -572,9 +671,54 @@ export function computeDesign(analysis, rules, params, options = {}) {
         type: ttype ? ttype.id : null, code: ttype ? ttype.code : null, name: ttype ? ttype.name : 'vida',
         driveKind: ttype ? ttype.drive_kind : null, driveText: driveText(ttype, ts),
         driveVal: ts ? ts.drive : null, driveA: ts?.A ?? null, driveM: ts?.m ?? null,
-        designation: ttype ? designation(ttype, s.size, len.L) : null,
+        designation: ttype ? designation(ttype, s.size, len.L) + (screwMat ? ` - ${screwMat.tag}` : '') : null,
         P: ts?.P ?? null, tapping,
+        material: screwMat ? { id: screwMat.id, tag: screwMat.tag, label: screwMat.label, finish: screwMat.finish } : null,
+        seat: ws,
+        washer: wz ? { type: useWasher.id, code: useWasher.code, name: useWasher.name, kind: useWasher.kind, size: washerSizeFor(s.size),
+          d1: wz.d1, d2: wz.d2, s: wz.s, teeth: wz.teeth || null, b: wz.b || null,
+          material: washerMat ? { id: washerMat.id, tag: washerMat.tag, finish: washerMat.finish } : null } : null,
+        torque: tqInfo,
       });
+    }
+    // Malzeme, pul ve tork kontrolleri
+    if (usedHoles.length && screwMat) {
+      const toWasher = (id, label) => ({ key: 'washer', value: id, label });
+      for (const lidSide of [true, false]) {
+        const t = torqueOf.find((x) => x.lid === lidSide);
+        if (!t) continue;
+        const where = lidSide ? 'Kapak vidaları' : 'PCB vidaları';
+        if ((t.limit === 'bearing_lid' || t.limit === 'bearing_pcb') && t.T < 0.6 * t.Tscrew) {
+          const size = screws.find((x) => x.lid === lidSide)?.size;
+          const big = (options.toolbox?.washers || []).find((w) => w.id === 'iso7093' && w.sizes[washerSizeFor(size)]);
+          const norm = (options.toolbox?.washers || []).find((w) => w.id === 'iso7089');
+          const sugg = !countersunk && (!useWasher || useWasher.id !== 'iso7093') ? (big && useWasher?.id !== 'iso7093' ? big : !useWasher ? norm : null) : null;
+          noteSpec('info', `${where}: sıkma torku ${f(t.T)} N·m ile sınırlı (${torqueLimitText(t.limit)}).` +
+            (sugg ? ` ${sugg.code} pul baskıyı yayar, torku artırır.` : ''), sugg ? toWasher(sugg.id, `${sugg.code} pul ekle`) : null);
+        } else if (['strip', 'insert', 'helicoil'].includes(t.limit) && t.T < 0.6 * t.Tscrew) {
+          noteSpec('info', `${where}: sıkma torku ${f(t.T)} N·m ile sınırlı (${torqueLimitText(t.limit)}). Daha fazla sıkma dişi sıyırabilir; ` +
+            (method === 'helicoil' ? 'daha uzun Helicoil (ör. 2,5d) seçilebilir.' : method === 'insert' ? 'daha uzun insert seçilebilir.' : 'insert ya da Helicoil kullanılabilir.'));
+        }
+      }
+      if (useWasher && (useWasher.kind === 'spring' || useWasher.kind === 'serrated')) {
+        noteSpec('info', `${useWasher.code} geri çekilmiş standarttır ve titreşimde gevşemeyi güvenilir biçimde önlemez (VDI 2230); kilit için sıvı vida sabitleyici kullanın.` +
+          (useWasher.kind === 'serrated' ? ' Tırtıllı pul boya/eloksali delerek topraklama teması sağlamak için uygundur.' : ''));
+      }
+      if (rules.conductive && (screwMat.family === 'stainless' || screwMat.family === 'brass')) {
+        noteSpec('info', `${rules.label} gövdede ${screwMat.tag} vida: nemli ortamda galvanik korozyon riski. İç ortamda sorun değildir; dış ortamda yalıtım pulu, montaj macunu ya da A4 + kaplama önerilir.`);
+      }
+      if (rules.conductive && screwMat.conductive) {
+        noteSpec('info', 'Vida ve standoff PCB montaj pedini gövdeye (şase) bağlar. Yalıtım gerekiyorsa PA66 vida ya da PA66 pul seç.');
+      }
+      const antenna = (analysis.parts || []).find((pt) => /ant|gps|gnss|sma|u\.?fl|ipex|rf/i.test(pt.name || ''));
+      if (antenna && screwMat.magnetic) {
+        const nonMag = (ttype.materials || []).map((id) => matList.find((m) => m.id === id)).find((m) => m && !m.magnetic);
+        noteSpec('info', `Kartta ${antenna.name} var: anten/RF yakınında manyetik olmayan vida tercih edilir (${screwMat.tag} manyetiktir).`,
+          nonMag ? { key: 'screwMaterial', value: nonMag.id, label: `${nonMag.tag} seç` } : null);
+      }
+      if (screwMat.family === 'plastic') {
+        noteSpec('info', `${screwMat.tag} vida yalıtkan ve manyetik değildir; dayanımı düşüktür (önerilen tork ≈ ${f(torqueOf[0]?.T ?? 0)} N·m), 80 °C üstünde ve titreşimde gevşeyebilir.`);
+      }
     }
     // Vida tipi ile gövde süreci uyumu
     if (usedHoles.length && ttype) {
@@ -641,8 +785,29 @@ export function computeDesign(analysis, rules, params, options = {}) {
   for (const g of groups.values()) {
     const drive = g.driveText ? ` (${g.driveText})` : '';
     const len = g.length === null || g.length === undefined ? '?' : f(g.length);
-    bom.push(`${g.count} × ${g.code ? g.code + ' ' : ''}${g.size}×${len} ${g.name.toLocaleLowerCase('tr')}${drive} — ${g.lid ? 'kapak + PCB' : 'PCB'}`);
+    const mat = g.material ? ` ${g.material.tag}` : '';
+    bom.push(`${g.count} × ${g.code ? g.code + ' ' : ''}${g.size}×${len}${mat} ${g.name.toLocaleLowerCase('tr')}${drive} — ${g.lid ? 'kapak + PCB' : 'PCB'}`);
   }
+  // Baş altı pulları (tip + boyut + malzeme gruplanır)
+  const wgroups = new Map();
+  for (const sc of screws) {
+    if (!sc.washer) continue;
+    const w = sc.washer;
+    const key = `${w.type}|${w.size}|${w.material?.id}`;
+    if (!wgroups.has(key)) wgroups.set(key, { ...w, count: 0 });
+    wgroups.get(key).count++;
+  }
+  for (const w of wgroups.values()) {
+    bom.push(`${w.count} × ${w.code} ${w.size.replace(/^M/, '')}${w.material ? ' ' + w.material.tag : ''} ${w.name.toLocaleLowerCase('tr')} (Ø${f(w.d1)}/Ø${f(w.d2)} × ${f(w.s)}) — vida başı altı`);
+  }
+  // Sıkma torku (kapak ve yalnızca PCB vidaları ayrı)
+  const tqText = (t) => `${f(t.T)} N·m (${torqueLimitText(t.limit)})`;
+  const tLid = torqueOf.find((t) => t.lid);
+  const tPcb = torqueOf.find((t) => !t.lid);
+  const torqueLine = tLid || tPcb
+    ? `Sıkma torku: ${[tLid ? `kapak vidaları ${tqText(tLid)}` : null, tPcb ? `PCB vidaları ${tqText(tPcb)}` : null].filter(Boolean).join(' · ')}` +
+      (rules.conductive ? '' : '; plastikte ilk parçada deneyle doğrulayın')
+    : null;
   if (standoffs.length && fasteners) {
     const s = table.find((x) => x.size === standoffs[0].screw);
     const ins = standoffs[0].insert;
@@ -659,6 +824,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
     if (method === 'self_tap' && tapping) bom.push(`Gövde: ${standoffs.length} × Ø${f(s.selftap_pilot)} ön delik (${s.size} sac vidası dişini kendisi açar; insert gerekmez)`);
     if (method === 'self_tap' && !tapping) bom.push(`Vidalar plastik için sac vidası tipinde seçilmeli (ön delik Ø${f(s.selftap_pilot)})`);
   }
+  if (torqueLine) bom.push(torqueLine);
 
   // Conta kanalı geometrisi: duvarın orta çizgisi boyunca yuvarlatılmış halka
   let grooveGeom = null;
@@ -893,6 +1059,9 @@ export function computeDesign(analysis, rules, params, options = {}) {
     insertSpec: ispec,
     insertType: itype ? { id: itype.id, kind: itype.kind, code: itype.code, name: itype.name } : null,
     screwType: ttype ? { id: ttype.id, code: ttype.code, name: ttype.name, head: ttype.head } : null,
+    screwMaterial: screwMat ? { id: screwMat.id, tag: screwMat.tag, label: screwMat.label } : null,
+    washer: useWasher ? { id: useWasher.id, code: useWasher.code, material: washerMat ? washerMat.tag : null } : null,
+    torque: { lid: tLid || null, pcb: tPcb || null },
     fastenInfo,
     usedHoleMinD: usedHoles.length ? Math.min(...usedHoles.map((h) => h.d)) : null,
     fasteningMethod: method,

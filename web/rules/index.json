@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "aciklama": "Süreç × malzeme kural setleri. Değerler genel endüstri pratiğine dayanan başlangıç değerleridir; kurum standardınıza göre düzenleyin. Tüm uzunluklar mm, açılar derece.",
+  "aciklama": "Süreç × malzeme kural setleri. Değerler genel endüstri pratiğine dayanan başlangıç değerleridir; kurum standardınıza göre düzenleyin. Tüm uzunluklar mm, açılar derece. tensile_strength_mpa (gövdede diş sıyırma hesabı; baskıda katman yönü düşüşü dahil) ve bearing_pressure_mpa (vida başı / pul altında izin verilen yüzey basıncı) sıkma torku önerisinde kullanılır; plastikte uzun süreli sünme nedeniyle muhafazakârdır.",
   "processes": [
     {
       "id": "fdm",
