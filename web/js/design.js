@@ -561,7 +561,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       // Helicoil girişinde 90° havşa (Ø yuva dişi dış çapı + 0,1, Böllhoff); burç bilgisi 3B önizleme ve BOM içindir
       const insertInfo = ins ? (itype.kind === 'helicoil'
         ? { kind: 'helicoil', id: ins.v.id, L: ins.v.L, dOut: ins.dhc, dIn: s.d, drill: ins.drill, P: ins.P, csk: ins.dhc + 0.1 }
-        : { kind: 'heatset', id: ins.v.id, L: ins.v.L, dOut: ins.v.d1, dIn: s.d, hole: ins.v.hole, wall: ins.v.wall }) : null;
+        : { kind: 'heatset', id: ins.v.id, L: ins.v.L, dOut: ins.v.d1, d2: ins.v.d2, dIn: s.d, hole: ins.v.hole, wall: ins.v.wall, P: ts?.P ?? null }) : null;
       standoffs.push({
         x: h.x, y: h.y, od, holeD: featureD, depth, z0: floorTop, z1: b.bottom, screw: s.size, insert: insertInfo,
         countersink: insertInfo && insertInfo.kind === 'helicoil' ? { dTop: insertInfo.csk, depth: (insertInfo.csk - featureD) / 2 } : null,
@@ -573,6 +573,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
         driveKind: ttype ? ttype.drive_kind : null, driveText: driveText(ttype, ts),
         driveVal: ts ? ts.drive : null, driveA: ts?.A ?? null, driveM: ts?.m ?? null,
         designation: ttype ? designation(ttype, s.size, len.L) : null,
+        P: ts?.P ?? null, tapping,
       });
     }
     // Vida tipi ile gövde süreci uyumu

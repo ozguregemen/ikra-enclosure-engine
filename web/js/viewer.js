@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './viewcube.js';
-import { headProfile, headTop, driveOutline } from './screw-shapes.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { buildScrew, buildInsert, createFastenerMaterials } from './fastener-meshes.js';
 
 // Kameranın hedeften bakan yönü (izleyicinin bulunduğu taraf)
 const VIEW_DIRS = {
@@ -101,9 +102,6 @@ export class Viewer {
     this.encOpts = { base: true, lid: true, pcb: true, transparent: true, exploded: false };
     this.enclosureMaterial = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
     this.enclosureEdgeMaterial = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.55 });
-    this.screwMaterial = new THREE.MeshStandardMaterial({ color: 0xb9c0c8, metalness: 0.6, roughness: 0.35 });
-    this.recessMaterial = new THREE.MeshStandardMaterial({ color: 0x2f343a, metalness: 0.3, roughness: 0.6 });
-    this.brassMaterial = new THREE.MeshStandardMaterial({ color: 0xc9a54a, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide });
 
     this.highlightMaterial = new THREE.MeshStandardMaterial({
       roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide,
@@ -271,21 +269,18 @@ export class Viewer {
       this.enclosureGroup.add(holder);
       this.enclosure[key] = holder;
     }
+    // Vidalar ve dişli burçlar: diş helisi, oyulmuş tahrik izi, tırtıllı insert, tel Helicoil (yalnızca görsel)
+    const mats = this.fastenerMaterials();
     for (const s of screws) {
       if (!s.length) continue;
-      (s.lid ? this.enclosure.lid : this.enclosure.base).add(this.makeScrew(s));
+      const g = buildScrew(s, mats);
+      g.position.set(s.x, s.y, s.z);
+      (s.lid ? this.enclosure.lid : this.enclosure.base).add(g);
     }
-    // Dişli burçlar (görsel): pirinç insert ya da paslanmaz Helicoil, standoff üst yüzünden aşağı
     for (const b of inserts) {
-      const top = b.kind === 'helicoil' ? b.z - 0.35 * (b.P || 0.5) : b.z;
-      const ring = [[b.dIn / 2, 0], [b.dOut / 2, 0], [b.dOut / 2, b.L], [b.dIn / 2, b.L], [b.dIn / 2, 0]];
-      const mesh = new THREE.Mesh(
-        new THREE.LatheGeometry(ring.map(([x, y]) => new THREE.Vector2(x, y)), 24),
-        b.kind === 'helicoil' ? this.screwMaterial : this.brassMaterial,
-      );
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.set(b.x, b.y, top - b.L);
-      this.enclosure.base.add(mesh);
+      const g = buildInsert(b, mats);
+      g.position.set(b.x, b.y, b.z);
+      this.enclosure.base.add(g);
     }
     this.explodeOffset = explodeOffset;
     this.applyEnclosureOptions();
@@ -294,38 +289,22 @@ export class Viewer {
   }
 
   /**
-   * Toolbox vidasının görsel modeli. s.z: baş oturma yüzü (kapak üstü ya da PCB üstü).
-   * head: 'pan' (ISO 7045, yıldız), 'socket' (ISO 4762, imbus), 'countersunk' (ISO 10642, havşa; boy başı kapsar)
+   * Metal bağlantı elemanı malzemeleri. Yansıma için oda ortamından (RoomEnvironment) üretilen ortam haritası
+   * yalnızca bu malzemelere verilir; muhafaza ve kart renkleri etkilenmez. İlk kullanımda bir kez hazırlanır.
    */
-  makeScrew(s) {
-    const group = new THREE.Group();
-    const k = s.headH;
-    const sunk = s.head === 'countersunk';
-    const shape = { head: s.head, dk: s.headD, dkActual: s.headDActual, k, d: s.d, driveKind: s.driveKind, drive: s.drive, A: s.driveA, m: s.driveM };
-    const profile = headProfile(shape);
-    const head = new THREE.Mesh(
-      new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 32),
-      this.screwMaterial,
-    );
-    head.rotation.x = Math.PI / 2;
-    head.position.set(s.x, s.y, s.z);
-    // Gövde: havşada başın altından, diğerlerinde oturma yüzünden başlar
-    const shankTop = sunk ? s.z - k : s.z;
-    const shankLen = Math.max(0.1, s.length - (sunk ? k : 0));
-    const shank = new THREE.Mesh(new THREE.CylinderGeometry(s.d / 2, s.d / 2, shankLen, 16), this.screwMaterial);
-    shank.rotation.x = Math.PI / 2;
-    shank.position.set(s.x, s.y, shankTop - shankLen / 2);
-    group.add(head, shank);
-
-    // Tahrik izi (yalnızca görsel): baş tepesine düz şekil (yıldız, yarık, altıgen, torx)
-    const topZ = s.z + headTop(shape) + 0.03;
-    for (const poly of driveOutline(shape)) {
-      const sh = new THREE.Shape(poly.map(([x, y]) => new THREE.Vector2(x, y)));
-      const mark = new THREE.Mesh(new THREE.ShapeGeometry(sh), this.recessMaterial);
-      mark.position.set(s.x, s.y, topZ);
-      group.add(mark);
+  fastenerMaterials() {
+    if (!this._fastenerMats) {
+      let env = null;
+      try {
+        const pmrem = new THREE.PMREMGenerator(this.renderer);
+        env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        pmrem.dispose();
+      } catch (err) {
+        console.warn('Ortam haritası oluşturulamadı', err);
+      }
+      this._fastenerMats = createFastenerMaterials(env);
     }
-    return group;
+    return this._fastenerMats;
   }
 
   clearEnclosure() {

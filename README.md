@@ -88,6 +88,9 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
 - Sekmeli akış: Analiz → Tasarım (katlanır, özetli kartlar) → Çıktılar; ana eylem ve DFM durumu altta hep görünür
+- Gerçekçi bağlantı elemanları (yalnızca görsel): vidalarda helisel ISO dişi (metrikte pahlı, sac vidasında sivri uç),
+  başa oyulmuş yıldız/yarık/imbus/torx izi, imbus başta tırtıl; pirinç insertte ters yönlü tırtıl bantları ve iç diş,
+  Helicoil'de helisel tel; metal yüzeyler ortam yansımalı (PBR)
 - Kısayollar: `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt, `G` kılavuzlar, `T` Toolbox (yardım: üst çubuktaki `?`)
 
 ## Kural dosyaları
@@ -155,6 +158,7 @@ web/                  Yayınlanan statik site
   js/viewcube.js      Yön küpü
   js/toolbox.js       Toolbox penceresi ve ölçülü vida önizlemesi
   js/screw-shapes.js  Vida başı ve tahrik izi geometrisi (3B ve çizim ortak)
+  js/fastener-meshes.js  Dişli vida, insert ve Helicoil 3B modelleri (three.js)
   rules/              Süreç × malzeme kural dosyaları
   rules/toolbox/      Standart bağlantı elemanı kütüphanesi (ISO vidalar, dişli burçlar)
   samples/            Örnek STEP dosyası

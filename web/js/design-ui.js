@@ -568,6 +568,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const screws = d.screws.map((s) => ({
       x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
       head: s.head, headDActual: s.head_d_actual, driveKind: s.driveKind, drive: s.driveVal, driveA: s.driveA, driveM: s.driveM,
+      size: s.size, P: s.P, tapping: s.tapping,
       z: s.lid ? d.geometry.zTop : state.analysis.board.top,
     }));
     const inserts = d.standoffs.filter((s) => s.insert).map((s) => ({ x: s.x, y: s.y, z: s.z1, ...s.insert }));
