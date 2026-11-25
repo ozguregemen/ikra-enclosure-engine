@@ -255,7 +255,7 @@ function toleranceNotes(rules) {
   ];
 }
 
-const METHOD_NOTE = { insert: 'ısıl insert', tapped: 'kılavuz', self_tap: 'sac vidası ön deliği' };
+const METHOD_NOTE = { insert: 'ısıl insert', tapped: 'kılavuz', self_tap: 'sac vidası ön deliği', helicoil: 'Helicoil (STI)' };
 
 function baseSheet(ctx) {
   const { views, design: d, rules } = ctx;
@@ -347,7 +347,9 @@ function baseSheet(ctx) {
     n.push(`Conta kanalı ${d2(sg.width)} × ${d2(sg.depth)} mm, duvar üstünde orta eksende; Ø${d1(d.sealing.cord_d)} kordon (%${Math.round(d.sealing.squeeze * 100)} sıkışma), ${d.sealing.label}.`);
   }
   if (rules.process === 'fdm') n.push('Baskı yönü: gövde ağzı yukarı; destek gerekmez.');
-  if (d.fasteningMethod === 'insert') n.push('İnsertler havya ile dik bastırılır.');
+  const ins0 = d.standoffs[0]?.insert;
+  if (d.fasteningMethod === 'insert') n.push(`İnsertler${ins0 ? ` (${ins0.id})` : ''} havya ile dik bastırılır; yüzeyle aynı hizada bitmeli.`);
+  if (d.fasteningMethod === 'helicoil' && ins0) n.push(`Helicoil yuvaları: Ø${d2(ins0.drill)} matkap, ${d.standoffs[0].screw} STI kılavuz, girişte 90° havşa Ø${d2(ins0.csk)}; burç yüzeyden 0,25–0,5·P içeride, tang kırılır.`);
   y = notes(out, colX, y, 91, 'NOTLAR', n);
   if (d.bom.length && y < 158) notes(out, colX, y + 3, 91, 'BAĞLANTI ELEMANLARI', d.bom, 2.0);
 

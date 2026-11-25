@@ -97,7 +97,26 @@ export const LID_MODES = [
   { id: 'none', label: 'Vidasız (yalnızca geçme)' },
 ];
 
-const METHOD_TEXT = { insert: 'ısıyla gömülen insert', tapped: 'kılavuz çekilmiş diş', self_tap: 'sac vidası (plastik için)' };
+const METHOD_TEXT = {
+  insert: 'ısıyla gömülen insert', tapped: 'kılavuz çekilmiş diş', self_tap: 'sac vidası (plastik için)', helicoil: 'Helicoil tel dişli burç',
+};
+
+/**
+ * Toolbox burç seçiminden bu boyut için burç ve varyant (boy). ispec.variant 'auto' ise:
+ * ısıyla gömülen insertte standart (uzun) boy, Helicoil'de kural dosyasındaki helicoil_length_d (ör. 2 → "2d").
+ */
+function insertFor(itype, size, ispec, rules) {
+  if (!itype) return null;
+  const z = itype.sizes[size];
+  if (!z) return null;
+  let v = ispec.variant !== 'auto' ? z.variants.find((x) => x.id === ispec.variant) : null;
+  if (!v && itype.kind === 'helicoil') {
+    const want = `${rules.helicoil_length_d || 2}d`;
+    v = z.variants.find((x) => x.id === want) || z.variants[Math.floor(z.variants.length / 2)];
+  }
+  if (!v) v = z.variants.filter((x) => !x.short).pop() || z.variants[z.variants.length - 1];
+  return { ...z, v };
+}
 
 /** PCB deliğinden geçebilecek en büyük metrik vida (allowed: izin verilen boyut adları, isteğe bağlı) */
 export function pickScrew(holeD, screws, allowed = null) {
@@ -354,8 +373,23 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const spec = { type: 'iso7045', size: 'auto', length: 'auto', ...(options.screwSpec || {}) };
   const ttype = (options.toolbox?.types || []).find((t) => t.id === spec.type) || null;
   const tapping = isTapping(ttype);
-  // Sac vidası dişini plastikte kendisi açar: süreçten bağımsız olarak gövdede ön delik
-  const method = tapping ? 'self_tap' : rules.fastening || 'insert';
+  // Gövde tarafı (Toolbox › dişli burçlar): 'auto' = kural dosyası, 'none' = doğrudan kılavuz, ya da burç tipi.
+  // Sac vidası dişini plastikte kendisi açar: süreçten ve burç seçiminden bağımsız olarak gövdede ön delik.
+  const insertTypes = options.toolbox?.inserts || [];
+  const ispec = { type: 'auto', variant: 'auto', ...(options.insertSpec || {}) };
+  const ruleMethod = rules.fastening || 'insert';
+  let method;
+  let itype = null;
+  if (tapping) method = 'self_tap';
+  else if (ispec.type === 'auto') method = ruleMethod;
+  else if (ispec.type === 'none') method = 'tapped';
+  else {
+    itype = insertTypes.find((t) => t.id === ispec.type) || null;
+    method = itype ? (itype.kind === 'helicoil' ? 'helicoil' : 'insert') : ruleMethod;
+  }
+  if (!itype && (method === 'insert' || method === 'helicoil')) {
+    itype = insertTypes.find((t) => t.kind === (method === 'helicoil' ? 'helicoil' : 'heatset')) || null;
+  }
   const table = screwTable(fasteners, ttype);
   const mountHoles = (analysis.holes || []).map((h, i) => ({ ...h, index: i })).filter((h) => h.mount);
   const usedHoles = options.selectedHoles ? mountHoles.filter((h) => options.selectedHoles.has(h.index)) : mountHoles;
@@ -399,13 +433,33 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const headD = ts ? ts.dk : s.head_d;
       const headH = ts ? ts.k : s.head_h;
       const lengths = ts ? ts.lengths : fasteners.standard_lengths;
-      const featureD = method === 'insert' ? s.insert_hole : method === 'tapped' ? s.tap_drill : s.selftap_pilot;
+      // Gövde tarafı deliği: insert deliği / Helicoil matkabı / kılavuz matkabı / sac vidası ön deliği
+      const ins = method === 'insert' || method === 'helicoil' ? insertFor(itype, s.size, ispec, rules) : null;
       // Plastikte sac vidası: en az 2·d diş boyu, boss dış çapı ≥ 2,5 × ön delik
       const engageD = tapping ? Math.max(2, rules.thread_engagement_d) : rules.thread_engagement_d;
-      const required = method === 'insert' ? s.insert_length + 0.5 : engageD * s.d + 0.5;
-      const minEngage = method === 'insert' ? 0.7 * s.insert_length : engageD * s.d;
+      let featureD;
+      let required;
+      let minEngage;
+      if (method === 'insert') {
+        const L = ins ? ins.v.L : s.insert_length;
+        featureD = ins ? ins.v.hole : s.insert_hole;
+        required = L + 0.5;
+        minEngage = 0.7 * L;
+      } else if (method === 'helicoil' && ins) {
+        // Kör delik: burç boyu + 1·P diş + ~2,5·P kılavuz ucu payı; vida burcun tamamını kavramalı
+        featureD = ins.drill;
+        required = ins.v.L + 3.5 * ins.P + 0.5;
+        minEngage = ins.v.L;
+      } else {
+        featureD = method === 'self_tap' ? s.selftap_pilot : s.tap_drill;
+        required = engageD * s.d + 0.5;
+        minEngage = engageD * s.d;
+        if (method === 'helicoil') noteSpec('warn', `${s.size} için Helicoil verisi yok; doğrudan kılavuz olarak hesaplandı.`);
+      }
       let od = Math.max(rules.boss_min_diameter, featureD + 2 * rules.boss_outer_wall);
       if (method === 'self_tap') od = Math.max(od, 2.2 * s.d, tapping ? 2.5 * featureD : 0);
+      if (method === 'insert' && ins) od = Math.max(od, ins.v.d1 + 2 * ins.v.wall);
+      if (method === 'helicoil' && ins) od = Math.max(od, ins.dhc + 2 * rules.boss_outer_wall);
 
       if (available < required - 1e-6) {
         const need = Math.ceil((required - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10;
@@ -459,7 +513,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
       // Havşa başlıda boy başı da kapsar ve baş kapakla aynı hizada biter: uç yine üst yüz − L'dedir.
       const grip = tube ? zTop - b.bottom : b.thickness;
       if (!fastenInfo || (tube && !fastenInfo.lidScrew)) {
-        fastenInfo = { grip, available, method, size: s.size, lidScrew: !!tube, minEngage, lengths, floor };
+        fastenInfo = { grip, available, method, size: s.size, lidScrew: !!tube, minEngage, lengths, floor, required,
+          insert: ins ? { type: itype.id, kind: itype.kind, variant: ins.v.id, L: ins.v.L } : null };
       }
       // Seçilen boy kapak vidalarına uygulanır; kapak borusu olmayan (yalnızca PCB) deliklerde boy otomatik kalır
       const explicitLength = spec.length !== 'auto' && (tube || lidMode !== 'screw');
@@ -503,7 +558,14 @@ export function computeDesign(analysis, rules, params, options = {}) {
         }
         lengthIssues.get(key).count++;
       }
-      standoffs.push({ x: h.x, y: h.y, od, holeD: featureD, depth, z0: floorTop, z1: b.bottom, screw: s.size });
+      // Helicoil girişinde 90° havşa (Ø yuva dişi dış çapı + 0,1, Böllhoff); burç bilgisi 3B önizleme ve BOM içindir
+      const insertInfo = ins ? (itype.kind === 'helicoil'
+        ? { kind: 'helicoil', id: ins.v.id, L: ins.v.L, dOut: ins.dhc, dIn: s.d, drill: ins.drill, P: ins.P, csk: ins.dhc + 0.1 }
+        : { kind: 'heatset', id: ins.v.id, L: ins.v.L, dOut: ins.v.d1, dIn: s.d, hole: ins.v.hole, wall: ins.v.wall }) : null;
+      standoffs.push({
+        x: h.x, y: h.y, od, holeD: featureD, depth, z0: floorTop, z1: b.bottom, screw: s.size, insert: insertInfo,
+        countersink: insertInfo && insertInfo.kind === 'helicoil' ? { dTop: insertInfo.csk, depth: (insertInfo.csk - featureD) / 2 } : null,
+      });
       screws.push({
         size: s.size, length: len.L, engagement: len.engagement, ok: len.ok, lid: !!tube, x: h.x, y: h.y,
         head_d: headD, head_h: headH, head_d_actual: ts?.dk_actual ?? headD, head: ttype ? ttype.head : 'pan', d: s.d, grip,
@@ -525,6 +587,37 @@ export function computeDesign(analysis, rules, params, options = {}) {
       } else if (!tapping && method === 'self_tap') {
         noteSpec('warn', `${rules.label} gövdede vida dişini plastiğe kendisi açmalı: metrik ${ttype.code} yerine sac vidası seç.`,
           tapAlt ? { key: 'screwType', value: tapAlt.id, label: `${tapAlt.code} seç` } : null);
+      }
+    }
+    // Burç ile süreç / malzeme uyumu
+    if (usedHoles.length) {
+      const mat = rules.material;
+      const toHeli = { key: 'insertType', value: 'helicoil-fr', label: 'Helicoil seç' };
+      const toHeat = { key: 'insertType', value: 'rx-heatset', label: 'Isıyla gömülen insert seç' };
+      if (tapping && ispec.type !== 'auto') {
+        const machineAlt = (options.toolbox?.types || []).find((t) => t.id === (ttype.head === 'countersunk' ? 'iso7046' : 'iso7045'));
+        noteSpec('warn', `Sac vidası seçili: gövdede burç kullanılmaz, vida dişini kendisi açar. Burç için metrik vida seç.`,
+          machineAlt ? { key: 'screwType', value: machineAlt.id, label: `${machineAlt.code} seç` } : null);
+      } else if (method === 'insert' && rules.conductive) {
+        noteSpec('error', 'Isıyla gömülen insert metal gövdeye uygulanamaz: Helicoil ya da doğrudan kılavuz kullan.', toHeli);
+      } else if (method === 'insert' && mat === 'ptfe') {
+        noteSpec('warn', 'PTFE erimeden yumuşar ve yapışmaz: ısıyla gömülen insert tutunmaz. Helicoil kullan.', toHeli);
+      } else if (method === 'insert' && mat === 'peek') {
+        noteSpec('warn', 'PEEK\'e ısıyla gömme ~380–400 °C ve özel uç ister; talaşlı parçada Helicoil daha güvenilirdir.', toHeli);
+      } else if (method === 'insert' && mat === 'pom') {
+        noteSpec('info', 'POM\'da ısıyla gömülen insertin tutunması ABS\'e göre düşüktür; sık sökülecekse Helicoil önerilir.', toHeli);
+      } else if (method === 'insert' && rules.process === 'fdm') {
+        noteSpec('info', `İnsert deliği Ø${f(standoffs[0]?.holeD ?? 0)}; baskıda delik biraz küçük çıkarsa 0,1 mm büyütün. Ağzına ≥ 0,5 mm pah önerilir.`);
+      } else if (method === 'helicoil' && rules.process === 'fdm') {
+        noteSpec('info', 'Baskı parçada Helicoil için STI kılavuzla diş açılır; ısıyla gömülen insert genelde daha pratiktir.', toHeat);
+      } else if (method === 'helicoil' && rules.process === 'injection') {
+        noteSpec('warn', 'Enjeksiyon parçada Helicoil sonradan delme + kılavuz ister; ısıyla/ultrasonik gömülen insert daha uygundur.', toHeat);
+      } else if (method === 'tapped' && rules.process === 'fdm') {
+        noteSpec('warn', 'Baskıda doğrudan çekilen diş birkaç sökme-takmada aşınır; ısıyla gömülen insert önerilir.', toHeat);
+      } else if (method === 'tapped' && mat === 'ptfe') {
+        noteSpec('warn', 'PTFE\'de doğrudan çekilen diş sünme yüzünden gevşer: Helicoil kullan.', toHeli);
+      } else if (method === 'tapped' && mat === 'peek') {
+        noteSpec('info', 'PEEK\'te doğrudan diş çekilebilir; sık sökülecekse Helicoil daha dayanıklıdır.', toHeli);
       }
     }
     for (const [level, text, fix] of specIssues.values()) fastenChecks.push([level, text, fix]);
@@ -551,8 +644,17 @@ export function computeDesign(analysis, rules, params, options = {}) {
   }
   if (standoffs.length && fasteners) {
     const s = table.find((x) => x.size === standoffs[0].screw);
-    if (method === 'insert') bom.push(`${standoffs.length} × ${s.size} ısıyla gömülen insert (L ${f(s.insert_length)}; delik Ø${f(s.insert_hole)})`);
-    if (method === 'tapped') bom.push(`${standoffs.length} × ${s.size} kılavuz (matkap Ø${f(s.tap_drill)})`);
+    const ins = standoffs[0].insert;
+    if (method === 'insert') {
+      bom.push(ins
+        ? `${standoffs.length} × ${ins.id} ısıyla gömülen pirinç insert (${s.size}; Ø${f(ins.dOut)} × ${f(ins.L)}) — delik Ø${f(ins.hole)}`
+        : `${standoffs.length} × ${s.size} ısıyla gömülen insert (L ${f(s.insert_length)}; delik Ø${f(s.insert_hole)})`);
+    }
+    if (method === 'helicoil' && ins) {
+      bom.push(`${standoffs.length} × Helicoil ${s.size} × ${ins.id.replace('.', ',')} (${f(ins.L)} mm), serbest dönen, paslanmaz — DIN 8140`);
+      bom.push(`Gövde: Ø${f(ins.drill)} matkap, ${s.size} STI (Helicoil) kılavuz, girişte 90° havşa Ø${f(ins.csk)}; montaj aleti ve tang kırıcı`);
+    }
+    if (method === 'tapped' || (method === 'helicoil' && !ins)) bom.push(`${standoffs.length} × ${s.size} kılavuz (matkap Ø${f(s.tap_drill)})`);
     if (method === 'self_tap' && tapping) bom.push(`Gövde: ${standoffs.length} × Ø${f(s.selftap_pilot)} ön delik (${s.size} sac vidası dişini kendisi açar; insert gerekmez)`);
     if (method === 'self_tap' && !tapping) bom.push(`Vidalar plastik için sac vidası tipinde seçilmeli (ön delik Ø${f(s.selftap_pilot)})`);
   }
@@ -772,7 +874,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       lidT,
       zTop,
       lipBars: lipBars.map((l) => ({ min: l.min, max: l.max })),
-      standoffs: standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, z0: s.z0, z1: s.z1 })),
+      standoffs: standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, z0: s.z0, z1: s.z1, countersink: s.countersink })),
       lidTubes: lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, z0: t.z0, z1: t.z1, countersink: t.countersink || null })),
       cutouts,
       groove: grooveGeom,
@@ -787,6 +889,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
     screws,
     bom,
     screwSpec: spec,
+    insertSpec: ispec,
+    insertType: itype ? { id: itype.id, kind: itype.kind, code: itype.code, name: itype.name } : null,
     screwType: ttype ? { id: ttype.id, code: ttype.code, name: ttype.name, head: ttype.head } : null,
     fastenInfo,
     usedHoleMinD: usedHoles.length ? Math.min(...usedHoles.map((h) => h.d)) : null,

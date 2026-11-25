@@ -103,6 +103,7 @@ export class Viewer {
     this.enclosureEdgeMaterial = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.55 });
     this.screwMaterial = new THREE.MeshStandardMaterial({ color: 0xb9c0c8, metalness: 0.6, roughness: 0.35 });
     this.recessMaterial = new THREE.MeshStandardMaterial({ color: 0x2f343a, metalness: 0.3, roughness: 0.6 });
+    this.brassMaterial = new THREE.MeshStandardMaterial({ color: 0xc9a54a, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide });
 
     this.highlightMaterial = new THREE.MeshStandardMaterial({
       roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide,
@@ -255,7 +256,7 @@ export class Viewer {
    * meshes: { base: {position, normal, index}, lid: {...} } — cad-worker çıktısı
    * screws: [{x, y, z (baş alt yüzü), d, headD, headH, length, lid}] — yalnızca görsel
    */
-  setEnclosure(meshes, { explodeOffset = 20, screws = [] } = {}) {
+  setEnclosure(meshes, { explodeOffset = 20, screws = [], inserts = [] } = {}) {
     this.clearEnclosure();
     this.enclosure = {};
     for (const key of ['base', 'lid']) {
@@ -273,6 +274,18 @@ export class Viewer {
     for (const s of screws) {
       if (!s.length) continue;
       (s.lid ? this.enclosure.lid : this.enclosure.base).add(this.makeScrew(s));
+    }
+    // Dişli burçlar (görsel): pirinç insert ya da paslanmaz Helicoil, standoff üst yüzünden aşağı
+    for (const b of inserts) {
+      const top = b.kind === 'helicoil' ? b.z - 0.35 * (b.P || 0.5) : b.z;
+      const ring = [[b.dIn / 2, 0], [b.dOut / 2, 0], [b.dOut / 2, b.L], [b.dIn / 2, b.L], [b.dIn / 2, 0]];
+      const mesh = new THREE.Mesh(
+        new THREE.LatheGeometry(ring.map(([x, y]) => new THREE.Vector2(x, y)), 24),
+        b.kind === 'helicoil' ? this.screwMaterial : this.brassMaterial,
+      );
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position.set(b.x, b.y, top - b.L);
+      this.enclosure.base.add(mesh);
     }
     this.explodeOffset = explodeOffset;
     this.applyEnclosureOptions();

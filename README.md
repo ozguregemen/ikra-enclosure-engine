@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.2 (M0–M4 + Toolbox)
+## Şu anki durum: V1.3 (M0–M4 + Toolbox)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -51,7 +51,7 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   diğer görünüşler, genel ölçüler, delik ve açıklık tabloları, süreç tolerans notları, bağlantı elemanları, antet;
   tarayıcıda önizleme ve Türkçe fontlu PDF (jsPDF + svg2pdf.js + DejaVu Sans)
 
-**Toolbox (V1.1–V1.2)**
+**Toolbox · vidalar (V1.1–V1.2)**
 - SolidWorks Toolbox benzeri standart bağlantı elemanı kütüphanesi: ISO › Cıvata ve vidalar, 13 tip:
 
   | Grup | Tipler |
@@ -72,6 +72,18 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Malzeme listesi, teknik resim delik tablosu ve DFM uyarıları seçilen vidaya göre güncellenir
 - Kısayol `T`; Bağlantı kartında seçili vida görünür
 
+**Dişli burçlar (V1.3)** — Toolbox › DIN · üretici › Dişli burçlar
+- Isıyla gömülen pirinç insert (ruthex RX serisi, M2–M4; standart ve kısa boy): delik çapı, dış çap ve en az et veri
+  sayfasından; boss çapı d1 + 2·et'e göre büyür
+- Helicoil tel dişli burç (HELICOIL Plus Free Running, DIN 8140, M2–M4; 1d…3d): STI matkap çapı, yuva dişi, girişte 90° havşa
+  (katı modelde de açılır); kör delik derinliği burç boyu + kılavuz payı; vida burcun tamamını kavrar
+- Gövde tarafı: Otomatik (kural dosyası) / ısıyla gömülen insert / Helicoil / doğrudan kılavuz; Bağlantı kartında ayrı satır
+- Kural dosyalarında `fastening: "helicoil"` ve `helicoil_length_d` (Al 1,5·d, POM/PEEK/ABS 2·d, PTFE 2,5·d);
+  CNC'ye PEEK ve Teflon (PTFE) malzemeleri eklendi (varsayılan Helicoil)
+- Uyumluluk uyarıları ve tek tık önerileri: metale ısıyla insert olmaz, PTFE'de insert/doğrudan diş tutmaz,
+  baskıda doğrudan diş aşınır, enjeksiyonda Helicoil sonradan işleme ister; sac vidası seçiliyse burç kullanılmaz
+- 3B önizlemede pirinç insert ve Helicoil standoff içinde; malzeme listesi ve teknik resim notları burca göre
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -88,6 +100,8 @@ Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş 
 IP seviyelerinin kordon çapı, sıkıştırma, et payı ve kapak sıkıştırma aralığı `web/rules/sealing.json` içindedir.
 Toolbox kütüphanesi `web/rules/toolbox/iso-screws.json` (gruplar › tipler): vida tipi başına baş ölçüleri (dk, k), diş adımı, tahrik ölçüsü
 ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kaydı eklemek yeterli.
+Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dış çap, delik, en az et) ve Helicoil boyutları
+(matkap, yuva dişi, 1d…3d boyları).
 
 ## Yol haritası (V1)
 
@@ -99,7 +113,8 @@ ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kayd
 | M3 | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
 | M4 | IP65/66/67 conta kanalı, temel PDF teknik resim |
 | V1.1 | Toolbox: ISO vidalar (tip, boyut, boy), havşa |
-| **V1.2** | Toolbox 13 tipe: yıldız, düz, imbus, torx, sac vidası (ST) |
+| V1.2 | Toolbox 13 tipe: yıldız, düz, imbus, torx, sac vidası (ST) |
+| **V1.3** | Dişli burçlar: ısıyla gömülen insert, Helicoil; CNC'ye PEEK ve PTFE |
 
 ## Yerelde çalıştırma
 
@@ -141,7 +156,7 @@ web/                  Yayınlanan statik site
   js/toolbox.js       Toolbox penceresi ve ölçülü vida önizlemesi
   js/screw-shapes.js  Vida başı ve tahrik izi geometrisi (3B ve çizim ortak)
   rules/              Süreç × malzeme kural dosyaları
-  rules/toolbox/      Standart bağlantı elemanı kütüphanesi (ISO vidalar)
+  rules/toolbox/      Standart bağlantı elemanı kütüphanesi (ISO vidalar, dişli burçlar)
   samples/            Örnek STEP dosyası
 tools/
   serve.ps1           Yerel statik sunucu

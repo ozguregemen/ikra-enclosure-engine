@@ -1,0 +1,54 @@
+{
+  "aciklama": "Toolbox · dişli burçlar (mm). Isıyla gömülen insert: ruthex RX serisi veri sayfası (d1 dış çap, d2 alt çap, L boy, wall en az et, hole delik çapı). Helicoil: Böllhoff HELICOIL Plus Free Running kataloğu (DIN 8140); drill = matkap çapı B, dhc = yuva dişi dış çapı (en az), havşa 90° Ø = dhc + 0,1; L = anma boyu (x·d). Kör delikte diş boyu L + 1·P, matkap derinliği ek olarak ~2,5·P kılavuz payı.",
+  "standard": "DIN · üretici",
+  "categories": [
+    {
+      "id": "inserts",
+      "label": "Dişli burçlar (insert)",
+      "groups": [
+        {
+          "id": "heatset",
+          "label": "Isıyla gömülen insert",
+          "types": [
+            {
+              "id": "rx-heatset", "kind": "heatset", "code": "ruthex RX", "name": "Isıyla gömülen pirinç insert", "short": "Pirinç, ısıyla gömülen",
+              "material": "Kurşunsuz pirinç",
+              "sizes": {
+                "M2": { "variants": [ { "id": "RX-M2x4", "L": 4.0, "d1": 3.6, "d2": 3.1, "hole": 3.2, "wall": 1.3 } ] },
+                "M2.5": { "variants": [ { "id": "RX-M2.5x5.7", "L": 5.7, "d1": 4.6, "d2": 3.9, "hole": 4.0, "wall": 1.6 } ] },
+                "M3": { "variants": [
+                  { "id": "RX-M3Sx4.0", "L": 4.0, "d1": 4.6, "d2": 3.9, "hole": 4.0, "wall": 1.6, "short": true },
+                  { "id": "RX-M3x5.7", "L": 5.7, "d1": 4.6, "d2": 3.9, "hole": 4.0, "wall": 1.6 }
+                ] },
+                "M4": { "variants": [
+                  { "id": "RX-M4Sx4.0", "L": 4.0, "d1": 6.3, "d2": 5.5, "hole": 5.6, "wall": 2.1, "short": true },
+                  { "id": "RX-M4x8.1", "L": 8.1, "d1": 6.3, "d2": 5.5, "hole": 5.6, "wall": 2.1 }
+                ] }
+              }
+            }
+          ]
+        },
+        {
+          "id": "wire",
+          "label": "Tel dişli burç (Helicoil)",
+          "types": [
+            {
+              "id": "helicoil-fr", "kind": "helicoil", "code": "HELICOIL Plus", "name": "Helicoil tel dişli burç, serbest dönen", "short": "Helicoil, serbest dönen",
+              "standard": "DIN 8140", "material": "Paslanmaz çelik A2",
+              "sizes": {
+                "M2": { "P": 0.4, "drill": 2.1, "dhc": 2.52, "variants": [
+                  { "id": "1d", "L": 2.0 }, { "id": "1.5d", "L": 3.0 }, { "id": "2d", "L": 4.0 }, { "id": "2.5d", "L": 5.0 }, { "id": "3d", "L": 6.0 } ] },
+                "M2.5": { "P": 0.45, "drill": 2.6, "dhc": 3.08, "variants": [
+                  { "id": "1d", "L": 2.5 }, { "id": "1.5d", "L": 3.75 }, { "id": "2d", "L": 5.0 }, { "id": "2.5d", "L": 6.25 }, { "id": "3d", "L": 7.5 } ] },
+                "M3": { "P": 0.5, "drill": 3.2, "dhc": 3.65, "variants": [
+                  { "id": "1d", "L": 3.0 }, { "id": "1.5d", "L": 4.5 }, { "id": "2d", "L": 6.0 }, { "id": "2.5d", "L": 7.5 }, { "id": "3d", "L": 9.0 } ] },
+                "M4": { "P": 0.7, "drill": 4.2, "dhc": 4.91, "variants": [
+                  { "id": "1d", "L": 4.0 }, { "id": "1.5d", "L": 6.0 }, { "id": "2d", "L": 8.0 }, { "id": "2.5d", "L": 10.0 }, { "id": "3d", "L": 12.0 } ] }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

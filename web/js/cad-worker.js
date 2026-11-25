@@ -103,6 +103,8 @@ function buildEnclosure(g) {
   // İnsert / kılavuz / sac vidası deliği: üstten açık, kör delik
   for (const s of standoffs) {
     base = base.cut(makeCylinder(s.holeD / 2, s.depth + 0.5, [s.x, s.y, s.z1 - s.depth], up));
+    // Helicoil yuvası girişinde 90° havşa
+    if (s.countersink) base = base.cut(countersinkCone({ x: s.x, y: s.y, holeD: s.holeD, countersink: s.countersink }, s.z1));
   }
   // Port açıklıkları (konnektörler için duvar kesimi)
   for (const c of g.cutouts || []) {

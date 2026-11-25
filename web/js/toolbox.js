@@ -138,20 +138,126 @@ function arrowLine(out, x1, y1, x2, y2) {
   }
 }
 
-/* ---------- Pencere ---------- */
+/* ---------- Dişli burç simgesi ve kesit çizimi ---------- */
+
+export function insertIcon(kind) {
+  if (kind === 'helicoil') {
+    return '<svg class="head-icon" viewBox="0 0 28 26" aria-hidden="true"><path class="hi-thread" d="M8 5l12 2.5M8 9l12 2.5M8 13l12 2.5M8 17l12 2.5M8 21l12 2.5"/>' +
+      '<path d="M8 4v19M20 4v19" style="fill:none"/></svg>';
+  }
+  if (kind === 'tapped') {
+    return '<svg class="head-icon" viewBox="0 0 28 26" aria-hidden="true"><path d="M4 3h20v20H4z"/><path style="fill:var(--surface)" d="M10 3h8v15h-8z"/>' +
+      '<path class="hi-thread" d="M10 6h8M10 9h8M10 12h8M10 15h8"/></svg>';
+  }
+  return '<svg class="head-icon" viewBox="0 0 28 26" aria-hidden="true"><path d="M6.5 3h15v13h-1.5v7h-12v-7H6.5z"/>' +
+    '<path class="hi-thread" d="M6.5 6l2 1.5-2 1.5M6.5 10l2 1.5-2 1.5M21.5 6l-2 1.5 2 1.5M21.5 10l-2 1.5 2 1.5M11 3v20M17 3v20"/></svg>';
+}
 
 /**
- * dialog: <dialog id="toolbox-dialog">; library: toolbox JSON; fasteners: fasteners.json
- * evaluate(spec) → null (kart yok) ya da { auto, sel, standoffAuto, standoffNow } (design-ui hesaplar)
- * onApply(spec): seçim uygulanınca
+ * Standoff üst kesiti ve içindeki burç. kind: 'heatset' | 'helicoil' | 'tapped' | 'self_tap'
+ * b: { od (boss Ø), holeD, depth, d (vida çapı), P, L (burç boyu), d1, d2 (insert dış/alt çapı), dhc (Helicoil yuva dişi), csk }
  */
-export function createToolbox({ dialog, library, fasteners, evaluate, onApply }) {
+export function insertFigure(kind, b) {
+  const VW = 320;
+  const VH = 270;
+  const bossH = b.depth + Math.max(2, 0.4 * b.depth);
+  const s = Math.min(150 / b.od, 200 / bossH, 22);
+  const cx = 150;
+  const top = 38;
+  const X = (x) => cx + x * s;
+  const Y = (y) => top + y * s; // y: üst yüzden aşağı
+  const out = [];
+  const pts = (arr) => arr.map(([x, y]) => `${X(x).toFixed(2)},${Y(y).toFixed(2)}`).join(' ');
+  const r = b.od / 2;
+  const rh = b.holeD / 2;
+  // Boss kesiti (sol ve sağ et; delik boş)
+  const left = [[-r, 0], [-rh, 0], [-rh, b.depth], [rh, b.depth], [rh, 0], [r, 0], [r, bossH], [-r, bossH]];
+  if (b.csk) {
+    const c = (b.csk - b.holeD) / 2;
+    left.splice(1, 1, [-b.csk / 2, 0], [-rh, c]);
+    left.splice(left.length - 4, 1, [rh, c], [b.csk / 2, 0]);
+  }
+  out.push(`<polygon class="tf-section" points="${pts(left)}"/>`);
+  out.push(`<line class="tf-center" x1="${cx}" y1="${Y(0) - 10}" x2="${cx}" y2="${Y(bossH) + 6}"/>`);
+  const rd = b.d / 2;
+  if (kind === 'heatset') {
+    // Tırtıllı pirinç gövde: üst %65 d1, alt d2; içinde metrik diş
+    const r1 = b.d1 / 2;
+    const r2 = (b.d2 || b.d1 * 0.85) / 2;
+    const L = b.L;
+    const kn = 0.65 * L;
+    const teeth = Math.max(3, Math.round(kn / 0.9));
+    const side = (sg) => {
+      const p = [[sg * r1, 0]];
+      for (let i = 0; i < teeth; i++) {
+        const y0 = (i / teeth) * kn;
+        p.push([sg * (r1 - 0.18), y0 + kn / teeth / 2], [sg * r1, y0 + kn / teeth]);
+      }
+      p.push([sg * r2, kn + 0.2], [sg * r2, L]);
+      return p;
+    };
+    const right = side(1);
+    const leftSide = side(-1).reverse();
+    out.push(`<polygon class="tf-brass" points="${pts([...right, [rd, L], [rd, 0], [-rd, 0], [-rd, L], ...leftSide])}"/>`);
+  } else if (kind === 'helicoil') {
+    // Tel kesitleri: her adımda iki elmas (sol / sağ), burç yüzeyden 0,25·P içeride
+    const P = b.P;
+    const r0 = rd - 0.54 * P * 0.5;
+    const r1 = b.dhc / 2;
+    const n = Math.max(2, Math.floor(b.L / P));
+    for (let i = 0; i < n; i++) {
+      const y = 0.25 * P + i * P + P / 2;
+      for (const sg of [-1, 1]) {
+        const dia = [[sg * r0, y], [sg * (r0 + r1) / 2, y - P * 0.42], [sg * r1, y], [sg * (r0 + r1) / 2, y + P * 0.42]];
+        out.push(`<polygon class="tf-steel" points="${pts(dia)}"/>`);
+      }
+    }
+  } else {
+    // Doğrudan diş / sac vidası: diş dibi çizgileri
+    const rm = rh;
+    out.push(`<path class="tf-thin" d="M${X(-rd)} ${Y(0.3)}V${Y(b.depth - 0.6)}M${X(rd)} ${Y(0.3)}V${Y(b.depth - 0.6)}"/>`);
+    out.push(`<path class="tf-thin tf-hid" d="M${X(-rm)} ${Y(0)}V${Y(b.depth)}M${X(rm)} ${Y(0)}V${Y(b.depth)}"/>`);
+  }
+  // Ölçüler
+  const dimH = (x1, x2, y, label, fromY) => {
+    out.push(`<path class="tf-ext" d="M${x1} ${fromY}V${y + (y < fromY ? -3 : 3)}M${x2} ${fromY}V${y + (y < fromY ? -3 : 3)}"/>`);
+    arrowLine(out, x1, y, x2, y);
+    out.push(`<text class="tf-txt" x="${(x1 + x2) / 2}" y="${y < fromY ? y - 5 : y + 13}" text-anchor="middle">${esc(label)}</text>`);
+  };
+  const dimV = (y1, y2, x, label, fromX, side) => {
+    out.push(`<path class="tf-ext" d="M${fromX} ${y1}H${x + (x < fromX ? -3 : 3)}M${fromX} ${y2}H${x + (x < fromX ? -3 : 3)}"/>`);
+    arrowLine(out, x, y1, x, y2);
+    out.push(`<text class="tf-txt" x="${side === 'left' ? x - 6 : x + 6}" y="${(y1 + y2) / 2 + 4}" text-anchor="${side === 'left' ? 'end' : 'start'}">${esc(label)}</text>`);
+  };
+  dimH(X(-rh), X(rh), Y(0) - 16, `Ø${n(b.holeD)}`, Y(0));
+  if (b.L) dimV(Y(kind === 'helicoil' ? 0.25 * b.P : 0), Y((kind === 'helicoil' ? 0.25 * b.P : 0) + b.L), X(-r) - 16, `L ${n(b.L)}`, X(-(b.d1 || b.dhc || b.holeD) / 2), 'left');
+  dimV(Y(0), Y(b.depth), X(r) + 16, `${n(b.depth)}`, X(rh), 'right');
+  dimH(X(-r), X(r), Y(bossH) + 16, `Ø${n(b.od)} boss`, Y(bossH));
+  out.push('<text class="tf-cap" x="8" y="14">Standoff kesiti</text>');
+  return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="Burç kesit çizimi">${out.join('')}</svg>`;
+}
+
+/* ---------- Pencere ---------- */
+
+const METHOD_LABEL = {
+  insert: 'ısıyla gömülen insert', helicoil: 'Helicoil', tapped: 'doğrudan kılavuz', self_tap: 'sac vidası ön deliği',
+};
+
+/**
+ * dialog: <dialog id="toolbox-dialog">; libraries: [vida kütüphanesi, burç kütüphanesi]; fasteners: fasteners.json
+ * evaluate(screwSpec, insertSpec) → null (kart yok) ya da { auto, sel, standoffAuto, standoffNow, ruleMethod, helicoilD }
+ * onApply(screwSpec, insertSpec): seçim uygulanınca
+ */
+export function createToolbox({ dialog, libraries, fasteners, evaluate, onApply }) {
   const q = (sel) => dialog.querySelector(sel);
-  const types = libraryTypes(library);
+  const [screwLib, insertLib] = libraries;
+  const types = libraryTypes(screwLib);
+  const insertTypes = libraryTypes(insertLib);
   const closedGroups = new Set();
   let draft = null;
 
   const typeById = (id) => types.find((t) => t.id === id) || types[0];
+  const insertById = (id) => insertTypes.find((t) => t.id === id) || null;
 
   function normalize(spec) {
     const t = typeById(spec.type);
@@ -160,21 +266,25 @@ export function createToolbox({ dialog, library, fasteners, evaluate, onApply })
     return out;
   }
 
-  function open(spec) {
-    draft = normalize(spec);
+  function open(screwSpec, insertSpec, view = 'screw') {
+    draft = { screw: normalize(screwSpec), insert: { type: 'auto', variant: 'auto', ...insertSpec }, view };
     render();
     if (!dialog.open) dialog.showModal();
     q('.tb-item[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }
 
   function renderTree() {
-    const item = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-type="${t.id}" aria-selected="${t.id === draft.type}" title="${esc(t.name)}">
+    const screwItem = (t) => `
+      <button type="button" class="tb-item" role="treeitem" data-type="${t.id}" aria-selected="${draft.view === 'screw' && t.id === draft.screw.type}" title="${esc(t.name)}">
         ${headIcon(t.head)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
       </button>`;
-    q('#tb-tree').innerHTML = `
-      <div class="tb-node"><span class="tb-caret" aria-hidden="true"></span><strong>${esc(library.standard)}</strong><span class="tb-count">${types.length} tip</span></div>
-      ${library.categories.map((cat) => cat.soon
+    const insertItem = (t) => `
+      <button type="button" class="tb-item" role="treeitem" data-insert="${t.id}" aria-selected="${draft.view === 'insert' && t.id === draft.insert.type}" title="${esc(t.name)}">
+        ${insertIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
+      </button>`;
+    const lib = (L, item, count) => `
+      <div class="tb-node"><span class="tb-caret" aria-hidden="true"></span><strong>${esc(L.standard)}</strong><span class="tb-count">${count} tip</span></div>
+      ${L.categories.map((cat) => cat.soon
         ? `<div class="tb-node lvl1 soon"><span class="tb-caret" aria-hidden="true"></span>${esc(cat.label)}<span class="tb-soon">yakında</span></div>`
         : `<div class="tb-node lvl1"><span class="tb-caret" aria-hidden="true"></span>${esc(cat.label)}</div>
           ${(cat.groups || []).map((g) => `
@@ -184,20 +294,25 @@ export function createToolbox({ dialog, library, fasteners, evaluate, onApply })
               </button>
               <div class="tb-group-items">${g.types.map(item).join('')}</div>
             </div>`).join('')}`).join('')}`;
+    q('#tb-tree').innerHTML = lib(screwLib, screwItem, types.length) + (insertLib ? lib(insertLib, insertItem, insertTypes.length) : '');
   }
 
   function render() {
     renderTree();
-    const t = typeById(draft.type);
+    if (draft.view === 'insert') renderInsert(); else renderScrew();
+  }
+
+  function renderScrew() {
+    const t = typeById(draft.screw.type);
     const table = screwTable(fasteners, t);
     const screwBySize = (size) => table.find((x) => x.size === size) || null;
-    const ev = evaluate(draft);
+    const ev = evaluate(draft.screw, draft.insert);
     const info = ev?.auto?.fastenInfo || null;
     const minHole = ev?.auto?.usedHoleMinD ?? null;
     const sizes = Object.keys(t.sizes);
     const fits = (size) => minHole === null || (screwBySize(size)?.min_pcb_hole ?? 99) <= minHole + 1e-6;
     const autoSize = (info && sizes.includes(info.size) ? info.size : null) || [...sizes].reverse().find(fits) || sizes[0];
-    const effSize = draft.size === 'auto' ? autoSize : draft.size;
+    const effSize = draft.screw.size === 'auto' ? autoSize : draft.screw.size;
     const sz = t.sizes[effSize] || t.sizes[sizes[0]];
     const screw = screwBySize(effSize);
     // Boy durumları: otomatik boyun hesaplandığı tasarıma göre
@@ -211,19 +326,19 @@ export function createToolbox({ dialog, library, fasteners, evaluate, onApply })
       const need = Math.ceil((L - info.grip + 0.3 - info.floor + 0.8) * 10) / 10;
       return { L, status: ev.standoffAuto ? 'adapt' : 'long', eng, need };
     });
-    if (draft.length !== 'auto' && !sz.lengths.includes(Number(draft.length))) draft.length = 'auto';
-    const selL = draft.length === 'auto' ? autoL : Number(draft.length);
+    if (draft.screw.length !== 'auto' && !sz.lengths.includes(Number(draft.screw.length))) draft.screw.length = 'auto';
+    const selL = draft.screw.length === 'auto' ? autoL : Number(draft.screw.length);
     const figL = selL ?? sz.lengths[Math.floor(sz.lengths.length / 2)];
 
     q('#tb-figure').innerHTML = screwFigure(t, sz, effSize, screw ? screw.d : parseFloat(effSize.replace(/^[A-Z]+/, '')), figL);
     q('#tb-designation').textContent = designation(t, effSize, figL);
 
-    const sizeChips = [`<button type="button" class="chip" data-size="auto" aria-checked="${draft.size === 'auto'}">Otomatik <span class="chip-sub">${esc(autoSize)}</span></button>`]
-      .concat(sizes.map((size) => `<button type="button" class="chip ${fits(size) ? '' : 'bad'}" data-size="${esc(size)}" aria-checked="${draft.size === size}"` +
+    const sizeChips = [`<button type="button" class="chip" data-size="auto" aria-checked="${draft.screw.size === 'auto'}">Otomatik <span class="chip-sub">${esc(autoSize)}</span></button>`]
+      .concat(sizes.map((size) => `<button type="button" class="chip ${fits(size) ? '' : 'bad'}" data-size="${esc(size)}" aria-checked="${draft.screw.size === size}"` +
         ` ${fits(size) ? '' : `disabled title="Ø${n(minHole)} PCB deliğinden geçmez"`}>${esc(size)}</button>`)).join('');
     const stLabel = { ok: 'uygun', short: 'kısa', adapt: 'uyarlanır', long: 'uzun', na: '' };
-    const lenChips = [`<button type="button" class="chip" data-len="auto" aria-checked="${draft.length === 'auto'}">Otomatik <span class="chip-sub">${autoL ? n(autoL) + ' mm' : '–'}</span></button>`]
-      .concat(lenInfo.map((li) => `<button type="button" class="chip len ${li.status}" data-len="${li.L}" aria-checked="${String(draft.length) === String(li.L)}"` +
+    const lenChips = [`<button type="button" class="chip" data-len="auto" aria-checked="${draft.screw.length === 'auto'}">Otomatik <span class="chip-sub">${autoL ? n(autoL) + ' mm' : '–'}</span></button>`]
+      .concat(lenInfo.map((li) => `<button type="button" class="chip len ${li.status}" data-len="${li.L}" aria-checked="${String(draft.screw.length) === String(li.L)}"` +
         ` title="${esc(li.status === 'na' ? '' : `${stLabel[li.status]}${li.eng === undefined ? '' : li.eng <= 0 ? " · standoff'a ulaşmıyor" : ` · ${n(li.eng)} mm tutunur`}${li.need ? ` · PCB altı ${n(li.need)} mm olur` : ''}`)}">${n(li.L)}</button>`)).join('');
 
     const selInfo = lenInfo.find((li) => li.L === selL);
@@ -239,10 +354,10 @@ export function createToolbox({ dialog, library, fasteners, evaluate, onApply })
 
     const tapping = isTapping(t);
     const method = info?.method || (tapping ? 'self_tap' : 'insert');
-    const bodySide = !screw ? '–'
-      : method === 'insert' ? `insert Ø${n(screw.insert_hole)} × ${n(screw.insert_length)}`
-        : method === 'tapped' ? `kılavuz, matkap Ø${n(screw.tap_drill)}`
-          : tapping ? `ön delik Ø${n(screw.selftap_pilot)} (diş vidayla açılır)` : `ön delik Ø${n(screw.selftap_pilot)}`;
+    const st0 = ev?.sel?.standoffs?.[0];
+    const bodySide = tapping ? (screw ? `ön delik Ø${n(screw.selftap_pilot)} (diş vidayla açılır)` : '–')
+      : st0 ? `${METHOD_LABEL[ev.sel.fasteningMethod] || ''}${st0.insert ? ` · ${st0.insert.kind === 'helicoil' ? 'Helicoil ' + st0.insert.id : st0.insert.id}` : ''} · delik Ø${n(st0.holeD)}`
+        : METHOD_LABEL[method];
     const sunk = t.head === 'countersunk';
     const rows = [
       ['Standart', `${t.code} · ${t.name}`],
@@ -253,14 +368,6 @@ export function createToolbox({ dialog, library, fasteners, evaluate, onApply })
       ['Gövde tarafı', bodySide],
       ['Boy ölçüsü', t.length_includes_head ? 'başı da kapsar (havşa üst yüzünden)' : 'baş altından uca'],
     ];
-    const sel = ev?.sel;
-    const issues = (sel?.checks || []).filter((c) => c.cat === 'baglanti' && (c.level === 'error' || c.level === 'warn')).slice(0, 4);
-    const fitRows = sel && sel.outer ? [
-      ['PCB altı yükseklik', `${n(sel.params.standoffHeight)} mm${Math.abs(sel.params.standoffHeight - ev.standoffNow) > 1e-6 ? ` <span class="muted">(şu an ${n(ev.standoffNow)})</span>` : ''}`],
-      ['Muhafaza dış ölçü', `${n(sel.outer.L)} × ${n(sel.outer.W)} × ${n(sel.outer.H)} mm`],
-      ['Vida sayısı', `${sel.screws.length} (${sel.screws.filter((x) => x.lid).length} kapak + PCB)`],
-    ] : [];
-
     q('#tb-props').innerHTML = `
       <section class="tb-group">
         <h4>Boyut</h4>
@@ -276,12 +383,134 @@ export function createToolbox({ dialog, library, fasteners, evaluate, onApply })
       <section class="tb-group">
         <h4>Özellikler</h4>
         <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
+        ${!tapping ? '<button type="button" class="link-btn" data-view="insert">Gövde tarafını (burç) seç →</button>' : ''}
       </section>
-      ${fitRows.length ? `<section class="tb-group">
+      ${fitSection(ev)}`;
+  }
+
+  /** "Bu tasarımda" bölümü: seçimle oluşacak tasarımın özeti ve bağlantı uyarıları */
+  function fitSection(ev) {
+    const sel = ev?.sel;
+    if (!sel || !sel.outer) return '';
+    const issues = (sel.checks || []).filter((c) => c.cat === 'baglanti' && (c.level === 'error' || c.level === 'warn')).slice(0, 4);
+    const st0 = sel.standoffs?.[0];
+    const fi = sel.fastenInfo;
+    const rows = [
+      ['PCB altı yükseklik', `${n(sel.params.standoffHeight)} mm${Math.abs(sel.params.standoffHeight - ev.standoffNow) > 1e-6 ? ` <span class="muted">(şu an ${n(ev.standoffNow)})</span>` : ''}`],
+      ['Muhafaza dış ölçü', `${n(sel.outer.L)} × ${n(sel.outer.W)} × ${n(sel.outer.H)} mm`],
+      st0 ? ['Standoff', `Ø${n(st0.od)} · delik Ø${n(st0.holeD)} × ${n(st0.depth)} mm`] : null,
+      fi && sel.screws[0] ? ['Vida tutunması', `${n(sel.screws.find((x) => x.lid)?.engagement ?? sel.screws[0].engagement)} mm (en az ${n(fi.minEngage)})`] : null,
+      ['Vida sayısı', `${sel.screws.length} (${sel.screws.filter((x) => x.lid).length} kapak + PCB)`],
+    ].filter(Boolean);
+    return `<section class="tb-group">
         <h4>Bu tasarımda</h4>
-        <table class="tb-table">${fitRows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${b}</td></tr>`).join('')}</table>
+        <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${b}</td></tr>`).join('')}</table>
         ${issues.length ? `<ul class="notes">${issues.map((c) => `<li class="note ${c.level}"><span>${esc(c.text)}</span></li>`).join('')}</ul>` : '<p class="small"><span class="t-ok">✓</span> Bağlantı kontrollerinde sorun yok.</p>'}
-      </section>` : ''}`;
+      </section>`;
+  }
+
+  function renderInsert() {
+    const ev = evaluate(draft.screw, draft.insert);
+    const sel = ev?.sel;
+    const st0 = sel?.standoffs?.[0] || null;
+    const method = sel?.fasteningMethod || null;
+    const screwT = typeById(draft.screw.type);
+    const tapping = isTapping(screwT);
+    const effType = draft.insert.type === 'auto' ? (sel?.insertType ? insertById(sel.insertType.id) : null)
+      : draft.insert.type === 'none' ? null : insertById(draft.insert.type);
+    const size = sel?.fastenInfo?.size || (draft.screw.size !== 'auto' ? draft.screw.size : 'M3');
+    const zs = effType?.sizes[size] || null;
+    const screwRow = (fasteners.screws || []).find((x) => x.size === size) || null;
+
+    // Gövde tarafı seçimi
+    const ruleLabel = ev ? METHOD_LABEL[ev.ruleMethod] || '' : 'kural dosyası';
+    const choice = [
+      ['auto', `Otomatik <span class="chip-sub">${esc(ruleLabel)}</span>`],
+      ...insertTypes.map((t) => [t.id, esc(t.kind === 'helicoil' ? 'Helicoil' : 'Isıyla gömülen insert')]),
+      ['none', 'Doğrudan kılavuz'],
+    ].map(([id, label]) => `<button type="button" class="chip" data-itype="${id}" aria-checked="${draft.insert.type === id}">${label}</button>`).join('');
+
+    // Varyant (boy) seçimi ve durumları
+    const fi = sel?.fastenInfo || null;
+    const helicoilD = ev?.helicoilD || 2;
+    let variantChips = '';
+    let note = '';
+    if (zs) {
+      const avail = fi ? fi.available : null;
+      const floor = fi ? fi.floor : 0;
+      const status = (v) => {
+        if (avail === null) return { status: 'na' };
+        const req = effType.kind === 'helicoil' ? v.L + 3.5 * zs.P + 0.5 : v.L + 0.5;
+        if (req <= avail + 1e-9) return { status: 'ok', req };
+        const need = Math.ceil((req - floor + 0.8) * 10) / 10;
+        return { status: ev.standoffAuto ? 'adapt' : 'long', req, need };
+      };
+      const autoV = st0?.insert?.id || null;
+      variantChips = [`<button type="button" class="chip" data-variant="auto" aria-checked="${draft.insert.variant === 'auto'}">Otomatik <span class="chip-sub">${esc(autoV ? (effType.kind === 'helicoil' ? autoV.replace('.', ',') : autoV.replace(/^RX-/, '')) : '–')}</span></button>`]
+        .concat(zs.variants.map((v) => {
+          const s = status(v);
+          const rec = effType.kind === 'helicoil' && v.id === `${helicoilD}d`;
+          const label = effType.kind === 'helicoil' ? `${v.id.replace('.', ',')} · ${n(v.L)}` : `${n(v.L)}${v.short ? ' kısa' : ''}`;
+          const title = s.status === 'ok' ? `uygun · delik ${n(s.req)} mm` : s.status === 'adapt' ? `PCB altı ${n(s.need)} mm olur` : s.status === 'long' ? 'delik derinliği yetmez' : '';
+          return `<button type="button" class="chip len ${s.status}${rec ? ' rec' : ''}" data-variant="${esc(v.id)}" aria-checked="${draft.insert.variant === v.id}" title="${esc(title + (rec ? ' · bu malzeme için önerilen' : ''))}">${esc(label)}${rec ? ' ★' : ''}</button>`;
+        })).join('');
+      if (effType.kind === 'helicoil') note = `★ ${ev ? 'Bu malzeme için' : 'Önerilen'} ${n(helicoilD)}·d. Vida, burcun tamamını kavramalı.`;
+    }
+    if (draft.insert.variant !== 'auto' && zs && !zs.variants.some((v) => v.id === draft.insert.variant)) draft.insert.variant = 'auto';
+
+    // Ağaçta etkin burcu işaretle (Otomatik seçiliyken kuralın verdiği burç)
+    if (effType) {
+      const el = q(`[data-insert="${effType.id}"]`);
+      if (el) { el.setAttribute('aria-selected', 'true'); el.scrollIntoView({ block: 'nearest' }); }
+    }
+    // Çizim ve tanım
+    const v = zs ? (zs.variants.find((x) => x.id === (draft.insert.variant !== 'auto' ? draft.insert.variant : st0?.insert?.id)) || zs.variants[zs.variants.length - 1]) : null;
+    const d = screwRow ? screwRow.d : parseFloat(size.replace(/^[A-Z]+/, '')) || 3;
+    const od = st0?.od || (v ? (v.d1 || zs.dhc || d) + 4 : d + 4);
+    const kind = tapping ? 'self_tap' : effType ? effType.kind : 'tapped';
+    const holeD = kind === 'heatset' && v ? v.hole : kind === 'helicoil' && zs ? zs.drill : st0?.holeD || (screwRow ? screwRow.tap_drill : d * 0.8);
+    const depth = st0?.depth || (v ? v.L + (kind === 'helicoil' ? 3.5 * zs.P + 0.5 : 0.5) : 2 * d + 0.5);
+    q('#tb-figure').innerHTML = insertFigure(kind, {
+      od, holeD, depth, d, P: zs?.P || (screwT.sizes[size]?.P ?? 0.5), L: v ? v.L : null, d1: v?.d1, d2: v?.d2, dhc: zs?.dhc,
+      csk: kind === 'helicoil' && zs ? zs.dhc + 0.1 : null,
+    });
+    q('#tb-designation').textContent = kind === 'heatset' && v ? `ruthex ${v.id}`
+      : kind === 'helicoil' && v ? `HELICOIL Plus ${size} × ${v.id.replace('.', ',')} (${n(v.L)}) · DIN 8140`
+        : kind === 'self_tap' ? `Sac vidası ön deliği Ø${n(holeD)}` : `${size} kılavuz · matkap Ø${n(holeD)}`;
+
+    let rows;
+    if (kind === 'heatset' && v) {
+      rows = [['Seri', `${effType.code} · ${effType.material}`], ['Dış çap', `Ø${n(v.d1)} (alt Ø${n(v.d2)})`], ['Boy', `${n(v.L)} mm`],
+        ['Delik', `Ø${n(v.hole)} kör delik`], ['En az et', `${n(v.wall)} mm → boss ≥ Ø${n(v.d1 + 2 * v.wall)}`],
+        ['Montaj', 'Havya ucu ile dik bastır (baskı sıcaklığı +10 °C), yüzeyle aynı hizada bitir']];
+    } else if (kind === 'helicoil' && v) {
+      rows = [['Standart', `${effType.standard} · ${effType.code} Free Running`], ['Malzeme', effType.material], ['Boy', `${v.id.replace('.', ',')} = ${n(v.L)} mm`],
+        ['Matkap', `Ø${n(zs.drill)}`], ['Kılavuz', `${size} STI (Helicoil), yuva dişi ≥ Ø${n(zs.dhc)}`], ['Havşa', `90° Ø${n(zs.dhc + 0.1)}`],
+        ['Montaj', 'Montaj aletiyle 0,25–0,5·P içeri; tang kırıcı ile tang kırılır']];
+    } else if (kind === 'self_tap') {
+      rows = [['Vida', `${screwT.code} sac vidası`], ['Gövde', `Ø${n(holeD)} ön delik; diş vidayla açılır`]];
+    } else {
+      rows = [['Diş', `${size} metrik, doğrudan gövdeye`], ['Matkap', `Ø${n(holeD)}`], ['Not', 'Metalde ve sert plastikte uygundur; baskıda ve PTFE\'de aşınır']];
+    }
+    q('#tb-props').innerHTML = `
+      <section class="tb-group">
+        <h4>Gövde tarafı</h4>
+        <div class="chips">${choice}</div>
+        ${tapping ? '<p class="small"><span class="t-warn">Sac vidası seçili:</span> gövdede burç kullanılmaz, vida dişini kendisi açar.</p>'
+          : method ? `<p class="muted small">Şu an: ${esc(METHOD_LABEL[method] || '')} · vida boyutu ${esc(size)}</p>` : ''}
+      </section>
+      ${zs ? `<section class="tb-group">
+        <h4>Boy <span class="muted">(mm)</span></h4>
+        <div class="chips">${variantChips}</div>
+        ${note ? `<p class="small muted">${note}</p>` : ''}
+        ${ev ? '<div class="tb-legend"><span class="t-ok">uygun</span><span class="t-accent">standoff uyarlanır</span></div>' : ''}
+      </section>` : ''}
+      <section class="tb-group">
+        <h4>Özellikler</h4>
+        <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
+        <button type="button" class="link-btn" data-view="screw">← Vida seçimine dön</button>
+      </section>
+      ${fitSection(ev)}`;
   }
 
   q('#tb-tree').addEventListener('click', (e) => {
@@ -292,23 +521,36 @@ export function createToolbox({ dialog, library, fasteners, evaluate, onApply })
       renderTree();
       return;
     }
+    const ins = e.target.closest('[data-insert]');
+    if (ins) {
+      if (draft.insert.type !== ins.dataset.insert) draft.insert = { type: ins.dataset.insert, variant: 'auto' };
+      draft.view = 'insert';
+      render();
+      return;
+    }
     const item = e.target.closest('[data-type]');
-    if (!item || item.dataset.type === draft.type) return;
-    draft = normalize({ ...draft, type: item.dataset.type });
+    if (!item) return;
+    if (item.dataset.type === draft.screw.type && draft.view === 'screw') return;
+    draft.screw = normalize({ ...draft.screw, type: item.dataset.type });
+    draft.view = 'screw';
     render();
   });
   q('#tb-props').addEventListener('click', (e) => {
-    const chip = e.target.closest('[data-size],[data-len]');
+    const view = e.target.closest('[data-view]');
+    if (view) { draft.view = view.dataset.view; render(); return; }
+    const chip = e.target.closest('[data-size],[data-len],[data-itype],[data-variant]');
     if (!chip || chip.disabled) return;
-    if (chip.dataset.size) { draft.size = chip.dataset.size; draft.length = 'auto'; }
-    if (chip.dataset.len) draft.length = chip.dataset.len === 'auto' ? 'auto' : Number(chip.dataset.len);
+    if (chip.dataset.size) { draft.screw.size = chip.dataset.size; draft.screw.length = 'auto'; }
+    if (chip.dataset.len) draft.screw.length = chip.dataset.len === 'auto' ? 'auto' : Number(chip.dataset.len);
+    if (chip.dataset.itype) draft.insert = { type: chip.dataset.itype, variant: 'auto' };
+    if (chip.dataset.variant) draft.insert.variant = chip.dataset.variant;
     render();
   });
   q('#tb-apply').addEventListener('click', () => {
-    onApply({ ...draft });
+    onApply({ ...draft.screw }, { ...draft.insert });
     dialog.close();
   });
   q('#tb-cancel').addEventListener('click', () => dialog.close());
 
-  return { open, types, typeById };
+  return { open, types, typeById, insertTypes };
 }

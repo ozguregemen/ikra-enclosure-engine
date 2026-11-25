@@ -16,6 +16,8 @@
       "label": "CNC",
       "materials": [
         { "id": "pom", "label": "Delrin (POM)", "file": "cnc/pom.json" },
+        { "id": "peek", "label": "PEEK", "file": "cnc/peek.json" },
+        { "id": "ptfe", "label": "Teflon (PTFE)", "file": "cnc/ptfe.json" },
         { "id": "abs", "label": "ABS", "file": "cnc/abs.json" },
         { "id": "al6061", "label": "6061 Alüminyum", "file": "cnc/al6061.json" }
       ]

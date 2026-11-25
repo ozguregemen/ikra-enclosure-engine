@@ -4,7 +4,7 @@
  */
 import { computeDesign, defaultParams, paramHint, pickScrew, screwTable, libraryTypes, LID_MODES, PARAM_FIELDS } from './design.js';
 import { buildSheets, exportPdf } from './drawing.js';
-import { createToolbox, headIcon } from './toolbox.js';
+import { createToolbox, headIcon, insertIcon } from './toolbox.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -66,6 +66,8 @@ export function createDesignUI({ viewer, setStatus }) {
     toolbox: null, // iso-screws.json
     toolboxUI: null,
     screwSpec: { type: 'iso7045', size: 'auto', length: 'auto' },
+    inserts: null, // inserts.json
+    insertSpec: { type: 'auto', variant: 'auto' },
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -86,74 +88,98 @@ export function createDesignUI({ viewer, setStatus }) {
   }
 
   async function loadToolbox() {
-    if (!state.toolbox) {
-      const res = await fetch('rules/toolbox/iso-screws.json');
-      if (!res.ok) throw new Error('Toolbox kütüphanesi yüklenemedi.');
-      state.toolbox = await res.json();
-    }
-    if (!state.fasteners) {
-      const res = await fetch('rules/fasteners.json');
-      if (!res.ok) throw new Error('Vida tablosu yüklenemedi.');
-      state.fasteners = await res.json();
-    }
+    const getJson = async (url, msg) => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(msg);
+      return res.json();
+    };
+    if (!state.toolbox) state.toolbox = await getJson('rules/toolbox/iso-screws.json', 'Toolbox vida kütüphanesi yüklenemedi.');
+    if (!state.inserts) state.inserts = await getJson('rules/toolbox/inserts.json', 'Toolbox burç kütüphanesi yüklenemedi.');
+    if (!state.fasteners) state.fasteners = await getJson('rules/fasteners.json', 'Vida tablosu yüklenemedi.');
     if (!state.toolboxUI) {
       state.toolboxUI = createToolbox({
         dialog: $('#toolbox-dialog'),
-        library: state.toolbox,
+        libraries: [state.toolbox, state.inserts],
         fasteners: state.fasteners,
         evaluate: evaluateSpec,
-        onApply: (spec) => setScrewSpec(spec),
+        onApply: (spec, ispec) => setToolboxSpec(spec, ispec),
       });
     }
   }
 
   const toolboxTypes = () => libraryTypes(state.toolbox);
+  const insertTypes = () => libraryTypes(state.inserts);
 
-  /** Toolbox seçimini uygula: kullanıcının elle değiştirmediği parametreler yeni vidaya göre yeniden hesaplanır */
-  function setScrewSpec(spec) {
+  /** Toolbox seçimini uygula: kullanıcının elle değiştirmediği parametreler yeni vida/burca göre yeniden hesaplanır */
+  function setToolboxSpec(spec, ispec = state.insertSpec) {
     const t = toolboxTypes().find((x) => x.id === spec.type);
     const next = { type: spec.type, size: spec.size, length: spec.length };
     if (t && next.size !== 'auto' && !t.sizes[next.size]) next.size = 'auto';
-    if (!state.analysis || !state.rules || !state.params) { state.screwSpec = next; renderScrewPick(); return; }
+    const nextIns = { type: ispec.type || 'auto', variant: ispec.variant || 'auto' };
+    if (!state.analysis || !state.rules || !state.params) {
+      state.screwSpec = next;
+      state.insertSpec = nextIns;
+      renderScrewPick();
+      return;
+    }
     const prev = currentDefaults();
     state.screwSpec = next;
+    state.insertSpec = nextIns;
     refreshAutoParams(prev);
     renderFastening();
     update();
   }
+  const setScrewSpec = (spec) => setToolboxSpec(spec, state.insertSpec);
 
   /**
-   * Toolbox penceresinin canlı hesabı: seçilen tipe/boyuta göre otomatik boylu tasarım (boy durumları için)
+   * Toolbox penceresinin canlı hesabı: seçilen vida tipine/boyutuna göre otomatik boylu tasarım (boy durumları için)
    * ve tam seçimli tasarım (uygulanınca oluşacak parametrelerle).
    */
-  function evaluateSpec(spec) {
+  function evaluateSpec(spec, ispec = state.insertSpec) {
     if (!state.analysis || !state.rules || !state.params || !state.analysis.board || state.analysis.board.axes.n !== 'Z') return null;
-    const opts = (sp) => ({ ...designOptions(), screwSpec: sp });
+    const opts = (sp, ip) => ({ ...designOptions(), screwSpec: sp, insertSpec: ip });
     const prev = currentDefaults();
-    const adapt = (sp) => {
-      const next = defaultParams(state.analysis, state.rules, opts(sp));
+    const adapt = (sp, ip) => {
+      const next = defaultParams(state.analysis, state.rules, opts(sp, ip));
       const p = { ...state.params };
       for (const key of Object.keys(next)) if (Math.abs(p[key] - prev[key]) < 1e-9) p[key] = next[key];
       return p;
     };
     const autoSpec = { ...spec, length: 'auto' };
-    const auto = computeDesign(state.analysis, state.rules, adapt(autoSpec), opts(autoSpec));
-    const sel = spec.length === 'auto' ? auto : computeDesign(state.analysis, state.rules, adapt(spec), opts(spec));
+    const auto = computeDesign(state.analysis, state.rules, adapt(autoSpec, ispec), opts(autoSpec, ispec));
+    const sel = spec.length === 'auto' ? auto : computeDesign(state.analysis, state.rules, adapt(spec, ispec), opts(spec, ispec));
     return {
       auto,
       sel,
       standoffAuto: Math.abs(state.params.standoffHeight - prev.standoffHeight) < 1e-9,
       standoffNow: state.params.standoffHeight,
+      ruleMethod: state.rules.fastening || 'insert',
+      helicoilD: state.rules.helicoil_length_d || 2,
     };
   }
 
-  function openToolbox() {
+  function openToolbox(view = 'screw') {
     loadToolbox()
-      .then(() => state.toolboxUI.open(state.screwSpec))
+      .then(() => state.toolboxUI.open(state.screwSpec, state.insertSpec, view))
       .catch((err) => setStatus(err.message, { error: true }));
   }
-  $('#toolbox-btn').addEventListener('click', openToolbox);
-  $('#screw-pick').addEventListener('click', openToolbox);
+  $('#toolbox-btn').addEventListener('click', () => openToolbox('screw'));
+  $('#screw-pick').addEventListener('click', () => openToolbox('screw'));
+  $('#insert-pick').addEventListener('click', () => openToolbox('insert'));
+
+  /** Bağlantı kartındaki gövde tarafı satırı: burç / kılavuz / ön delik */
+  function renderInsertPick(d = state.design) {
+    const st = d?.standoffs?.[0];
+    const m = d?.fasteningMethod;
+    const ins = st?.insert;
+    const kind = m === 'helicoil' ? 'helicoil' : m === 'insert' ? 'heatset' : 'tapped';
+    $('#insert-pick-icon').innerHTML = insertIcon(kind);
+    $('#insert-pick-title').textContent = !st ? 'Gövde tarafı'
+      : ins ? (ins.kind === 'helicoil' ? `Helicoil ${st.screw} × ${ins.id.replace('.', ',')} (${String(ins.L).replace('.', ',')} mm)` : ins.id)
+        : m === 'self_tap' ? `Ön delik Ø${String(st.holeD).replace('.', ',')}` : m === 'insert' ? `${st.screw} insert` : `${st.screw} kılavuz · Ø${String(st.holeD).replace('.', ',')}`;
+    const how = { insert: 'Isıyla gömülen insert', helicoil: 'Tel dişli burç', tapped: 'Doğrudan diş', self_tap: 'Sac vidası dişini kendisi açar' }[m] || '';
+    $('#insert-pick-sub').textContent = `${how}${state.insertSpec.type === 'auto' ? ' · kural dosyasına göre' : ' · elle seçildi'}`;
+  }
 
   /** Bağlantı kartındaki vida satırı: seçili tip, etkin boyut × boy */
   function renderScrewPick(d = state.design) {
@@ -215,8 +241,9 @@ export function createDesignUI({ viewer, setStatus }) {
     selectedHoles: state.selectedHoles,
     portOverrides: state.portOverrides,
     sealing: sealingLevel(),
-    toolbox: { types: toolboxTypes() },
+    toolbox: { types: toolboxTypes(), inserts: insertTypes() },
     screwSpec: state.screwSpec,
+    insertSpec: state.insertSpec,
   });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
 
@@ -276,6 +303,7 @@ export function createDesignUI({ viewer, setStatus }) {
     if (key === 'screwType') { setScrewSpec({ ...state.screwSpec, type: value, length: 'auto' }); return; }
     if (key === 'screwSize') { setScrewSpec({ ...state.screwSpec, size: value, length: 'auto' }); return; }
     if (key === 'screwLength') { setScrewSpec({ ...state.screwSpec, length: Number(value) }); return; }
+    if (key === 'insertType') { setToolboxSpec(state.screwSpec, { type: value, variant: 'auto' }); return; }
     state.params[key] = Number(value);
     renderParams();
     update();
@@ -424,6 +452,7 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#bom-title').classList.toggle('hidden', !bom.length);
     $('#bom-list').innerHTML = bom.map((line) => `<li>${esc(line)}</li>`).join('');
     renderScrewPick(d);
+    renderInsertPick(d);
 
     const errEl = $('#design-error');
     errEl.classList.toggle('hidden', !d.error);
@@ -541,7 +570,8 @@ export function createDesignUI({ viewer, setStatus }) {
       head: s.head, headDActual: s.head_d_actual, driveKind: s.driveKind, drive: s.driveVal, driveA: s.driveA, driveM: s.driveM,
       z: s.lid ? d.geometry.zTop : state.analysis.board.top,
     }));
-    viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws });
+    const inserts = d.standoffs.filter((s) => s.insert).map((s) => ({ x: s.x, y: s.y, z: s.z1, ...s.insert }));
+    viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws, inserts });
     const first = state.firstBuild;
     if (first) viewer.setView('iso');
     state.firstBuild = false;
@@ -687,6 +717,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.selectedHoles = new Set((state.analysis.holes || []).map((h, i) => (h.mount ? i : -1)).filter((i) => i >= 0));
     state.lidMode = 'screw';
     state.screwSpec = { ...state.screwSpec, length: 'auto' }; // tip ve boyut korunur; boy yeni karta göre
+    state.insertSpec = { ...state.insertSpec, variant: 'auto' };
     state.portOverrides = new Map();
     state.sheets = null;
     state.drawingId = null;
@@ -720,6 +751,8 @@ export function createDesignUI({ viewer, setStatus }) {
       standoffs: d.standoffs.map((s) => ({ x: s.x, y: s.y, od: s.od, holeD: s.holeD, depth: s.depth, screw: s.screw })),
       lidTubes: d.lidTubes.map((t) => ({ x: t.x, y: t.y, od: t.od, holeD: t.holeD, length: t.length })),
       screwSpec: d.screwSpec,
+      insertSpec: d.insertSpec,
+      inserts: d.standoffs.map((s) => s.insert).filter(Boolean),
       screws: d.screws.map((s) => ({
         standard: s.code, name: s.name, size: s.size, length: s.length, engagement: s.engagement, lid: s.lid, x: s.x, y: s.y,
         head: s.head, drive: s.driveText, designation: s.designation,
