@@ -52,7 +52,7 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   tarayıcıda önizleme ve Türkçe fontlu PDF (jsPDF + svg2pdf.js + DejaVu Sans)
 
 **Arayüz**
-- Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; kamerayla birlikte döner,
+- Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
 - Sekmeli akış: Analiz → Tasarım (katlanır, özetli kartlar) → Çıktılar; ana eylem ve DFM durumu altta hep görünür
 - Kısayollar: `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt, `G` kılavuzlar (yardım: üst çubuktaki `?`)

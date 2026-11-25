@@ -85,7 +85,11 @@ export class Viewer {
     this.controls.addEventListener('change', () => this.render());
     this.controls.addEventListener('start', () => { this.anim = null; });
 
-    this.cube = cubeContainer ? new ViewCube(cubeContainer, this.camera, (dir) => this.orientTo(dir, { fit: false })) : null;
+    this.cube = cubeContainer
+      ? new ViewCube(cubeContainer, this.camera,
+        (dir) => this.orientTo(dir, { fit: false }),
+        (dx, dy) => this.orbitBy(dx, dy))
+      : null;
 
     this.modelGroup = new THREE.Group();
     this.guideGroup = new THREE.Group();
@@ -362,6 +366,29 @@ export class Viewer {
   /** Adlandırılmış görünüş: iso, top, front, back, right, left (modele sığdırarak) */
   setView(key, { animate = true } = {}) {
     this.orientTo(new THREE.Vector3(...(VIEW_DIRS[key] || VIEW_DIRS.iso)), { fit: true, animate });
+  }
+
+  /**
+   * Yön küpü sürüklenince kamerayı hedef etrafında döndürür (piksel cinsinden hareket).
+   * İşaretler OrbitControls ile aynı: sağa sürükle → model sağa döner, aşağı → üstü görünür.
+   * Z yukarı küresel koordinat: θ = XY düzleminde açı, φ = +Z'den kutup açısı.
+   */
+  orbitBy(dxPx, dyPx) {
+    const K = (2 * Math.PI) / 320; // rad / piksel: küp genişliğinde (~112 px) yaklaşık 125°
+    this.anim = null;
+    const target = this.controls.target;
+    const offset = this.camera.position.clone().sub(target);
+    const r = offset.length();
+    if (!(r > 0)) return;
+    let theta = Math.atan2(offset.y, offset.x);
+    let phi = Math.acos(THREE.MathUtils.clamp(offset.z / r, -1, 1));
+    theta -= dxPx * K;
+    phi = THREE.MathUtils.clamp(phi - dyPx * K, 0.002, Math.PI - 0.002);
+    offset.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+    this.camera.position.copy(target).add(offset);
+    this.camera.up.set(0, 0, 1);
+    this.controls.update();
+    this.render();
   }
 
   /** Mevcut bakış yönünü koruyarak modeli ekrana sığdır */

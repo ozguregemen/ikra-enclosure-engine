@@ -66,20 +66,23 @@ function regionDirection(p) {
 export class ViewCube {
   /**
    * container: küpün çizileceği eleman; mainCamera: izlenecek kamera;
-   * onSelect(dirVector): tıklanan yöne dön
+   * onSelect(dirVector): tıklanan yöne dön; onOrbit(dx, dy): küp sürüklenince (piksel) döndür
    */
-  constructor(container, mainCamera, onSelect) {
+  constructor(container, mainCamera, onSelect, onOrbit = null) {
     this.container = container;
     this.mainCamera = mainCamera;
     this.onSelect = onSelect;
+    this.onOrbit = onOrbit;
     this.hoverKey = '';
+    this.dragging = false;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(SIZE, SIZE);
     this.renderer.domElement.className = 'viewcube-canvas';
     this.renderer.domElement.setAttribute('role', 'img');
-    this.renderer.domElement.setAttribute('aria-label', 'Yön küpü: yüz, kenar veya köşeye tıklayarak görünüşü değiştir');
+    this.renderer.domElement.setAttribute('aria-label', 'Yön küpü: yüz, kenar veya köşeye tıkla ya da tutup sürükleyerek döndür');
+    this.renderer.domElement.title = 'Tıkla: o yönden bak · Sürükle: döndür';
     container.prepend(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -135,7 +138,7 @@ export class ViewCube {
     if (key === this.hoverKey) return;
     this.hoverKey = key;
     for (const ch of [...this.highlight.children]) { ch.geometry.dispose(); ch.material.dispose(); this.highlight.remove(ch); }
-    this.renderer.domElement.style.cursor = dir ? 'pointer' : 'default';
+    if (!this.dragging) this.renderer.domElement.style.cursor = dir ? 'pointer' : 'grab';
     if (dir) {
       // Seçilen yönün dokunduğu her yüzde ilgili bölgeyi boya
       for (let a = 0; a < 3; a++) {
@@ -162,17 +165,54 @@ export class ViewCube {
     return hit ? regionDirection([hit.point.x, hit.point.y, hit.point.z]) : null;
   }
 
+  /**
+   * Tıkla → o yöne dön. Tut ve sürükle → ana kamera eşzamanlı döner (model elde tutulup
+   * çevriliyormuş gibi). Sürükleme imleç küpten çıksa da sürer (pointer capture).
+   */
   setupPointer() {
     const el = this.renderer.domElement;
-    let down = null;
-    el.addEventListener('pointermove', (e) => this.setHover(this.pick(e)));
-    el.addEventListener('pointerleave', () => this.setHover(null));
-    el.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
+    const DRAG_THRESHOLD = 4; // piksel: altındaki hareket tıklama sayılır
+    let press = null;
+
+    const endDrag = () => {
+      press = null;
+      this.dragging = false;
+      el.classList.remove('dragging');
+    };
+
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      press = { x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, id: e.pointerId, moved: false };
+      try { el.setPointerCapture(e.pointerId); } catch { /* sentetik olaylarda yakalama olmayabilir */ }
+    });
+
+    el.addEventListener('pointermove', (e) => {
+      if (!press) { this.setHover(this.pick(e)); return; }
+      const dx = e.clientX - press.lastX;
+      const dy = e.clientY - press.lastY;
+      press.lastX = e.clientX;
+      press.lastY = e.clientY;
+      if (!press.moved && Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_THRESHOLD) {
+        press.moved = true;
+        this.setHover(null);
+        this.dragging = true;
+        el.classList.add('dragging');
+        el.style.cursor = 'grabbing';
+      }
+      if (press.moved && this.onOrbit && (dx || dy)) this.onOrbit(dx, dy);
+    });
+
     el.addEventListener('pointerup', (e) => {
-      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) { down = null; return; }
-      down = null;
+      if (!press) return;
+      const wasDrag = press.moved;
+      try { el.releasePointerCapture(press.id); } catch { /* yok say */ }
+      endDrag();
+      if (wasDrag) { this.setHover(this.pick(e)); return; }
       const dir = this.pick(e);
       if (dir) this.onSelect(new THREE.Vector3(...dir).normalize());
     });
+
+    el.addEventListener('pointercancel', () => { endDrag(); this.setHover(null); });
+    el.addEventListener('pointerleave', () => { if (!press) this.setHover(null); });
   }
 }

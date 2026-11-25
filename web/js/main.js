@@ -6,7 +6,7 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.6.0 (V1)';
+const APP_VERSION = '0.6.1 (V1)';
 const SAMPLE_URL = 'samples/ornek-kart.step';
 const LARGE_FILE_MB = 50;
 
