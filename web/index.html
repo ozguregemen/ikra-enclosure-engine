@@ -19,7 +19,7 @@
 </head>
 <body>
   <!-- Tek dosya girişi: hem başlangıç alanı hem "Değiştir" düğmesi bunu kullanır -->
-  <input type="file" id="file-input" class="visually-hidden" accept=".step,.stp,.STEP,.STP" tabindex="-1">
+  <input type="file" id="file-input" class="visually-hidden" accept=".step,.stp,.STEP,.STP,.json,.ikra" tabindex="-1">
 
   <header class="topbar">
     <div class="brand">
@@ -31,12 +31,20 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">V1.9 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">V1.10 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez; tüm hesap bu tarayıcıda yapılır">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
       Dosyan tarayıcında kalır
     </span>
+    <button type="button" class="btn small toolbox-btn" id="open-btn" title="Proje ya da STEP aç (Ctrl+O)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v2"/><path d="M3 7v11a1 1 0 0 0 1 1h14.5a1 1 0 0 0 1-.8L21 11H6.5a1 1 0 0 0-1 .8L3 19"/></svg>
+      <span class="label">Aç</span>
+    </button>
+    <button type="button" class="btn small toolbox-btn" id="save-btn" title="Projeyi kaydet (Ctrl+S)" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></svg>
+      <span class="label">Kaydet</span>
+    </button>
     <button type="button" class="btn small toolbox-btn" id="toolbox-btn" title="Toolbox: standart bağlantı elemanları (T)">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M8 9V6a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v3"/><path d="M3 13h18M10 13v2h4v-2"/></svg>
       <span class="label">Toolbox</span>
@@ -55,7 +63,7 @@
         <label class="dropzone" id="dropzone" for="file-input">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
           <span class="dz-main">STEP dosyasını bırak ya da seç</span>
-          <span class="dz-sub">.step / .stp · KiCad, Altium, SolidWorks çıktısı</span>
+          <span class="dz-sub">.step / .stp · KiCad, Altium, SolidWorks çıktısı · ya da .ikra.json proje</span>
         </label>
         <button class="btn block" type="button" data-action="sample">Örnek kartla dene</button>
         <ol class="howto">
@@ -71,6 +79,7 @@
           <svg class="file-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 14l2 2 4-4"/></svg>
           <div class="file-text">
             <span class="file-name" id="file-name"></span>
+            <span class="file-project" id="project-name" title="Proje adı"></span>
             <span class="file-meta" id="file-meta"></span>
           </div>
           <label class="btn small" for="file-input">Değiştir</label>
@@ -350,6 +359,29 @@
     </div>
   </dialog>
 
+  <dialog class="save-dialog" id="save-dialog" aria-label="Projeyi kaydet">
+    <form method="dialog" class="save-form">
+      <div class="dd-head">
+        <strong>Projeyi kaydet</strong>
+        <span class="topbar-spacer"></span>
+      </div>
+      <div class="save-body">
+        <label class="save-field"><span>Proje adı</span><input type="text" id="save-name" autocomplete="off" spellcheck="false"></label>
+        <label class="save-check"><input type="checkbox" id="save-embed" checked>
+          <span><b>Kartın STEP dosyasını projeye ekle</b> (<span id="save-step-size"></span>)<br>
+          <span class="muted small">Tek dosyada taşınır ve doğrudan açılır. Dosyayı paylaşırsan kartın 3B modeli de paylaşılmış olur;
+          işaretlemezsen açarken aynı STEP'i ayrıca yüklemen gerekir.</span></span></label>
+        <p class="muted small">Kaydedilenler: süreç ve malzeme, parametreler, bağlantı (vida, burç, köşe vidaları), delik ve port seçimleri,
+          IP seviyesi, panel elemanları, geçme sınıfları ve bu malzeme için tolerans düzeltmeleri. Dosya <code>.ikra.json</code>
+          olarak bilgisayarına iner; hiçbir sunucuya gönderilmez.</p>
+      </div>
+      <div class="save-actions">
+        <button type="button" class="btn" id="save-cancel">Vazgeç</button>
+        <button type="submit" class="btn primary" id="save-ok">Kaydet</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog class="help-dialog" id="help-dialog" aria-label="Kısayollar ve yardım">
     <div class="dd-head">
       <strong>Kısayollar ve gezinme</strong>
@@ -368,6 +400,8 @@
         <tr><td><kbd>1</kbd>…<kbd>6</kbd></td><td>Ön, arka, sol, sağ, üst, alt</td></tr>
         <tr><td><kbd>G</kbd></td><td>Kılavuzları aç/kapat</td></tr>
         <tr><td><kbd>T</kbd></td><td>Toolbox: vida tipi, boyut ve boy seç</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>Projeyi kaydet (.ikra.json)</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>O</kbd></td><td>Proje ya da STEP aç</td></tr>
       </table>
       <h3 class="sub-title">V1 kapsamı</h3>
       <ol class="steps">
@@ -385,6 +419,7 @@
         <li class="step done"><span class="num">12</span>Panel elemanları: SMA, rakor, basınç dengeleme, ışık borusu, ayak<span class="tag">V1.7</span></li>
         <li class="step done"><span class="num">13</span>M5–M6, montaj STEP'i ve paftası, BOM CSV, tercihli parçalar, arama<span class="tag">V1.8</span></li>
         <li class="step done"><span class="num">14</span>Malzeme kütüphanesi: 8 filament, 15 CNC malzemesi; sıkı/normal/bol geçme<span class="tag">V1.9</span></li>
+        <li class="step done"><span class="num">15</span>Proje kaydet / aç (.ikra.json, STEP gömülü ya da ayrı)<span class="tag">V1.10</span></li>
       </ol>
     </div>
   </dialog>

@@ -6,7 +6,7 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.15.0 (V1.9)';
+const APP_VERSION = '0.16.0 (V1.10)';
 const SAMPLE_URL = 'samples/ornek-kart.step';
 const LARGE_FILE_MB = 50;
 
@@ -127,9 +127,11 @@ function getWorker() {
   return worker;
 }
 
-function loadBuffer(buffer, fileName, sizeBytes) {
+function loadBuffer(buffer, fileName, sizeBytes, project = null) {
   const id = ++requestSeq;
-  pending = { id, fileName, sizeBytes, t0: performance.now() };
+  // İşçiye aktarılan tampon boşalır: projeye gömmek ve kimlik (SHA-256) için kopya tutulur
+  const bytes = buffer.slice(0);
+  pending = { id, fileName, sizeBytes, t0: performance.now(), bytes, project };
   setControlsBusy(true);
   setStatus(STAGE_TEXT.engine);
   getWorker().postMessage({ id, buffer }, [buffer]);
@@ -165,7 +167,11 @@ function finishLoad(msg) {
       sizeBytes: job.sizeBytes,
       seconds: (performance.now() - job.t0) / 1000,
       analysis,
+      bytes: job.bytes,
+      sha256: null,
     };
+    const loaded = current;
+    const hashReady = sha256Hex(job.bytes).then((h) => { loaded.sha256 = h; return h; }).catch(() => null);
     $('#empty-hint').classList.add('hidden');
     $('#start-panel').classList.add('hidden');
     $('#work').classList.remove('hidden');
@@ -174,10 +180,26 @@ function finishLoad(msg) {
     renderParts(current);
     selectTab('analysis');
     setStatus(null);
-    designUI.setAnalysis(current).catch((err) => {
-      console.error(err);
-      setStatus('Tasarım paneli açılamadı: ' + err.message, { error: true });
-    });
+    designUI.setAnalysis(current)
+      .then(async () => {
+        $('#save-btn').disabled = false;
+        // Proje dosyasıyla açıldıysa ya da bekleyen bir proje bu kartı bekliyorsa ayarları uygula
+        const proj = job.project || pendingProject;
+        if (!proj) { $('#project-name').textContent = ''; return; }
+        pendingProject = null;
+        const h = await hashReady;
+        const mismatch = proj.step?.sha256 && h && proj.step.sha256 !== h;
+        const warnings = await designUI.importState(proj.design);
+        if (mismatch) warnings.unshift(`Yüklenen STEP projedekinden farklı (${proj.step.fileName}); delik ve port seçimleri uyuşmayabilir.`);
+        $('#project-name').textContent = proj.name || '';
+        selectTab('design');
+        setStatus(`Proje açıldı: ${proj.name || job.fileName}${warnings.length ? ' — ' + warnings.join(' ') : ''}`, { error: warnings.length > 0 });
+        if (!warnings.length) setTimeout(() => setStatus(null), 2600);
+      })
+      .catch((err) => {
+        console.error(err);
+        setStatus('Tasarım paneli açılamadı: ' + err.message, { error: true });
+      });
   } catch (err) {
     console.error(err);
     showError('Model analiz edilemedi: ' + err.message);
@@ -190,8 +212,9 @@ function finishLoad(msg) {
 
 function handleFile(file) {
   if (!file) return;
+  if (/\.(json|ikra)$/i.test(file.name)) { openProject(file); return; }
   if (!/\.(step|stp)$/i.test(file.name)) {
-    showError(`"${file.name}" bir STEP dosyası değil. Lütfen .step veya .stp uzantılı dosya seç.`);
+    showError(`"${file.name}" bir STEP ya da Ikra proje dosyası değil. Lütfen .step / .stp ya da .ikra.json dosyası seç.`);
     return;
   }
   file.arrayBuffer()
@@ -242,6 +265,112 @@ window.addEventListener('drop', (e) => {
   overlay.classList.add('hidden');
   dropzone.classList.remove('drag');
   handleFile(e.dataTransfer.files[0]);
+});
+
+/* ---------- Proje kaydet / aç (.ikra.json) ---------- */
+
+const PROJECT_FORMAT = 'ikra-project';
+let pendingProject = null; // STEP'i gömülü olmayan, kartı bekleyen proje
+
+async function sha256Hex(buf) {
+  const d = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+function bufToBase64(buf) {
+  const u8 = new Uint8Array(buf);
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function base64ToBuf(b64) {
+  const s = atob(b64);
+  const u8 = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
+  return u8.buffer;
+}
+const stemOf = (name) => String(name || 'ikra').replace(/\.(step|stp)$/i, '');
+
+const saveDialog = $('#save-dialog');
+function openSaveDialog() {
+  if (!current || !designUI.hasDesign()) { setStatus('Önce bir kart yükle.', { error: true }); return; }
+  $('#save-name').value = $('#project-name').textContent || stemOf(current.fileName);
+  $('#save-step-size').textContent = `${(current.sizeBytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
+  saveDialog.showModal();
+}
+
+async function saveProject() {
+  const name = ($('#save-name').value || '').trim() || stemOf(current.fileName);
+  const embed = $('#save-embed').checked;
+  const design = designUI.exportState();
+  if (!design) return;
+  const hash = current.sha256 || (current.bytes ? await sha256Hex(current.bytes) : null);
+  const project = {
+    format: PROJECT_FORMAT,
+    version: 1,
+    app: APP_VERSION,
+    name,
+    saved: new Date().toISOString(),
+    step: { fileName: current.fileName, size: current.sizeBytes, sha256: hash, ...(embed && current.bytes ? { data: bufToBase64(current.bytes) } : {}) },
+    design,
+  };
+  const blob = new Blob([JSON.stringify(project, null, embed ? 0 : 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${name.replace(/[\\/:*?"<>|]+/g, '_')}.ikra.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  $('#project-name').textContent = name;
+  saveDialog.close();
+  setStatus(`Proje kaydedildi: ${a.download}${embed ? ' (STEP içinde)' : ' (STEP ayrı tutulmalı)'}`);
+  setTimeout(() => setStatus(null), 2600);
+}
+
+async function openProject(file) {
+  let proj;
+  try {
+    proj = JSON.parse(await file.text());
+  } catch {
+    showError(`"${file.name}" okunamadı: geçerli bir proje dosyası değil.`);
+    return;
+  }
+  if (proj?.format !== PROJECT_FORMAT || !proj.design) {
+    showError(`"${file.name}" bir Ikra proje dosyası değil.`);
+    return;
+  }
+  if (proj.step?.data) {
+    try {
+      const buf = base64ToBuf(proj.step.data);
+      loadBuffer(buf, proj.step.fileName || `${proj.name || 'proje'}.step`, buf.byteLength, proj);
+    } catch {
+      showError('Projedeki STEP verisi bozuk.');
+    }
+    return;
+  }
+  // STEP gömülü değil: yüklü kart aynıysa hemen uygula, değilse kartı bekle
+  if (current && proj.step?.sha256 && current.sha256 === proj.step.sha256) {
+    const warnings = await designUI.importState(proj.design);
+    $('#project-name').textContent = proj.name || '';
+    selectTab('design');
+    setStatus(`Proje açıldı: ${proj.name}${warnings.length ? ' — ' + warnings.join(' ') : ''}`, { error: warnings.length > 0 });
+    if (!warnings.length) setTimeout(() => setStatus(null), 2600);
+    return;
+  }
+  pendingProject = proj;
+  setStatus(`Proje "${proj.name || file.name}" hazır: kartın STEP dosyasını (${proj.step?.fileName || 'aynı kart'}) yükle, ayarlar otomatik uygulanır.`);
+}
+
+$('#save-btn').addEventListener('click', openSaveDialog);
+$('#open-btn').addEventListener('click', () => $('#file-input').click());
+$('#save-cancel').addEventListener('click', () => saveDialog.close());
+$('#save-ok').addEventListener('click', (e) => { e.preventDefault(); saveProject().catch((err) => setStatus('Proje kaydedilemedi: ' + err.message, { error: true })); });
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 's') { e.preventDefault(); if (!document.querySelector('dialog[open]')) openSaveDialog(); }
+  if (k === 'o') { e.preventDefault(); $('#file-input').click(); }
 });
 
 /* ---------- Görünüm araç çubuğu ---------- */

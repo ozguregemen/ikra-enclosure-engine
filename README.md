@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.9 (M0–M4 + Toolbox + malzeme kütüphanesi)
+## Şu anki durum: V1.10 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -164,6 +164,13 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   somun cebi, gömme baş oyuğu, ışık borusu (sıkı), panel kesimleri; vidasız kapakta sıkı geçme önerisi; teknik resim notları
 - Değerler başlangıç değeridir: FDM'de yazıcı, nozul ve dilimleyici ayarına göre değişir; ilk parçada ölçüp düzeltin
 
+**Proje dosyası (V1.10)**
+- Üst çubukta **Kaydet** (Ctrl+S) / **Aç** (Ctrl+O); proje `.ikra.json` olarak indirilir, sürükle-bırak ile de açılır
+- Kaydedilenler: süreç ve malzeme, parametreler, vida/burç/köşe vidası seçimleri, delik ve port seçimleri, IP seviyesi,
+  panel elemanları, geçme sınıfları ve o malzeme için tolerans düzeltmeleri
+- Kartın STEP'i isteğe bağlı olarak projeye gömülür (tek dosyada taşınır); gömülmezse proje açılınca aynı STEP istenir.
+  Kart kimliği SHA-256 ile kontrol edilir, farklı STEP yüklenirse uyarılır. Açılan proje hatasızsa muhafaza hemen oluşturulur
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -171,7 +178,7 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Gerçekçi bağlantı elemanları (yalnızca görsel): vidalarda helisel ISO dişi (metrikte pahlı, sac vidasında sivri uç),
   başa oyulmuş yıldız/yarık/imbus/torx izi, imbus başta tırtıl; pirinç insertte ters yönlü tırtıl bantları ve iç diş,
   Helicoil'de helisel tel; metal yüzeyler ortam yansımalı (PBR)
-- Kısayollar: `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt, `G` kılavuzlar, `T` Toolbox (yardım: üst çubuktaki `?`)
+- Kısayollar: `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt, `G` kılavuzlar, `T` Toolbox, `Ctrl+S` projeyi kaydet, `Ctrl+O` aç (yardım: üst çubuktaki `?`)
 
 ## Kural dosyaları
 
@@ -205,7 +212,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.6 | Köşe kapak vidaları, ayrı vida grupları, gömme baş, tornavida erişimi |
 | V1.7 | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 | V1.8 | M5–M6, montaj STEP'i, montaj paftası (balon + parça listesi), BOM CSV, tercihli parça listesi, Toolbox araması |
-| **V1.9** | Malzeme kütüphanesi (8 FDM filamenti, 15 CNC malzemesi), malzemeye özel tolerans ve sıkı/normal/bol geçme, ISO 273 delik serileri |
+| V1.9 | Malzeme kütüphanesi (8 FDM filamenti, 15 CNC malzemesi), malzemeye özel tolerans ve sıkı/normal/bol geçme, ISO 273 delik serileri |
+| **V1.10** | Proje kaydet / aç (.ikra.json): tüm tasarım ayarları, STEP isteğe bağlı gömülü, kart kimliği (SHA-256) kontrolü |
 | **V1.7** | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 
 ## Yerelde çalıştırma

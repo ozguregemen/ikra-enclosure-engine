@@ -1211,5 +1211,78 @@ export function createDesignUI({ viewer, setStatus }) {
     };
   }
 
-  return { setAnalysis, reportSection };
+  /* ---------- Proje kaydet / aç ---------- */
+
+  /** Tasarım ayarlarının tamamı (STEP hariç): proje dosyasına yazılır */
+  function exportState() {
+    if (!state.rules || !state.params) return null;
+    return {
+      process: state.process,
+      material: state.material,
+      rulesId: state.rules.id,
+      params: { ...state.params },
+      lidMode: state.lidMode,
+      cornerAxis: state.cornerAxis,
+      cornerSpec: state.cornerSpec,
+      selectedHoles: [...state.selectedHoles],
+      portOverrides: [...state.portOverrides.entries()],
+      sealing: state.sealing,
+      screwSpec: state.screwSpec,
+      insertSpec: state.insertSpec,
+      panelParts: state.panelParts,
+      fits: state.fits,
+      toleranceOverride: state.tolOverrides[state.rules.id] || null,
+    };
+  }
+
+  /**
+   * Proje ayarlarını uygula (STEP analizi yüklendikten sonra). Bilinmeyen malzeme/süreç atlanır ve uyarı döner.
+   * Dönüş: uyarı metinleri listesi
+   */
+  async function importState(s) {
+    const warnings = [];
+    if (!s || !state.analysis) return ['Proje ayarları uygulanamadı: önce kart yüklenmeli.'];
+    await loadIndex();
+    const proc = state.index.processes.find((p) => p.id === s.process);
+    if (proc) {
+      state.process = proc.id;
+      if (proc.materials.some((m) => m.id === s.material)) state.material = s.material;
+      else { state.material = proc.materials[0].id; warnings.push(`"${s.material}" malzemesi bu sürümde yok; ${proc.materials[0].label} seçildi.`); }
+    } else if (s.process) warnings.push(`"${s.process}" süreci bu sürümde yok.`);
+    await loadRules();
+    const holes = (state.analysis.holes || []).map((h, i) => (h.mount ? i : -1)).filter((i) => i >= 0);
+    state.selectedHoles = new Set((s.selectedHoles || []).filter((i) => holes.includes(i)));
+    if ((s.selectedHoles || []).length !== state.selectedHoles.size) warnings.push('Bazı montaj delikleri bu kartta bulunamadı.');
+    state.lidMode = LID_MODES.some((m) => m.id === s.lidMode) ? s.lidMode : 'screw';
+    state.cornerAxis = ['auto', 'x', 'y'].includes(s.cornerAxis) ? s.cornerAxis : 'auto';
+    state.cornerSpec = s.cornerSpec ? normalizeSpec(s.cornerSpec) : null;
+    state.portOverrides = new Map(Array.isArray(s.portOverrides) ? s.portOverrides : []);
+    state.sealing = (state.sealingIndex?.levels || []).some((l) => l.id === s.sealing) ? s.sealing : 'none';
+    if (s.screwSpec) state.screwSpec = normalizeSpec(s.screwSpec) || state.screwSpec;
+    if (s.insertSpec) state.insertSpec = { ...state.insertSpec, ...s.insertSpec };
+    const ptypes = panelTypes();
+    state.panelParts = (s.panelParts || []).filter((p) => ptypes.some((t) => t.id === p.type));
+    if ((s.panelParts || []).length !== state.panelParts.length) warnings.push('Bazı panel elemanı tipleri bu sürümde yok; atlandı.');
+    state.fits = { lid: 'normal', screw: 'normal', ...(s.fits || {}) };
+    if (s.toleranceOverride && Object.keys(s.toleranceOverride).length) {
+      state.tolOverrides = { ...state.tolOverrides, [state.rules.id]: { ...s.toleranceOverride } };
+      saveTolOverrides(state.tolOverrides);
+    }
+    // Parametreler: projedeki değerler aynen (eksik alan kural varsayılanından)
+    const def = currentDefaults();
+    state.params = { ...def };
+    for (const fld of PARAM_FIELDS) if (Number.isFinite(s.params?.[fld.key])) state.params[fld.key] = s.params[fld.key];
+    state.sheets = null;
+    renderSelectors();
+    renderParams();
+    renderFastening();
+    update();
+    // Proje açılınca muhafaza da hemen oluşturulsun
+    if (state.design?.ok) generate();
+    return warnings;
+  }
+
+  const hasDesign = () => !!(state.rules && state.params && state.analysis);
+
+  return { setAnalysis, reportSection, exportState, importState, hasDesign };
 }
