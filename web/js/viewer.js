@@ -251,14 +251,15 @@ export class Viewer {
   }
 
   /**
-   * meshes: { base: {position, normal, index}, lid: {...} } — cad-worker çıktısı
+   * meshes: { base: {position, normal, index}, lid: {...}, clip?: {...} } — cad-worker çıktısı (clip: DIN ray klipsi)
    * screws: [{x, y, z (baş alt yüzü), d, headD, headH, length, lid}] — yalnızca görsel
    */
   setEnclosure(meshes, { explodeOffset = 20, screws = [], inserts = [], panel = [] } = {}) {
     this.clearEnclosure();
     this.enclosure = {};
-    for (const key of ['base', 'lid']) {
+    for (const key of ['base', 'lid', 'clip']) {
       const m = meshes[key];
+      if (!m) continue;
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(m.normal, 3));
@@ -368,6 +369,11 @@ export class Viewer {
     this.enclosure.base.visible = o.base;
     this.enclosure.lid.visible = o.lid;
     this.enclosure.lid.position.z = o.exploded ? this.explodeOffset : 0;
+    // DIN klipsi gövdeyle birlikte görünür; patlatılmış görünüşte aşağı ayrılır
+    if (this.enclosure.clip) {
+      this.enclosure.clip.visible = o.base;
+      this.enclosure.clip.position.z = o.exploded ? -Math.max(15, this.explodeOffset * 0.9) : 0;
+    }
     this.modelGroup.visible = o.pcb;
     const mat = this.enclosureMaterial;
     mat.transparent = o.transparent;

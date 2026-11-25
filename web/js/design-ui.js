@@ -791,6 +791,7 @@ export function createDesignUI({ viewer, setStatus }) {
     none: 'Kutu bir yere bağlanmıyor (masa üstü; gerekirse lastik ayak panel elemanlarından eklenir).',
     ears: 'Taban hizasında dışa çıkan kulaklar: kutu yüzeye düz oturur, vidalar dışarıdan sıkılır; sızdırmazlığı bozmaz.',
     floor: 'Tabandan delikler: kutu, kart takılmadan önce içeriden yüzeye vidalanır; dış görünüş temiz kalır.',
+    din: 'EN 60715 TS35 ray için ayrı basılan klips: kutunun altına içeriden 2 × M3 ile vidalanır; sabit kanca + iki esnek kilit dili, aletsiz takılır.',
   };
 
   function renderMount(d = state.design) {
@@ -800,17 +801,32 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#mount-type').innerHTML = seg(MOUNT_TYPES.map((t) => [t.id, t.label]), mt.type, 'mtype');
     $('#mount-desc').textContent = MOUNT_DESC[mt.type];
     $('#mount-opts').classList.toggle('hidden', mt.type === 'none');
-    $('#mount-ear-opts').classList.toggle('hidden', mt.type !== 'ears');
+    const din = mt.type === 'din';
+    $('#mount-ear-opts').classList.toggle('hidden', mt.type !== 'ears' && !din);
+    $('#mount-screw-opts').classList.toggle('hidden', din);
+    $('#mount-hole-opts').classList.toggle('hidden', din);
+    $('#mount-axis-title').textContent = din ? 'Ray yönü' : 'Kulak duvarı';
     $('#mount-size').innerHTML = MOUNT_SIZES.map((s) =>
       `<button type="button" class="chip" role="radio" data-msize="${s}" aria-checked="${mt.size === s}">${s}</button>`).join('');
     $('#mount-count').innerHTML = seg([[2, '2'], [4, '4']], mt.count, 'mcount');
-    $('#mount-axis').innerHTML = seg([['auto', 'Otomatik'], ['x', '±X duvarları'], ['y', '±Y duvarları']], mt.axis, 'maxis');
+    $('#mount-axis').innerHTML = seg(din ? [['auto', 'Otomatik'], ['x', 'X boyunca'], ['y', 'Y boyunca']] : [['auto', 'Otomatik'], ['x', '±X duvarları'], ['y', '±Y duvarları']], mt.axis, 'maxis');
     $('#mount-hole').innerHTML = seg([['round', 'Yuvarlak'], ['slot', 'Uzun delik (hizalama)']], mt.hole, 'mhole');
     const info = d?.mount?.info;
     const fp = d?.mount?.footprint;
     const n2 = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
-    $('#sum-mount').textContent = mt.type === 'none' ? 'yok' : `${info ? info.count : ''} × ${mt.size} ${mt.type === 'ears' ? 'kulak' : 'taban'}`;
+    $('#sum-mount').textContent = mt.type === 'none' ? 'yok' : din ? `DIN TS35${info ? ` · ray ${info.axis === 0 ? 'X' : 'Y'}` : ''}` : `${info ? info.count : ''} × ${mt.size} ${mt.type === 'ears' ? 'kulak' : 'taban'}`;
     if (!info) { $('#mount-info').innerHTML = ''; return; }
+    if (din) {
+      const sp = info.spacing.filter((v) => v > 0.05).map(n2).join('');
+      const drows = [
+        ['Klips', `${n2(info.clipL)} × ${n2(info.clipW)} mm, ray ${info.axis === 0 ? 'X' : 'Y'} yönünde`],
+        ['Bağlantı', `2 × ${info.method === 'self_tap' ? 'Ø3' : 'M3'}×${info.len} içeriden, aralık ${sp} mm; klipste ${info.method === 'insert' ? 'insert' : info.method === 'self_tap' ? 'sac vidası' : 'kılavuz'}`],
+        ['Kilit dili', `${n2(info.t)} mm, uzama ≈ %${n2(info.strain)} (izin ≈ %${n2(info.allow)})`],
+        ['Rayda yer', `${n2(info.railSpace)} mm ≈ ${info.modules} modül`],
+      ];
+      $('#mount-info').innerHTML = `<table class="tb-table">${drows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>`;
+      return;
+    }
     const rows = [
       ['Delik', `Ø${n2(info.d)}${mt.type === 'ears' && mt.hole === 'slot' ? ' (uzun)' : ''}`],
       ['Delik aralığı', info.spacing.filter((v) => v > 0.05).map(n2).join(' × ') + ' mm'],
@@ -1015,9 +1031,9 @@ export function createDesignUI({ viewer, setStatus }) {
     if (state.result) {
       const v = state.result.volumes;
       const lidDensity = state.lidSel && state.lidRules ? state.lidRules.density_g_cm3 : state.rules.density_g_cm3;
-      const grams = (v.base / 1000) * state.rules.density_g_cm3 + (v.lid / 1000) * lidDensity;
+      const grams = ((v.base + (v.clip || 0)) / 1000) * state.rules.density_g_cm3 + (v.lid / 1000) * lidDensity;
       mass = `${nf0.format(grams)} <span class="unit">g</span>`;
-      massSub = `gövde ${nf1.format(v.base / 1000)} + kapak ${nf1.format(v.lid / 1000)} cm³ · ${state.rules.label}${state.lidSel && state.lidRules ? ` / ${state.lidRules.label}` : ''}`;
+      massSub = `gövde ${nf1.format(v.base / 1000)} + kapak ${nf1.format(v.lid / 1000)}${v.clip ? ` + klips ${nf1.format(v.clip / 1000)}` : ''} cm³ · ${state.rules.label}${state.lidSel && state.lidRules ? ` / ${state.lidRules.label}` : ''}`;
     }
     $('#design-stats').innerHTML =
       stat('Dış ölçü (U × G × Y)', dims(d.outer.L, d.outer.W, d.outer.H), `${state.rules.label} · ${processLabel()}${d.mount?.footprint ? ` · kulaklarla ${f2(d.mount.footprint.L)} × ${f2(d.mount.footprint.W)}` : ''}`, 'wide accent') +
@@ -1068,7 +1084,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.pendingDesign = d;
     setBusy(true);
     const stem = state.fileName.replace(/\.(step|stp)$/i, '') || 'ikra';
-    getWorker().postMessage({ id, geometry: d.geometry, names: { base: `${stem}_govde`, lid: `${stem}_kapak` } });
+    getWorker().postMessage({ id, geometry: d.geometry, names: { base: `${stem}_govde`, lid: `${stem}_kapak`, clip: `${stem}_din_klipsi` } });
   }
 
   function onWorkerMessage(ev) {
@@ -1103,6 +1119,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.firstBuild = false;
     $('#enc-toggles').classList.remove('hidden');
     $('#downloads').classList.remove('hidden');
+    $('#dl-stl-clip').classList.toggle('hidden', !msg.files.stlClip);
     $('#output-empty').classList.add('hidden');
     document.dispatchEvent(new CustomEvent('ikra:built', { detail: { first } }));
     $('#generate-hint').textContent = `${nf0.format(msg.buildMs)} ms'de üretildi · parametre değişince kendiliğinden güncellenir`;
@@ -1127,6 +1144,9 @@ export function createDesignUI({ viewer, setStatus }) {
   $('#dl-stl-lid').addEventListener('click', () => {
     if (state.result) download(state.result.files.stlLid, `${fileStem()}_kapak.stl`, 'model/stl');
   });
+  $('#dl-stl-clip').addEventListener('click', () => {
+    if (state.result?.files.stlClip) download(state.result.files.stlClip, `${fileStem()}_din_klipsi.stl`, 'model/stl');
+  });
 
   /* ---------- Malzeme listesi (CSV) ve tercihli parça listesi ---------- */
 
@@ -1138,6 +1158,7 @@ export function createDesignUI({ viewer, setStatus }) {
       bodies: [
         { name: `Gövde (${fileStem()}_govde)`, material: state.rules?.label || '', spec: proc?.label || '' },
         { name: `Kapak (${fileStem()}_kapak)`, material: (state.lidSel && state.lidRules ? state.lidRules.label : state.rules?.label) || '', spec: (state.lidSel ? state.index?.processes.find((p) => p.id === state.lidSel.process)?.label : proc?.label) || '' },
+        ...(state.design?.geometry?.din ? [{ name: `DIN ray klipsi EN 60715 TS35 (${fileStem()}_din_klipsi)`, material: state.rules?.label || '', spec: proc?.label || '' }] : []),
       ],
     };
   };
@@ -1220,7 +1241,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const stem = fileStem();
     getWorker().postMessage({
       type: 'assemblyStep', id: state.asmId, items: assemblyItems(state.result.design, state.analysis.board.top),
-      names: { base: `${stem}_govde`, lid: `${stem}_kapak` },
+      names: { base: `${stem}_govde`, lid: `${stem}_kapak`, clip: `${stem}_din_klipsi` },
     });
   }
   function onAssemblyStep(msg) {

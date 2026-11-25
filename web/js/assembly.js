@@ -40,7 +40,7 @@ function screwPrims(s, z, down = true) {
 
 /**
  * d: computeDesign() sonucu, boardTop: PCB üst yüzü
- * Dönüş: [{ name, part: 'base'|'lid', color, prims }]
+ * Dönüş: [{ name, part: 'base'|'lid'|'clip', color, prims }]  (clip: DIN ray klipsiyle birlikte hareket eder)
  */
 export function assemblyItems(d, boardTop) {
   const items = [];
@@ -57,6 +57,19 @@ export function assemblyItems(d, boardTop) {
       items.push({ name: `${w.code} ${w.size} #${n}`, part, color: finishColor(w.material?.finish),
         prims: [{ k: 'cyl', p: [s.x, s.y, seat - (s.seat || w.s)], dir: UP, h: w.s, r: w.d2 / 2, rIn: w.d1 / 2 }] });
     }
+  }
+  // DIN ray klipsi vidaları (içeriden, tabana oturur) ve klipsteki insertler (klipsle birlikte)
+  const dn = d.geometry.din;
+  if (dn) {
+    const ft = d.z?.floorTop ?? d.geometry.z0 + d.geometry.floor;
+    (d.geometry.mountHoles || []).forEach((h, i) => {
+      items.push({ name: `${dn.method === "self_tap" ? "Vida 3" : "ISO 7045 M3"}x${fmt(dn.len)} DIN #${i + 1}`, part: 'base', color: COLOR.steel,
+        prims: screwPrims({ x: h.x, y: h.y, d: 3, length: dn.len, head_d: 5.6, head_h: 2.4 }, ft, true) });
+      if (dn.method === 'insert') {
+        items.push({ name: `Insert M3 DIN #${i + 1}`, part: 'clip', color: COLOR.brass,
+          prims: [{ k: 'cyl', p: [h.x, h.y, dn.z0 - dn.insertL], dir: UP, h: dn.insertL, r: dn.holeD / 2 + 0.25, rIn: 1.5 }] });
+      }
+    });
   }
   let m = 0;
   const holders = [...(d.standoffs || []), ...(d.cornerBosses || [])];

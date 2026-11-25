@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.13 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj + kapak malzemesi + kart kenarı tutucu)
+## Şu anki durum: V1.14 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj + kapak malzemesi + kart kenarı tutucu + DIN ray klipsi)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -180,6 +180,21 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Kontroller: kulak üstündeki fiş/panel elemanı, ayakla birlikte kullanım, tabandan çıkan vida başı, CNC stok boyu
 - Teknik resimde M# delik satırları, delik aralığı notu ve kulaklı taban izi ölçüsü; malzeme listesinde montaj satırı
 
+**DIN ray klipsi (V1.14)** — Tasarım › Montaj › DIN ray (TS35)
+- EN 60715 TS35×7,5 ray için ayrı parça klips (45 mm ray boyunca): +v tarafında boydan boya sabit kanca, −v tarafında
+  plaka düzleminde esneyen iki kilit dili ve rampalı dudak (flanşın 1 mm altına biner, kancalar flanş kenarından 0,2 mm
+  boşluklu). Takma: sabit kancayı flanşa geçirip kutuyu bastır; sökme: tornavidayı plaka ucundan dil yarığına sokup çevir
+- Ray yönü otomatik (kısa kenar raya paralel, kutu klipsten kısaysa uzun kenar) ya da X / Y
+- Kutuya içeriden 2 × M3 (aralık 30 mm, standoff ve boss'lardan uzak konur): FDM'de klipste ısıyla gömülen insert,
+  CNC'de kılavuz, kalıpta diş açan vida; delikler ray kanalına inen boss'larda. Vida boyu taban + diş boyuna göre
+  standart seriden; vida başı PCB altına sığmazsa PCB altı yükseklik artar
+- Kilit dili genişliği malzemenin yaklaşık izin verilen geçme uzamasına göre (ε ≈ 1,5·t·δ/L², 1,6–2,5 mm); aşılırsa
+  uyarı, alüminyumda ticari yaylı klips önerisi; düşük HDT'li malzemede pano sıcaklığı uyarısı. İzin değerleri başlangıç
+  değeridir (test baskısıyla doğrulayın)
+- Klips STL'si ayrı indirilir (üst yüzü tablaya, kancalar yukarı, desteksiz), STEP'te ve montaj STEP'inde ayrı gövde;
+  3B görünümde ve montaj paftasında patlatılmış olarak altta; kütle ve BOM'da (klips, vidalar, insertler) yer alır
+- Kontroller: IP'de sızdırmazlık pulu, ayakla birlikte kullanım, tabandan çıkan vida başı, rayda kapladığı yer (18 mm modül)
+
 **Kapak malzemesi ve örnek kartlar (V1.12)**
 - Üretim kartında "Kapak malzemesi: Gövdeyle aynı / Farklı malzeme": kapak ayrı süreç ve malzemeden seçilebilir
   (ör. CNC alüminyum gövde + akrilik kapak, FDM gövde + CNC PMMA kapak). Kapak kalınlığı en az kapak malzemesinin et
@@ -247,8 +262,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.10 | Proje kaydet / aç (.ikra.json): tüm tasarım ayarları, STEP isteğe bağlı gömülü, kart kimliği (SHA-256) kontrolü |
 | V1.11 | Montaj: taban hizasında montaj kulakları (2/4, yuvarlak ya da uzun delik, M3–M6) ya da tabandan içten vidalı delikler |
 | V1.12 | Kapak için ayrı süreç/malzeme (ısıl genleşme farkı dahil), örnek kartlar: Arduino UNO R3, Raspberry Pi 4 B, ESP32-DevKitC, STM32 Nucleo-64 |
-| **V1.13** | Kart kenarı tutucu (alt destek + kapak baskısı), taşan anten/parçaları kutunun içine alma |
-| **V1.7** | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
+| V1.13 | Kart kenarı tutucu (alt destek + kapak baskısı), taşan anten/parçaları kutunun içine alma |
+| **V1.14** | DIN ray klipsi (EN 60715 TS35): ayrı parça, esnek kilit dili, kutuya içeriden 2 × M3 |
 
 ## Yerelde çalıştırma
 
@@ -294,7 +309,7 @@ web/                  Yayınlanan statik site
   js/assembly.js      Montaj: bağlantı/panel elemanlarının basit katı tanımları (montaj STEP ve paftası)
   js/bom.js           BOM CSV ve tercihli parça (stok kodu) listesi
   js/fits.js          Tolerans ve geçme modeli (malzeme + sıkı/normal/bol, ISO 273, FDM delik telafisi)
-  js/mount.js         Montaj: taban hizasında kulaklar ve tabandan içten vidalı delikler (saf fonksiyonlar)
+  js/mount.js         Montaj: taban hizasında kulaklar, tabandan içten vidalı delikler, DIN ray klipsi (saf fonksiyonlar)
   js/edgehold.js      Kart kenarı tutucu: alt destek ve kapak baskısı yerleşimi (saf fonksiyonlar)
   rules/              Süreç × malzeme kural dosyaları
   rules/toolbox/      Toolbox kütüphaneleri (ISO vidalar/pullar/somunlar, dişli burçlar/aralayıcılar, panel elemanları)

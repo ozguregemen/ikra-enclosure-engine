@@ -339,7 +339,7 @@ function baseSheet(ctx) {
     const [px, py] = pt.toPaper([mh.x, mh.y, 0]);
     centerMark(out, px, py, (mh.d / 2) * s);
     balloon(out, px, py, px + (px < (pt.x0 + pt.x1) / 2 ? -6 : 6), py + 6, `M${i + 1}`);
-    holeRows.push([`M${i + 1}`, d2(mh.x - datum[0]), d2(mh.y - datum[1]), `Ø${d2(mh.d)}${mh.slot ? `×${d1(mh.d + mh.slot)}` : ''}`, 'boydan', mh.kind === 'ear' ? 'montaj kulağı' : 'taban montajı']);
+    holeRows.push([`M${i + 1}`, d2(mh.x - datum[0]), d2(mh.y - datum[1]), `Ø${d2(mh.d)}${mh.slot ? `×${d1(mh.d + mh.slot)}` : ''}`, 'boydan', mh.kind === 'ear' ? 'montaj kulağı' : mh.kind === 'din' ? 'DIN klipsi (M3)' : 'taban montajı']);
   });
 
   // Port açıklıkları — ilgili görünüşte balon
@@ -399,6 +399,10 @@ function baseSheet(ctx) {
   ];
   if (d.edgeHold?.active && d.edgeHold.pads) n.push(`Kart kenarı tutucu: ${d.edgeHold.pads} alt destek kartı kenarından ${d1(d.edgeHold.info?.overlap ?? 2)} mm içeri taşır; kapakta ${d.edgeHold.pressers} baskı dili kartı üstten sıkıştırır.`);
   if (d.mount?.info) n.push(`Montaj delikleri (M): ${d.mount.holes.length} × Ø${d2(d.mount.info.d)}, aralık ${d.mount.info.spacing.filter((v) => v > 0.05).map(d1).join(' × ')} mm${d.mount.footprint ? `; kulaklarla taban izi ${d1(d.mount.footprint.L)} × ${d1(d.mount.footprint.W)} mm` : ''}.`);
+  if (d.mount?.din && d.mount.info) {
+    const mi = d.mount.info;
+    n.push(`DIN ray klipsi (EN 60715 TS35, ayrı parça ${d1(mi.clipL)} × ${d1(mi.clipW)} mm, ray ${mi.axis === 0 ? 'X' : 'Y'} yönünde): kutuya içeriden 2 × M3×${mi.len}; esnek kilit dilleri ${mi.latchSide} tarafında. Klips STL/STEP ayrı indirilir.`);
+  }
   if (panelRows.length) n.push('Panel delikleri (E): merkez konumu duvar boyunca sıfır noktasından, Z gövde altından; D-deliklerde düzlük üstte. Lamba, parçanın panel kalınlığı sınırı için yerel et inceltmedir.');
   if (d.sealing) {
     const sg = d.sealing.groove;
@@ -501,7 +505,7 @@ function lidSheet(ctx) {
 
 /**
  * Montaj paftası: patlatılmış izometrik görünüş, balonlar ve parça listesi.
- * Poz numaraları BOM CSV ile aynıdır: 1 gövde, 2 kapak, sonra bağlantı ve panel elemanları.
+ * Poz numaraları BOM CSV ile aynıdır: 1 gövde, 2 kapak, (varsa) DIN klipsi, sonra bağlantı ve panel elemanları.
  */
 function assemblySheet(ctx) {
   const { views, design: d } = ctx;
@@ -523,11 +527,13 @@ function assemblySheet(ctx) {
   const rows = [
     { name: 'Gövde', qty: 1, std: '', material: ctx.info.material, at: [cx, cy - g.outer.W / 2, g.z0 + (g.cavTop - g.z0) * 0.45], lid: false },
     { name: 'Kapak', qty: 1, std: '', material: ctx.info.material, at: [cx + g.outer.L * 0.3, cy, g.zTop], lid: true },
+    ...(g.din ? [{ name: 'DIN ray klipsi', qty: 1, std: 'EN 60715 TS35', material: ctx.info.material, at: [cx, cy, g.z0 - g.din.tp - 2], clip: true }] : []),
     ...(d.parts || []).map((p) => ({
       name: p.name, qty: p.qty, std: [p.standard, p.size + (p.length ? '×' + d1(p.length) : '')].filter(Boolean).join(' '),
-      material: p.material, at: p.at, lid: p.part === 'lid', part: p,
+      material: p.material, at: p.at, lid: p.part === 'lid', clip: p.part === 'clip', part: p,
     })),
   ];
+  const clipDrop = Math.max(15, e * 0.9); // cad-worker explodedAssembly ile aynı
 
   // Balon yerleşimi: noktadan görünüş merkezinden dışa doğru, görünüş kutusunun 8 mm dışındaki dikdörtgen üzerine;
   // çakışan balonlar dikdörtgen çevresi boyunca kaydırılır
@@ -551,7 +557,7 @@ function assemblySheet(ctx) {
   const marks = [];
   rows.forEach((r, i) => {
     if (!r.at) return;
-    const [px, py] = pv.toPaper([r.at[0], r.at[1], r.at[2] + (r.lid ? e : 0)]);
+    const [px, py] = pv.toPaper([r.at[0], r.at[1], r.at[2] + (r.lid ? e : r.clip ? -clipDrop : 0)]);
     let dx = px - mx, dy = py - my;
     if (Math.hypot(dx, dy) < 1e-6) dx = 1;
     const k = 1 / Math.max(Math.abs(dx) / (bw / 2), Math.abs(dy) / (bh / 2));

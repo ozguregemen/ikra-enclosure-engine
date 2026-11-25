@@ -1310,6 +1310,13 @@ export function computeDesign(analysis, rules, params, options = {}) {
     hasFeet: panel.items.some((it) => it.kind === 'foot'), p, below, seal,
   });
   bom.push(...mount.bom);
+  if (mount.din) {
+    const dn = mount.din;
+    const where = 'DIN klipsi – kutu tabanı';
+    const at = (h) => [h.x, h.y, floorTop];
+    addPart({ qty: 2, kind: 'screw', standard: dn.method === 'self_tap' ? '' : 'ISO 7045', name: dn.method === 'self_tap' ? 'Plastik için diş açan vida' : 'Yıldız başlı silindir vida', size: dn.method === 'self_tap' ? 'Ø3' : 'M3', length: dn.len, material: screwMat?.tag || '', spec: 'içeriden, + pul', where, at: at(mount.floorHoles[0]) });
+    if (dn.method === 'insert') addPart({ qty: 2, kind: 'insert', standard: '', name: 'Isıyla gömülen insert', size: 'M3', spec: `delik Ø${f(dn.holeD)}`, where: 'DIN klipsi', at: [mount.floorHoles[1].x, mount.floorHoles[1].y, z0 - 1], part: 'clip' });
+  }
 
   // --- Kart kenarı tutucu: montaj deliği yoksa (ya da istenirse) alt destek + kapak baskısı ---
   const lidItems = [];
@@ -1568,11 +1575,12 @@ export function computeDesign(analysis, rules, params, options = {}) {
       panelSpots: panel.spots,
       ears: mount.ears,
       mountHoles: mount.floorHoles,
+      din: mount.din,
       edgePads: edge.pads,
       edgePressers: edge.pressers,
     },
     panel: { items: panel.items, visuals: panel.visuals },
-    mount: { type: mount.type, info: mount.info, footprint: mount.footprint, holes: mount.holes },
+    mount: { type: mount.type, info: mount.info, footprint: mount.footprint, holes: mount.holes, din: !!mount.din },
     edgeHold: { active: edge.active, info: edge.info, pads: edge.pads.length, pressers: edge.pressers.length },
     enclosed,
     sealing: seal ? { id: seal.id, label: seal.label, cord_d: seal.cord_d, squeeze: seal.squeeze, groove, cordLength } : null,

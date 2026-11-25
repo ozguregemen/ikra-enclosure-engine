@@ -252,7 +252,28 @@ function buildEnclosure(g) {
   // Panel elemanları kapakta: rakor / basınç elemanı / özel delik, ışık borusu delikleri ve iç lamba
   for (const sp of (g.panelSpots || []).filter((x) => x.part === 'lid')) lid = lid.cut(makeCylinder(sp.r, sp.len, sp.p, up));
   for (const h of (g.panelHoles || []).filter((x) => x.part === 'lid')) lid = lid.cut(panelHoleShape(h));
-  return { base, lid };
+  return { base, lid, clip: g.din ? buildClip(g.din) : null };
+}
+
+/**
+ * DIN ray klipsi (ayrı parça). mount.js'teki yerel çerçevede kurulur: u = X (ray boyunca), v = Y, z = 0 klips üst yüzü;
+ * sonra ray Y yönündeyse Z etrafında 90° döndürülüp kutu tabanının altına taşınır.
+ */
+function buildClip(dn) {
+  // Kesit v–z düzleminde ('YZ': yerel x = Y, yerel y = Z, normal +X), ray boyunca çekilir
+  let pen = draw(dn.profile[0]);
+  for (const p of dn.profile.slice(1)) pen = pen.lineTo(p);
+  let clip = pen.close().sketchOnPlane('YZ', [-dn.L / 2, 0, 0]).extrude(dn.L);
+  // Kilit kancası yalnızca dil uçlarında; ortası alınır. Dil yarıkları plakadan boydan boya
+  const lc = dn.latchCut;
+  clip = clip.cut(makeBox([lc.u0, lc.v0, lc.z0], [lc.u1, lc.v1, lc.z1]));
+  for (const s of dn.slots) clip = clip.cut(makeBox([s.u0, s.v0, s.z0], [s.u1, s.v1, s.z1]));
+  // Vida boss'ları ray kanalına iner; üstten insert / diş deliği
+  const up = [0, 0, 1];
+  for (const b of dn.bosses) clip = clip.fuse(makeCylinder(dn.bossD / 2, -dn.tp + 0.5 - dn.bossZ, [b.u, b.v, dn.bossZ], up));
+  for (const b of dn.bosses) clip = clip.cut(makeCylinder(dn.holeD / 2, dn.depth + 0.5, [b.u, b.v, -dn.depth], up));
+  if (dn.axis === 1) clip = clip.rotate(90, [0, 0, 0], [0, 0, 1]);
+  return clip.translate([dn.center[0], dn.center[1], dn.z0]);
 }
 
 /* ---------- Montaj: bağlantı ve panel elemanlarının basit katıları (assembly.js tanımlarından) ---------- */
@@ -316,20 +337,23 @@ function buildItems(items) {
 
 /** Patlatılmış montaj (kapak ve kapak elemanları yukarı) — izdüşüm için tek bileşik */
 function explodedAssembly(items, explode) {
-  const { base, lid } = lastShapes;
+  const { base, lid, clip } = lastShapes;
   const up = [0, 0, explode];
   const list = [base.clone(), lid.clone().translate(up)];
-  for (const it of buildItems(items)) list.push(it.part === 'lid' ? it.shape.clone().translate(up) : it.shape.clone());
+  const down = [0, 0, -Math.max(15, explode * 0.9)];
+  if (clip) list.push(clip.clone().translate(down));
+  for (const it of buildItems(items)) list.push(it.part === 'lid' ? it.shape.clone().translate(up) : it.part === 'clip' ? it.shape.clone().translate(down) : it.shape.clone());
   return makeCompound(list);
 }
 
 async function makeAssemblyStep(id, items, names) {
   if (!lastShapes) throw new Error('Önce muhafaza oluşturulmalı.');
-  const { base, lid } = lastShapes;
+  const { base, lid, clip } = lastShapes;
   const parts = buildItems(items);
   const step = await exportSTEP([
     { shape: base, name: names.base, color: '#8fa7bd' },
     { shape: lid, name: names.lid, color: '#c3d0dc' },
+    ...(clip ? [{ shape: clip, name: names.clip || 'DIN_klipsi', color: '#6f8396' }] : []),
     ...parts.map((x) => ({ shape: x.shape, name: x.name, color: x.color })),
   ]).arrayBuffer();
   self.postMessage({ id, type: 'assemblyStep', step, count: parts.length }, [step]);
@@ -386,22 +410,25 @@ self.onmessage = async (ev) => {
     self.postMessage({ id, type: 'progress', stage: 'build' });
 
     const t0 = performance.now();
-    const { base, lid } = buildEnclosure(geometry);
-    lastShapes = { base, lid };
+    const { base, lid, clip } = buildEnclosure(geometry);
+    lastShapes = { base, lid, clip };
     const meshes = { base: packMesh(base), lid: packMesh(lid) };
     const volumes = { base: measureVolume(base), lid: measureVolume(lid) };
+    if (clip) { meshes.clip = packMesh(clip); volumes.clip = measureVolume(clip); }
 
     const step = await exportSTEP([
       { shape: base, name: names.base, color: '#8fa7bd' },
       { shape: lid, name: names.lid, color: '#c3d0dc' },
+      ...(clip ? [{ shape: clip, name: names.clip || 'DIN_klipsi', color: '#6f8396' }] : []),
     ]).arrayBuffer();
     const stlBase = await base.blobSTL(STL_OPTS).arrayBuffer();
     const stlLid = await lid.blobSTL(STL_OPTS).arrayBuffer();
+    const stlClip = clip ? await clip.blobSTL(STL_OPTS).arrayBuffer() : null;
     const buildMs = performance.now() - t0;
 
-    const transfer = [step, stlBase, stlLid];
+    const transfer = [step, stlBase, stlLid, ...(stlClip ? [stlClip] : [])];
     for (const m of Object.values(meshes)) transfer.push(m.position.buffer, m.normal.buffer, m.index.buffer);
-    self.postMessage({ id, type: 'result', meshes, volumes, files: { step, stlBase, stlLid }, buildMs }, transfer);
+    self.postMessage({ id, type: 'result', meshes, volumes, files: { step, stlBase, stlLid, stlClip }, buildMs }, transfer);
   } catch (err) {
     self.postMessage({ id, type: 'error', message: (err && err.message) || String(err) });
   }
