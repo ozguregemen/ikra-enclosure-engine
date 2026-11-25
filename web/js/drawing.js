@@ -245,13 +245,24 @@ function chooseScale(fits) {
 
 /* ---------- Paftalar ---------- */
 
-function toleranceNotes(rules) {
+function toleranceNotes(rules, d = null) {
   const pp = rules.process_params || {};
+  const t = d?.tolerance;
+  const gen = t ? `±${d2(t.general)} mm (+±${d2(t.per_100mm)} mm / 100 mm)` : null;
+  const fitTxt = t ? `Kapak geçmesi ${{ press: 'sıkı', normal: 'normal', loose: 'bol' }[t.fitSel.lid]} (dil boşluğu ${d2(t.lidGap)} mm/kenar); geçiş delikleri ISO 273 ${{ press: 'ince', normal: 'orta', loose: 'kaba' }[t.fitSel.screw]} seri.` : null;
   if (rules.process === 'fdm') {
-    return [`Genel tolerans ±0,2 mm (FDM, Ø${d1(pp.nozzle_diameter)} nozul, ${d1(pp.layer_height)} mm katman).`];
+    return [
+      `Genel tolerans ${gen || '±0,2 mm'} (FDM, ${rules.label}, Ø${d1(pp.nozzle_diameter)} nozul, ${d1(pp.layer_height)} mm katman).`,
+      ...(t && t.hole_comp ? [`Delikler baskıda küçük çıkacağı için modelde +${d2(t.hole_comp)} mm telafili çizilmiştir; ölçüler modeldeki değerlerdir.`] : []),
+      ...(fitTxt ? [fitTxt] : []),
+    ];
   }
   if (rules.process === 'cnc') {
-    return ['Genel toleranslar ISO 2768-m. Keskin kenarları 0,3×45° kır.', `İç köşe radyüsleri takıma göre R${d1(pp.tool_diameter / 2 + 0.1)}.`];
+    return [
+      `Genel toleranslar ISO 2768-m; ${rules.label} için ${gen || '±0,1 mm'}. Keskin kenarları 0,3×45° kır.`,
+      `İç köşe radyüsleri takıma göre R${d1(pp.tool_diameter / 2 + 0.1)}.`,
+      ...(fitTxt ? [fitTxt] : []),
+    ];
   }
   return [
     'Genel toleranslar ISO 20457 TG6.',
@@ -371,7 +382,7 @@ function baseSheet(ctx) {
     ], panelRows) + 8;
   }
   const n = [
-    ...toleranceNotes(rules),
+    ...toleranceNotes(rules, d),
     `Et kalınlığı ${d1(d.params.wall)} mm, taban ${d1(d.params.floor)} mm, iç köşe R${d1(d.params.rIn)}, dış köşe R${d1(d.params.rOut)}.`,
     `Açıklık konumu duvar boyunca sıfır noktasından, Z gövde altından ölçülür; açıklıklar konnektör + ${d1(rules.cutout_clearance_xy)} mm boşlukla.`,
   ];
@@ -456,7 +467,7 @@ function lidSheet(ctx) {
     ], rows) + 8;
   }
   const n = [
-    ...toleranceNotes(rules),
+    ...toleranceNotes(rules, d),
     `Kapak kalınlığı ${d1(d.params.lidT)} mm. Konumlandırma dili ${d1(d.params.lipT)} mm, gövdeye ${d2(d.params.fit)} mm boşlukla oturur.`,
     'Delik koordinatları gövde ile aynı sıfır noktasına göredir.',
   ];

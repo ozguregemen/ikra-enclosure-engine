@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.8 (M0–M4 + Toolbox)
+## Şu anki durum: V1.9 (M0–M4 + Toolbox + malzeme kütüphanesi)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -149,6 +149,21 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   "Şablon indir" bu tasarımın parçalarıyla doldurulmuş boş şablon verir. Liste yalnızca tarayıcıda (localStorage) saklanır
 - Toolbox'ta arama: kod (7045), ad (imbus, rakor, cıvata) ya da boyut (M5); Türkçe karakter duyarsız, Enter ilk sonucu açar
 
+**Malzeme kütüphanesi ve geçmeler (V1.9)**
+- FDM (8): PLA, PETG, ABS, ASA, PC, naylon (PA11/PA12), PA-CF, PETG-CF — yoğunluk, HDT, çekme (katmanlar arası),
+  su emme üretici veri sayfalarından (Bambu Lab, Prusament, Polymaker); insert havya sıcaklığı (CNC Kitchen: baskı +10–20 °C)
+- CNC (15): POM-C, POM-H (Delrin), PA6, PA66, PET (Ertalyte), PEEK, PEI (Ultem), PTFE, UHMW-PE, PP, PC, PMMA, PVC, ABS,
+  6061 alüminyum — Ensinger / Mitsubishi Chemical AM / Röchling / Perspex veri sayfaları (iki kaynak farklıysa muhafazakâr olan);
+  ısıl genleşme, suda doygunluk, sürekli kullanım sıcaklığı, %2 basma gerilmesinden vida başı altı izin verilen basınç
+- Her malzemenin tolerans bloğu: genel ±, 100 mm başına ek ± (çekme, ısıl genleşme, nem), FDM delik telafisi,
+  sıkı / normal / bol çapsal geçme boşlukları, kapak dili ek payı (FDM: Bambu/CCI-UAL, Sovol, Hubs rehberleri;
+  CNC: Protolabs ISO 2768-m, Boedeker %0,1–0,2 kuralı, Xometry PTFE/UHMW ±0,25, Ensinger nem etkisi)
+- Tasarım › "Toleranslar ve geçmeler": kapak geçmesi (sıkı/normal/bol), vida geçiş deliği ISO 273 ince/orta/kaba,
+  sonuç ölçüleri; değerler kendi yazıcı/atölye ölçümüyle düzeltilebilir (tarayıcıda malzemeye özel saklanır)
+- Geçmenin uygulandığı yerler: kapak dili boşluğu (iki yüzey sapması + boy payı), geçiş/kılavuz/ön delikler (FDM telafisi),
+  somun cebi, gömme baş oyuğu, ışık borusu (sıkı), panel kesimleri; vidasız kapakta sıkı geçme önerisi; teknik resim notları
+- Değerler başlangıç değeridir: FDM'de yazıcı, nozul ve dilimleyici ayarına göre değişir; ilk parçada ölçüp düzeltin
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -161,8 +176,10 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 ## Kural dosyaları
 
 `web/rules/<süreç>/<malzeme>.json` dosyaları süreç × malzeme kural setlerini tutar
-(`min_wall`, `recommended_wall_min/max`, `pcb_clearance_xy`, `lid_fit_clearance`, `corner_radius_min`,
-`draft_angle_min`, `shrink_factor` …). Değerler genel endüstri pratiğine dayanan başlangıç değerleridir;
+(`min_wall`, `recommended_wall_min/max`, `pcb_clearance_xy`, `corner_radius_min`, `draft_angle_min`, `shrink_factor`,
+`tolerance` { `general`, `per_100mm`, `hole_comp`, `lid_extra`, `fits` { `press`, `normal`, `loose` } } …).
+Malzeme özellikleri (yoğunluk, HDT, ısıl genleşme, su emme, dayanım) veri sayfalarındandır, kaynak her dosyanın notlarında;
+diğer değerler genel endüstri pratiğine dayanan başlangıç değerleridir;
 kurum standardına göre düzenlenmesi beklenir. Yeni malzeme eklemek için dosyayı oluşturup `web/rules/index.json`'a ekle.
 Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş ölçüleri, standart boylar) `web/rules/fasteners.json`,
 IP seviyelerinin kordon çapı, sıkıştırma, et payı ve kapak sıkıştırma aralığı `web/rules/sealing.json` içindedir.
@@ -187,7 +204,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.5 | Somun cebi (altıgen/kare), hazır altıgen aralayıcılar |
 | V1.6 | Köşe kapak vidaları, ayrı vida grupları, gömme baş, tornavida erişimi |
 | V1.7 | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
-| **V1.8** | M5–M6, montaj STEP'i, montaj paftası (balon + parça listesi), BOM CSV, tercihli parça listesi, Toolbox araması |
+| V1.8 | M5–M6, montaj STEP'i, montaj paftası (balon + parça listesi), BOM CSV, tercihli parça listesi, Toolbox araması |
+| **V1.9** | Malzeme kütüphanesi (8 FDM filamenti, 15 CNC malzemesi), malzemeye özel tolerans ve sıkı/normal/bol geçme, ISO 273 delik serileri |
 | **V1.7** | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 
 ## Yerelde çalıştırma
@@ -233,6 +251,7 @@ web/                  Yayınlanan statik site
   js/panel.js         Panel elemanları: yerleşim, çakışma/kenar kontrolleri, D-delik ve lamba (saf fonksiyonlar)
   js/assembly.js      Montaj: bağlantı/panel elemanlarının basit katı tanımları (montaj STEP ve paftası)
   js/bom.js           BOM CSV ve tercihli parça (stok kodu) listesi
+  js/fits.js          Tolerans ve geçme modeli (malzeme + sıkı/normal/bol, ISO 273, FDM delik telafisi)
   rules/              Süreç × malzeme kural dosyaları
   rules/toolbox/      Toolbox kütüphaneleri (ISO vidalar/pullar/somunlar, dişli burçlar/aralayıcılar, panel elemanları)
   samples/            Örnek STEP dosyası

@@ -8,6 +8,7 @@ import { createToolbox, headIcon, insertIcon, panelIcon } from './toolbox.js';
 import { FACE_LABEL, holeText } from './panel.js';
 import { loadPreferred, savePreferred, parsePreferredCsv, matchPreferred, bomCsv, preferredTemplateCsv } from './bom.js';
 import { assemblyItems } from './assembly.js';
+import { FIT_CLASSES, toleranceOf } from './fits.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -37,6 +38,14 @@ function download(buffer, fileName, type) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+const TOL_KEY = 'ikra.toleranceOverrides.v1';
+function loadTolOverrides() {
+  try { return JSON.parse(localStorage.getItem(TOL_KEY) || '{}') || {}; } catch { return {}; }
+}
+function saveTolOverrides(v) {
+  try { localStorage.setItem(TOL_KEY, JSON.stringify(v)); } catch { /* tarayıcı depolaması kapalı: oturumla sınırlı */ }
 }
 
 export function createDesignUI({ viewer, setStatus }) {
@@ -77,6 +86,8 @@ export function createDesignUI({ viewer, setStatus }) {
     panelLib: null, // panel-parts.json
     panelParts: [], // [{ uid, type, size, face, u, v, custom }] — null = otomatik
     preferred: loadPreferred(), // şirket tercihli parça listesi (yalnızca bu tarayıcıda)
+    fits: { lid: 'normal', screw: 'normal' }, // geçme sınıfları
+    tolOverrides: loadTolOverrides(), // { 'fdm/pla': { general, per_100mm, hole_comp, press, normal, loose } } — kendi yazıcı/atölye değerleri
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -308,8 +319,23 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#process-seg').innerHTML = state.index.processes.map((p) =>
       `<button type="button" role="radio" data-process="${p.id}" aria-checked="${p.id === state.process}">${esc(p.label)}</button>`).join('');
     const proc = state.index.processes.find((p) => p.id === state.process);
-    $('#material-chips').innerHTML = proc.materials.map((m) =>
-      `<button type="button" class="chip" role="radio" data-material="${m.id}" aria-checked="${m.id === state.material}">${esc(m.label)}</button>`).join('');
+    // Malzemeler gruplu (index.json "group"): Standart / Mühendislik / Karbon fiber; asetal-naylon / yüksek performans …
+    let lastGroup = null;
+    $('#material-chips').innerHTML = proc.materials.map((m) => {
+      const head = m.group && m.group !== lastGroup ? `<span class="chip-group">${esc(m.group)}</span>` : '';
+      lastGroup = m.group || lastGroup;
+      return `${head}<button type="button" class="chip" role="radio" data-material="${m.id}" aria-checked="${m.id === state.material}" title="${esc(m.title || m.label)}">${esc(m.label)}</button>`;
+    }).join('');
+    const r = state.rules;
+    const props = r ? [
+      r.max_service_temp_c ? `sürekli kullanım ≈ <b>${r.max_service_temp_c} °C</b>${r.hdt_c ? ` (HDT ${r.hdt_c} °C)` : ''}` : null,
+      r.density_g_cm3 ? `yoğunluk <b>${String(r.density_g_cm3).replace('.', ',')}</b> g/cm³` : null,
+      r.tensile_strength_mpa ? `çekme <b>${r.tensile_strength_mpa} MPa</b>${r.process === 'fdm' ? ' (katman yönü dahil)' : ''}` : null,
+      r.cte_um_mk ? `ısıl genleşme ${r.cte_um_mk} µm/m·K` : null,
+      Number.isFinite(r.moisture_pct) ? `su emme %${String(r.moisture_pct).replace('.', ',')}` : null,
+      r.tolerance ? `genel tolerans ±${String(r.tolerance.general).replace('.', ',')} mm` : null,
+    ].filter(Boolean).join(' · ') : '';
+    $('#mat-props').innerHTML = props;
     $('#rule-notes').innerHTML = (state.rules?.notes || []).map((n) => `<li>${esc(n)}</li>`).join('');
   }
 
@@ -340,6 +366,8 @@ export function createDesignUI({ viewer, setStatus }) {
     screwSpec: state.screwSpec,
     insertSpec: state.insertSpec,
     panelParts: state.panelParts,
+    fits: state.fits,
+    tolerance: state.rules ? state.tolOverrides[state.rules.id] || null : null,
   });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
 
@@ -415,6 +443,7 @@ export function createDesignUI({ viewer, setStatus }) {
       });
       return;
     }
+    if (key === 'fitLid') { setFit('lid', value); return; }
     if (key === 'setParam') {
       const [pk, pv] = String(value).split(':');
       if (!(pk in state.params)) return;
@@ -537,6 +566,93 @@ export function createDesignUI({ viewer, setStatus }) {
     if (row) viewer.highlight(Number(row.dataset.part));
   });
   $('#port-list').addEventListener('mouseleave', () => viewer.highlight(null));
+
+  /* ---------- Toleranslar ve geçmeler ---------- */
+
+  const TOL_FIELDS = [
+    ['general', 'Genel tolerans ±', 'küçük ölçüler'],
+    ['per_100mm', 'Her 100 mm için ek ±', 'çekme, ısıl genleşme, nem'],
+    ['hole_comp', 'Delik telafisi', 'modeldeki delik çapına eklenir'],
+    ['press', 'Sıkı geçme boşluğu', 'çapsal; eksi = sıkılık'],
+    ['normal', 'Normal geçme boşluğu', 'çapsal'],
+    ['loose', 'Bol geçme boşluğu', 'çapsal'],
+    ['lid_extra', 'Kapak dili ek payı', 'yan başına; iki yüzeyin baskı/işleme sapması'],
+  ];
+
+  function renderTolerance(d = state.design) {
+    if (!state.rules) return;
+    const seg = (fid, cur, labels) => FIT_CLASSES.map((c) =>
+      `<button type="button" role="radio" data-fit="${c.id}" aria-checked="${cur === c.id}" title="${esc(c.hint)}">${esc(labels ? labels[c.id] : c.label)}</button>`).join('');
+    $('#fit-lid').innerHTML = seg('lid', state.fits.lid);
+    $('#fit-screw').innerHTML = seg('screw', state.fits.screw, { press: 'İnce', normal: 'Orta', loose: 'Kaba' });
+    const base = toleranceOf(state.rules, null);
+    const ov = state.tolOverrides[state.rules.id] || {};
+    const val = (k) => (['press', 'normal', 'loose'].includes(k) ? base.fits[k] : base[k] ?? 0);
+    $('#tol-mat').textContent = `· ${state.rules.label}`;
+    $('#tol-grid').innerHTML = TOL_FIELDS.map(([k, label, hint]) => {
+      if (k === 'hole_comp' && state.rules.process !== 'fdm' && !Number.isFinite(ov[k])) return '';
+      const changed = Number.isFinite(ov[k]);
+      return `<label class="tol-row${changed ? ' changed' : ''}" title="${esc(hint)}"><span>${esc(label)}</span>
+        <span class="input-wrap"><input type="text" inputmode="decimal" data-tol="${k}" value="${changed ? inputText(ov[k]) : ''}" placeholder="${inputText(val(k))}"><span class="unit">mm</span></span></label>`;
+    }).join('');
+    const tol = d?.tolerance;
+    const anyOv = Object.keys(ov).length > 0;
+    $('#tol-reset').classList.toggle('hidden', !anyOv);
+    $('#tol-note').textContent = (base.source ? `Kaynak: ${base.source}. ` : '') +
+      'Kendi yazıcın/atölyen için ölçtüğün değeri yaz; bu tarayıcıda malzemeye özel saklanır. Boş = malzeme değeri.';
+    $('#sum-tol').textContent = `kapak ${FIT_CLASSES.find((c) => c.id === state.fits.lid).label.toLocaleLowerCase('tr')} · delik ${{ press: 'ince', normal: 'orta', loose: 'kaba' }[state.fits.screw]}${anyOv ? ' · düzeltilmiş' : ''}`;
+    if (!tol || !d.outer) { $('#tol-result').innerHTML = ''; return; }
+    const st0 = d.standoffs?.[0];
+    const sc = d.screws?.find((s) => s.lid) || d.screws?.[0];
+    const clr = d.lidTubes?.[0]?.holeD ?? d.geometry?.lidHoles?.[0]?.holeD ?? null;
+    const lp = (d.panel?.items || []).find((it) => it.kind === 'lightpipe');
+    const rows = [
+      ['Kapak dili boşluğu', `${f2(tol.lidGap)} mm / kenar`],
+      clr ? [`${sc?.size || ''} geçiş deliği (kapakta)`, `Ø${f2(clr)}`] : null,
+      st0 ? [`Gövde deliği (${{ insert: 'insert', helicoil: 'Helicoil matkabı', tapped: 'kılavuz matkabı', self_tap: 'ön delik', nut: 'geçiş', standoff: 'geçiş' }[d.fasteningMethod] || 'delik'})`, `Ø${f2(st0.holeD)}`] : null,
+      st0?.insert?.kind === 'nut' ? ['Somun cebi', `SW ${f2(st0.insert.pocket ?? st0.insert.s)}`] : null,
+      lp?.hole ? [`${lp.size} ışık borusu deliği`, `Ø${f2(lp.hole.d)} (sıkı)`] : null,
+      [`Genel tolerans (${f2(Math.max(d.outer.L, d.outer.W))} mm)`, `±${f2(tol.general + (tol.per_100mm * Math.max(d.outer.L, d.outer.W)) / 100)}`],
+    ].filter(Boolean);
+    $('#tol-result').innerHTML = `<table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>`;
+  }
+
+  function setFit(group, cls) {
+    if (state.fits[group] === cls) return;
+    const prev = state.rules ? currentDefaults() : null;
+    state.fits = { ...state.fits, [group]: cls };
+    if (prev) refreshAutoParams(prev);
+    renderTolerance();
+    update();
+  }
+  $('#fit-lid').addEventListener('click', (e) => { const b = e.target.closest('[data-fit]'); if (b) setFit('lid', b.dataset.fit); });
+  $('#fit-screw').addEventListener('click', (e) => { const b = e.target.closest('[data-fit]'); if (b) setFit('screw', b.dataset.fit); });
+  $('#tol-grid').addEventListener('change', (e) => {
+    const inp = e.target.closest('[data-tol]');
+    if (!inp || !state.rules) return;
+    const raw = String(inp.value).trim();
+    const v = raw === '' ? null : parseInput(raw);
+    if (v !== null && (!Number.isFinite(v) || Math.abs(v) > 5)) { renderTolerance(); return; }
+    const prev = currentDefaults();
+    const cur = { ...(state.tolOverrides[state.rules.id] || {}) };
+    if (v === null) delete cur[inp.dataset.tol]; else cur[inp.dataset.tol] = v;
+    state.tolOverrides = { ...state.tolOverrides, [state.rules.id]: cur };
+    if (!Object.keys(cur).length) delete state.tolOverrides[state.rules.id];
+    saveTolOverrides(state.tolOverrides);
+    refreshAutoParams(prev);
+    renderTolerance();
+    update();
+  });
+  $('#tol-reset').addEventListener('click', () => {
+    if (!state.rules) return;
+    const prev = currentDefaults();
+    delete state.tolOverrides[state.rules.id];
+    state.tolOverrides = { ...state.tolOverrides };
+    saveTolOverrides(state.tolOverrides);
+    refreshAutoParams(prev);
+    renderTolerance();
+    update();
+  });
 
   /* ---------- Panel elemanları (Toolbox Paket D) ---------- */
 
@@ -676,6 +792,7 @@ export function createDesignUI({ viewer, setStatus }) {
     renderInsertPick(d);
     renderCornerPick(d);
     renderPanelCard(d);
+    renderTolerance(d);
 
     const errEl = $('#design-error');
     errEl.classList.toggle('hidden', !d.error);

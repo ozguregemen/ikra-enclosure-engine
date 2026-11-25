@@ -9,6 +9,8 @@
  * kapakta u, v = kavite merkezinden X, Y. null = otomatik.
  */
 
+import { pressHole, compHole } from './fits.js';
+
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
 const f = (v) => nf.format(Math.round(v * 100) / 100);
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -83,7 +85,7 @@ export function planPanel(ctx) {
   const {
     specs = [], types = [], analysis, rules, p, cav, center, wall, floorTop, cavTop, zTop, z0, lidT, rIn, rOut, outer, fit, lipT,
     lipBars = [], standoffs = [], lidTubes = [], cornerBosses = [], lidHoles = [], screws = [], ports = [], groove, seal,
-    obstacles = [], boardObstacles = [], rfParts = [], boardTop,
+    obstacles = [], boardObstacles = [], rfParts = [], boardTop, tol = null,
   } = ctx;
   const out = { items: [], holes: [], spots: [], visuals: [], bom: [], parts: [], checks: [], hasRf: false };
   // Yapılandırılmış malzeme listesi satırı (design.js parts biçimi)
@@ -181,7 +183,9 @@ export function planPanel(ctx) {
   // --- Işık boruları: LED üstüne kapakta delik ---
   const leds = analysis.parts.filter((pt) => !pt.isBoard && isLedName(pt.name) && pt.box && pt.box.min[2] >= boardTop - 0.5);
   for (const { sp, t } of resolved.filter((x) => x.t.kind === 'lightpipe')) {
-    const pd = panelData(t, sp);
+    const pd0 = panelData(t, sp);
+    // Işık borusu kapağa sıkı geçer: çubuk Ø + malzemenin sıkı geçme boşluğu + FDM delik telafisi
+    const pd = tol ? { ...pd0, hole: { shape: 'round', d: pressHole(pd0.d, tol) } } : pd0;
     const issues = [];
     const pos = [];
     if (!leds.length) issues.push({ level: 'warn', text: 'kartta adında "LED" geçen bileşen bulunamadı; delik açılmadı' });
@@ -367,8 +371,11 @@ export function planPanel(ctx) {
 
   for (const it of panelItems) {
     const { sp, t } = it;
-    const pd = panelData(t, sp);
-    if (!pd.hole) continue;
+    const pd0 = panelData(t, sp);
+    if (!pd0.hole) continue;
+    // Üretici kesim ölçüsü + FDM delik telafisi (dikey ve yatay delikler küçük çıkar)
+    const cmp = (v) => (tol ? compHole(v, tol) : v);
+    const pd = { ...pd0, hole: { ...pd0.hole, d: cmp(pd0.hole.d), ...(pd0.hole.flat ? { flat: cmp(pd0.hole.flat) } : {}) } };
     let face = sp.face && sp.face !== 'auto' ? sp.face : null;
     let u = sp.u ?? null;
     let v = sp.v ?? null;

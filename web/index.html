@@ -31,7 +31,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">V1.8 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">V1.9 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez; tüm hesap bu tarayıcıda yapılır">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -112,6 +112,7 @@
                 <div class="card-body">
                   <div class="seg-full" id="process-seg" role="radiogroup" aria-label="Üretim yöntemi"></div>
                   <div class="chips" id="material-chips" role="radiogroup" aria-label="Malzeme"></div>
+                  <p class="mat-props" id="mat-props"></p>
                   <ul class="rule-notes muted small" id="rule-notes"></ul>
                 </div>
               </details>
@@ -121,6 +122,21 @@
                 <div class="card-body">
                   <div class="params" id="params"></div>
                   <button type="button" class="link-btn" id="params-reset">Kural değerlerine dön</button>
+                </div>
+              </details>
+
+              <details class="card">
+                <summary><span class="card-title">Toleranslar ve geçmeler</span><span class="card-sum" id="sum-tol"></span></summary>
+                <div class="card-body">
+                  <h3 class="sub-title">Kapak geçmesi <span class="muted">· kapak dili ↔ gövde</span></h3>
+                  <div class="seg-full three" id="fit-lid" role="radiogroup" aria-label="Kapak geçmesi"></div>
+                  <h3 class="sub-title">Vida geçiş deliği <span class="muted">· ISO 273</span></h3>
+                  <div class="seg-full three" id="fit-screw" role="radiogroup" aria-label="Vida geçiş deliği serisi"></div>
+                  <div class="tol-result" id="tol-result"></div>
+                  <h3 class="sub-title">Malzeme toleransları <span class="muted" id="tol-mat"></span></h3>
+                  <div class="tol-grid" id="tol-grid"></div>
+                  <p class="muted small" id="tol-note"></p>
+                  <button type="button" class="link-btn" id="tol-reset">Malzeme değerlerine dön</button>
                 </div>
               </details>
 
@@ -368,6 +384,7 @@
         <li class="step done"><span class="num">11</span>Köşe kapak vidaları, gömme baş<span class="tag">V1.6</span></li>
         <li class="step done"><span class="num">12</span>Panel elemanları: SMA, rakor, basınç dengeleme, ışık borusu, ayak<span class="tag">V1.7</span></li>
         <li class="step done"><span class="num">13</span>M5–M6, montaj STEP'i ve paftası, BOM CSV, tercihli parçalar, arama<span class="tag">V1.8</span></li>
+        <li class="step done"><span class="num">14</span>Malzeme kütüphanesi: 8 filament, 15 CNC malzemesi; sıkı/normal/bol geçme<span class="tag">V1.9</span></li>
       </ol>
     </div>
   </dialog>

@@ -645,3 +645,16 @@ kbd {
 .pref-box p { margin: 6px 0; }
 .pref-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .pref-actions label.btn { cursor: pointer; }
+
+/* ---------- Toleranslar ve geçmeler ---------- */
+.tol-result { margin: 8px 0 2px; }
+.tol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 10px; }
+.tol-row { display: grid; gap: 2px; font-size: 11.5px; color: var(--muted); }
+.tol-row .input-wrap { display: flex; align-items: center; gap: 4px; }
+.tol-row input { width: 100%; min-width: 0; font: 12.5px var(--mono); color: var(--text); padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.tol-row input::placeholder { color: var(--text); opacity: .55; }
+.tol-row.changed input { border-color: var(--accent); color: var(--accent); }
+.tol-row .unit { font-size: 11px; color: var(--muted); }
+.mat-props { font-size: 12px; color: var(--muted); margin: 6px 0 0; line-height: 1.45; }
+.mat-props b { color: var(--text); font-weight: 600; }
+.chips .chip-group { width: 100%; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 4px 0 0; }

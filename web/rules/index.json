@@ -1,33 +1,48 @@
 {
-  "version": 1,
-  "aciklama": "Süreç × malzeme kural setleri. Değerler genel endüstri pratiğine dayanan başlangıç değerleridir; kurum standardınıza göre düzenleyin. Tüm uzunluklar mm, açılar derece. tensile_strength_mpa (gövdede diş sıyırma hesabı; baskıda katman yönü düşüşü dahil) ve bearing_pressure_mpa (vida başı / pul altında izin verilen yüzey basıncı) sıkma torku önerisinde kullanılır; plastikte uzun süreli sünme nedeniyle muhafazakârdır.",
+  "version": 2,
+  "aciklama": "Süreç × malzeme kural setleri. Malzeme özellikleri üretici veri sayfalarından (her dosyanın notlarında kaynak), diğer değerler genel endüstri pratiğine dayanan başlangıç değerleridir; kurum standardınıza göre düzenleyin. Tüm uzunluklar mm, açılar derece, sıcaklıklar °C. tolerance: genel ± tolerans, 100 mm başına ek ±, FDM delik telafisi, sıkı/normal/bol çapsal geçme boşlukları ve kapak dili ek payı (web/js/fits.js). tensile_strength_mpa (diş sıyırma; baskıda katmanlar arası) ve bearing_pressure_mpa (vida başı altı izin verilen basınç; sünmeye karşı muhafazakâr) sıkma torku önerisinde kullanılır. moisture_pct: FDM'de veri sayfasındaki su emme, CNC'de suda doygunluk.",
   "processes": [
     {
       "id": "fdm",
       "label": "3D Baskı (FDM)",
       "materials": [
-        { "id": "pla", "label": "PLA", "file": "fdm/pla.json" },
-        { "id": "petg", "label": "PETG", "file": "fdm/petg.json" },
-        { "id": "abs", "label": "ABS / ASA", "file": "fdm/abs.json" }
+        { "id": "pla", "label": "PLA", "group": "Standart", "title": "PLA — kolay baskı, iç mekân, prototip", "file": "fdm/pla.json" },
+        { "id": "petg", "label": "PETG", "group": "Standart", "title": "PETG — darbe ve nem dayanımlı, genel amaçlı", "file": "fdm/petg.json" },
+        { "id": "abs", "label": "ABS", "group": "Mühendislik", "title": "ABS — ısıya dayanıklı, kabinli yazıcı gerekir", "file": "fdm/abs.json" },
+        { "id": "asa", "label": "ASA", "group": "Mühendislik", "title": "ASA — UV dayanımlı, dış ortam", "file": "fdm/asa.json" },
+        { "id": "pc", "label": "PC", "group": "Mühendislik", "title": "PC (polikarbonat karışımı) — yüksek ısı ve darbe", "file": "fdm/pc.json" },
+        { "id": "pa12", "label": "Naylon (PA11/PA12)", "group": "Mühendislik", "title": "Naylon — tok, yorulmaya dayanıklı, nem çeker", "file": "fdm/pa12.json" },
+        { "id": "pacf", "label": "PA-CF (naylon + karbon fiber)", "group": "Karbon fiber katkılı", "title": "PA6-CF — rijit, yüksek ısı, boyutsal kararlı", "file": "fdm/pacf.json" },
+        { "id": "petgcf", "label": "PETG-CF", "group": "Karbon fiber katkılı", "title": "PETG-CF — rijit, mat yüzey, kolay baskı", "file": "fdm/petgcf.json" }
       ]
     },
     {
       "id": "cnc",
       "label": "CNC",
       "materials": [
-        { "id": "pom", "label": "Delrin (POM)", "file": "cnc/pom.json" },
-        { "id": "peek", "label": "PEEK", "file": "cnc/peek.json" },
-        { "id": "ptfe", "label": "Teflon (PTFE)", "file": "cnc/ptfe.json" },
-        { "id": "abs", "label": "ABS", "file": "cnc/abs.json" },
-        { "id": "al6061", "label": "6061 Alüminyum", "file": "cnc/al6061.json" }
+        { "id": "pom", "label": "POM-C (asetal)", "group": "Asetal ve naylon", "title": "POM-C — asetal kopolimer, en iyi işlenen plastik", "file": "cnc/pom.json" },
+        { "id": "pomh", "label": "POM-H (Delrin)", "group": "Asetal ve naylon", "title": "POM-H (Delrin) — homopolimer, daha sert ve dayanımlı", "file": "cnc/pomh.json" },
+        { "id": "pa6", "label": "PA6 (naylon)", "group": "Asetal ve naylon", "title": "PA6 — tok, aşınmaya dayanıklı; nem çeker", "file": "cnc/pa6.json" },
+        { "id": "pa66", "label": "PA66 (naylon)", "group": "Asetal ve naylon", "title": "PA66 — PA6'dan rijit, sünmeye daha dayanıklı", "file": "cnc/pa66.json" },
+        { "id": "pet", "label": "PET (Ertalyte)", "group": "Yüksek performans", "title": "PET — çok iyi boyutsal kararlılık, düşük nem", "file": "cnc/pet.json" },
+        { "id": "peek", "label": "PEEK", "group": "Yüksek performans", "title": "PEEK — 250 °C, kimyasal dayanım, pahalı", "file": "cnc/peek.json" },
+        { "id": "pei", "label": "PEI (Ultem)", "group": "Yüksek performans", "title": "PEI (Ultem) — yüksek dayanım, alev geciktirici, amorf", "file": "cnc/pei.json" },
+        { "id": "ptfe", "label": "PTFE (Teflon)", "group": "Yüksek performans", "title": "PTFE — kaygan, kimyasal dayanım; sünme ve yüksek genleşme", "file": "cnc/ptfe.json" },
+        { "id": "uhmw", "label": "UHMW-PE", "group": "Genel amaçlı", "title": "UHMW-PE (PE 1000) — aşınma ve darbe; sünme, çok yüksek genleşme", "file": "cnc/uhmw.json" },
+        { "id": "pp", "label": "PP", "group": "Genel amaçlı", "title": "PP (homopolimer) — hafif, kimyasal dayanımlı, yumuşak", "file": "cnc/pp.json" },
+        { "id": "pc", "label": "PC (polikarbonat)", "group": "Genel amaçlı", "title": "PC — şeffaf seçeneği, darbeye dayanıklı; gerilim çatlağına duyarlı", "file": "cnc/pc.json" },
+        { "id": "pmma", "label": "PMMA (akrilik)", "group": "Genel amaçlı", "title": "PMMA (dökme akrilik) — şeffaf, kırılgan", "file": "cnc/pmma.json" },
+        { "id": "pvc", "label": "PVC (sert)", "group": "Genel amaçlı", "title": "PVC-U — ucuz, kimyasal dayanımlı, alev geciktirici", "file": "cnc/pvc.json" },
+        { "id": "abs", "label": "ABS", "group": "Genel amaçlı", "title": "ABS — ucuz, kolay işlenir", "file": "cnc/abs.json" },
+        { "id": "al6061", "label": "6061 Alüminyum", "group": "Metal", "title": "6061-T6 alüminyum — iletken, ekranlama, ısı dağıtımı", "file": "cnc/al6061.json" }
       ]
     },
     {
       "id": "injection",
       "label": "Enjeksiyon",
       "materials": [
-        { "id": "abs", "label": "ABS", "file": "injection/abs.json" },
-        { "id": "pcabs", "label": "PC/ABS", "file": "injection/pcabs.json" }
+        { "id": "abs", "label": "ABS", "group": "Standart", "title": "ABS — genel amaçlı elektronik kutusu", "file": "injection/abs.json" },
+        { "id": "pcabs", "label": "PC/ABS", "group": "Standart", "title": "PC/ABS — darbe ve ısı dayanımı yüksek", "file": "injection/pcabs.json" }
       ]
     }
   ]

@@ -20,6 +20,7 @@ const isRfName = (name) => RF_SUBSTR.test(name) ||
 
 import { detectPorts } from './ports.js';
 import { planPanel } from './panel.js';
+import { toleranceOf, lidGap, adjustScrewRow, pocketAf, compHole } from './fits.js';
 
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
 const f = (v) => nf.format(Math.round(v * 100) / 100);
@@ -157,8 +158,8 @@ function holeFeature(m, s, ts, rules, itype, ispec, tapping) {
 }
 
 /** Gömme baş oyuğu (silindir/bombe başlar): Ø ≈ dk + 1 (M3 İmbus 6,5, M4 8; DIN 974-1 orta seriyle uyumlu), derinlik k + pul + 0,3 */
-export function counterboreFor(headD, headH, washer) {
-  const d = Math.max(headD + 1.0, washer ? washer.d2 + 0.6 : 0);
+export function counterboreFor(headD, headH, washer, comp = 0) {
+  const d = Math.max(headD + 1.0, washer ? washer.d2 + 0.6 : 0) + comp;
   return { d: Math.round(d * 10) / 10, depth: Math.round((headH + (washer ? washer.s : 0) + 0.3) * 100) / 100 };
 }
 
@@ -172,7 +173,8 @@ function planCorner(options, rules) {
   const base = { type: 'iso7045', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match', headSeat: 'surface', ...(options.screwSpec || {}) };
   const spec = options.cornerSpec ? { ...base, ...options.cornerSpec } : { ...base, size: 'auto', length: 'auto' };
   const ctype = (options.toolbox?.types || []).find((t) => t.id === spec.type) || null;
-  const table = screwTable(fasteners, ctype);
+  const ctol = toleranceOf(rules, options.tolerance);
+  const table = screwTable(fasteners, ctype).map((r) => adjustScrewRow(r, ctol, options.fits?.screw || 'normal'));
   const sizes = ctype ? Object.keys(ctype.sizes) : table.map((x) => x.size);
   const size = spec.size !== 'auto' && sizes.includes(spec.size) ? spec.size
     : ['M3', 'ST2.9', 'M2.5', 'M4'].find((x) => sizes.includes(x)) || sizes[sizes.length - 1];
@@ -362,7 +364,11 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const wall = p.wall;
   const floor = wall * (rules.floor_ratio ?? 1);
   const lidT = wall;
-  const fit = rules.lid_fit_clearance;
+  // Tolerans ve geçme (malzeme + süreç + kullanıcı düzeltmesi); kapak dili boşluğu kart boyuna göre
+  const tol = toleranceOf(rules, options.tolerance);
+  const fitSel = { lid: 'normal', screw: 'normal', ...(options.fits || {}) };
+  const fitL = Math.max(b.box.max[0] - b.box.min[0], b.box.max[1] - b.box.min[1]) + 2 * p.pcbClearance;
+  const fit = lidGap(tol, fitSel.lid, fitL);
   const lipT = rules.lid_lip_thickness;
   const rIn = Math.max(p.cornerRadius, 0.05);
   const rOut = rIn + wall;
@@ -545,7 +551,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   if (!itype && (method === 'insert' || method === 'helicoil')) {
     itype = insertTypes.find((t) => t.kind === (method === 'helicoil' ? 'helicoil' : 'heatset')) || null;
   }
-  const table = screwTable(fasteners, ttype);
+  const table = screwTable(fasteners, ttype).map((r) => adjustScrewRow(r, tol, fitSel.screw));
   const mountHoles = (analysis.holes || []).map((h, i) => ({ ...h, index: i })).filter((h) => h.mount);
   const usedHoles = options.selectedHoles ? mountHoles.filter((h) => options.selectedHoles.has(h.index)) : mountHoles;
   const standoffs = [];
@@ -628,7 +634,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
         // Somun cebi: vida standoff'tan geçer, somunda tutunur. Altıgen somun tabandan cebe, kare somun yandan yuvaya
         const nz = ntype.sizes[s.size];
         const Pn = ts?.P ?? 0.5;
-        const fitC = rules.process === 'fdm' ? 0.25 : 0.1;
+        const pocketS = pocketAf(nz.s, tol); // somun cebi: elle oturan geçme + FDM telafisi
         featureD = s.clearance;
         if (ntype.kind === 'square') {
           const topWall = Math.max(1.2, 2 * Pn);
@@ -639,14 +645,14 @@ export function computeDesign(analysis, rules, params, options = {}) {
           const dx = (cav.min[0] + cav.max[0]) / 2 - h.x;
           const dy = (cav.min[1] + cav.max[1]) / 2 - h.y;
           const axis = Math.abs(dx) >= Math.abs(dy) ? 0 : 1;
-          nutGeo = { shape: 'square', s: nz.s + 2 * fitC, z0: nutBot, z1: nutTop, axis, dir: Math.sign(axis === 0 ? dx : dy) || 1,
+          nutGeo = { shape: 'square', s: pocketS, z0: nutBot, z1: nutTop, axis, dir: Math.sign(axis === 0 ? dx : dy) || 1,
             area: nz.s * nz.s - (Math.PI / 4) * s.clearance * s.clearance, nz };
         } else {
           // Cep derinliği vida boyuna göre ayarlanır: somun, vida ucu somundan 1,5·P taşacak yükseklikte durur.
           // En az tutunma = somun üstünde PCB altına 1,2 mm et + somun + 1,5·P; en fazla = uç tabandan 0,8 mm içeride.
           minEngage = 1.2 + nz.m + 1.5 * Pn;
           required = minEngage + 0.3;
-          nutGeo = { shape: 'hex', s: nz.s + 2 * fitC, z0, depth: nz.m + 0.6, nutTop: z0 + nz.m + 0.6, Pn,
+          nutGeo = { shape: 'hex', s: pocketS, z0, depth: nz.m + 0.6, nutTop: z0 + nz.m + 0.6, Pn,
             area: 0.866 * nz.s * nz.s - (Math.PI / 4) * s.clearance * s.clearance, nz };
         }
       } else if (method === 'standoff' && sotype.sizes[s.size]) {
@@ -698,7 +704,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       if (method === 'self_tap') od = Math.max(od, 2.2 * s.d, tapping ? 2.5 * featureD : 0);
       if (method === 'insert' && ins) od = Math.max(od, ins.v.d1 + 2 * ins.v.wall);
       if (method === 'helicoil' && ins) od = Math.max(od, ins.dhc + 2 * rules.boss_outer_wall);
-      if (nutGeo) od = Math.max(od, nutGeo.nz.e + 2 * (rules.process === 'fdm' ? 0.25 : 0.1) + 2 * 1.2);
+      if (nutGeo) od = Math.max(od, nutGeo.nz.e + (nutGeo.s - nutGeo.nz.s) + 2 * 1.2);
       if (soGeo) od = soGeo.sw * 1.155;
 
       if (avail < required - 1e-6) {
@@ -759,7 +765,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       let cbore = null;
       if (spec.headSeat === 'counterbore' && !countersunk) {
         if (tube) {
-          cbore = counterboreFor(ts?.dk_actual ?? headD, headH, wz);
+          cbore = counterboreFor(ts?.dk_actual ?? headD, headH, wz, tol.hole_comp);
           tube.counterbore = cbore;
           tube.od = Math.max(tube.od, cbore.d + 1.6);
         } else noteSpec('info', 'Gömme baş yalnızca kapak vidalarına uygulanır; yalnızca PCB vidalarında baş yüzeyde kalır.');
@@ -879,7 +885,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       if (nutGeo) {
         insertInfo = {
           kind: 'nut', id: `${ntype.code} ${s.size}`, type: ntype.id, code: ntype.code, name: ntype.name, shape: nutGeo.shape, locking: !!ntype.locking,
-          s: nutGeo.nz.s, e: nutGeo.nz.e, m: nutGeo.nz.m, dIn: s.d, P: ts?.P ?? null,
+          s: nutGeo.nz.s, pocket: nutGeo.s, e: nutGeo.nz.e, m: nutGeo.nz.m, dIn: s.d, P: ts?.P ?? null,
           zTop: nutGeo.shape === 'hex' ? nutGeo.nutTop : nutGeo.z1, axis: nutGeo.axis, dir: nutGeo.dir,
           material: nutMat ? { id: nutMat.id, tag: nutMat.tag, finish: nutMat.finish } : null,
         };
@@ -940,7 +946,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const headDc = ts ? ts.dk : s.head_d;
       const headHc = ts ? ts.k : s.head_h;
       const headDA = ts?.dk_actual ?? headDc;
-      const cb = cp.spec.headSeat === 'counterbore' && !cSunk ? counterboreFor(headDA, headHc, cwz) : null;
+      const cb = cp.spec.headSeat === 'counterbore' && !cSunk ? counterboreFor(headDA, headHc, cwz, tol.hole_comp) : null;
       const csk = cSunk ? { dTop: headDc + 0.3, depth: (headDc + 0.3 - s.clearance) / 2 } : null;
       // Kapak kalınlığı oyuğa/havşaya yetmezse kapağın altına boss'a oturan bir yastık eklenir
       const padH = Math.max(0, Math.max(cb ? cb.depth : 0, csk ? csk.depth : 0) + 0.8 - lidT);
@@ -1114,7 +1120,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
         } else {
           noteSpec('info', rules.process === 'cnc'
             ? 'Somun cebi tabandan açılır: CNC\'de ikinci bağlama gerekir; kılavuz ya da Helicoil daha pratiktir.'
-            : `Somun tabandaki altıgen cebe bastırılır ve vidayla yukarı çekilir; cep tabandan açık kalır${rules.process === 'fdm' ? ' (cep ölçüsü +0,25 mm)' : ''}.`);
+            : `Somun tabandaki altıgen cebe bastırılır ve vidayla yukarı çekilir; cep tabandan açık kalır${tol.hole_comp ? ` (cep, telafi dahil SW + ${f(pocketAf(0, tol))} mm)` : ''}.`);
           if (ntype.locking) noteSpec('info', `${ntype.code} naylon kilitli somun titreşimde gevşemeyi önler; vida ucu somundan en az 1–2 diş taşmalıdır (boy buna göre seçildi).`);
         }
       } else if (method === 'standoff' && sotype) {
@@ -1212,7 +1218,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
     if (method === 'nut' && ins && ins.kind === 'nut') {
       addPart({ qty: standoffs.length, kind: 'nut', standard: ins.code, name: ins.name, size: s.size, material: ins.material?.tag || '', spec: ins.shape === 'hex' ? 'tabandan cebe' : 'yan yuvaya', where: 'standoff', at: [st0.x, st0.y, ins.zTop] });
       bom.push(`${standoffs.length} × ${ins.code} ${s.size}${ins.material ? ' ' + ins.material.tag : ''} ${ins.name.toLocaleLowerCase('tr')} — ` +
-        (ins.shape === 'hex' ? `tabandan cebe (cep SW ${f(ins.s + (rules.process === 'fdm' ? 0.5 : 0.2))})` : 'standoff yanındaki yuvaya'));
+        (ins.shape === 'hex' ? `tabandan cebe (cep SW ${f(ins.pocket ?? ins.s)})` : 'standoff yanındaki yuvaya'));
     }
     if (method === 'standoff' && ins && ins.kind === 'standoff') {
       addPart({ qty: standoffs.length, kind: 'standoff', name: `Altıgen aralayıcı, ${ins.ends === 'ff' ? 'dişi-dişi' : 'erkek-dişi'}`, size: s.size, length: ins.L, material: ins.material?.tag || '', spec: `SW ${f(ins.sw)}`, where: 'taban', at: [st0.x, st0.y, (ins.zBottom + ins.zTop) / 2] });
@@ -1257,7 +1263,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const panel = planPanel({
     specs: options.panelParts || [], types: options.toolbox?.panel || [], analysis, rules, p, cav, center, wall, floorTop, cavTop, zTop, z0,
     lidT, rIn, rOut, outer, fit, lipT, lipBars, standoffs, lidTubes, cornerBosses, lidHoles, screws, ports, groove, seal,
-    obstacles, boardObstacles, boardTop: b.top,
+    obstacles, boardObstacles, boardTop: b.top, tol,
     rfParts: rfAll.filter((pt) => !portIds.has(pt.id)).length ? rfAll.filter((pt) => !portIds.has(pt.id)) : rfAll,
   });
   bom.push(...panel.bom);
@@ -1394,7 +1400,9 @@ export function computeDesign(analysis, rules, params, options = {}) {
     const slender = p.standoffHeight / st.od;
     if (slender > 4) add('warn', `Standoff boyu/çapı oranı ${f(slender)}: ince uzun, kırılma ve titreşim riski. Duvara kaburgayla bağlamayı düşün.`);
     else add('ok', `${standoffs.length} standoff (Ø${f(st.od)} × ${f(p.standoffHeight)} mm), ${METHOD_TEXT[method]} ile.`);
-    if (method === 'insert' && rules.process === 'fdm') add('info', 'İnsertleri havya ucuyla dik bastır (PLA ~200 °C, PETG/ABS ~230 °C).');
+    if (method === 'insert' && rules.process === 'fdm') add('info', rules.insert_temp_c
+      ? `İnsertleri havya ucuyla dik bastır: ${rules.label} için uç sıcaklığı ≈ ${rules.insert_temp_c} °C, yüzeyle aynı hizada bırak.`
+      : 'İnsertleri havya ucuyla dik bastır (PLA ~200 °C, PETG/ABS ~230 °C).');
     if (rules.process === 'injection') {
       const bossWall = (st.od - st.holeD) / 2;
       if (bossWall > wall) add('warn', `Boss duvarı (${f(bossWall)} mm) et kalınlığından kalın: karşı yüzde çöküntü riski. Boss'u kaburgayla yan duvara bağla.`);
@@ -1413,7 +1421,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
   } else if (standoffs.length && lidMode === 'screw') {
     add('warn', 'Hiçbir montaj deliğinin üstü boş değil: kapak yalnızca geçmeyle tutunur.');
   } else if (lidMode === 'none') {
-    add('info', 'Kapak vidasız: yalnızca konumlandırma diliyle tutunur.');
+    add('info', fitSel.lid === 'press'
+      ? `Kapak vidasız: dil gövdeye sıkı geçer (kenar boşluğu ${f(fit)} mm); ilk baskıda takıp çıkararak deneyin.`
+      : 'Kapak vidasız: yalnızca konumlandırma diliyle tutunur; sürtünmeyle tutması için kapak geçmesini Sıkı seçin.',
+      fitSel.lid === 'press' ? null : { key: 'fitLid', value: 'press', label: 'Sıkı geçme' });
   }
 
   // Panel elemanları
@@ -1457,6 +1468,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
     ok: !checks.some((c) => c.level === 'error'),
     rulesId: rules.id,
     params: { ...p, pcbClearanceEff: clr, floor, lidT, rIn, rOut, fit, lipT },
+    tolerance: { ...tol, fitSel, lidGap: fit, fitL },
     outer,
     cavity: { L: cavL, W: cavW, H: cavTop - floorTop, min: cav.min, max: cav.max },
     z: { z0, floorTop, cavTop, zTop },
