@@ -26,6 +26,7 @@ import { planMount } from './mount.js';
 import { planEdgeHold } from './edgehold.js';
 import { toleranceOf, lidGap, adjustScrewRow, pocketAf, compHole } from './fits.js';
 import { runDesignLoop } from './dfm/loop.js';
+import { injectionDraft } from './treat.js';
 
 // Isıyla gömülen insert: kör delik = insert boyu + 1 mm (CNC Kitchen)
 const INSERT_HOLE_EXTRA = 1.0;
@@ -1542,10 +1543,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
   }
 
   if (proc === 'injection') {
-    // Draft: en az kural değeri; 25 mm derinlik başına ~1° (Protolabs); 50 mm üstünde 3°
-    const depthInj = cavTop - floorTop;
-    const draftNeed = Math.max(rules.draft_angle_min || 0.5, depthInj > 50 ? 3 : Math.ceil((depthInj / 25.4) * 2 - 1e-9) / 2);
-    add('info', `Kalıp çıkma açısı: ${f(depthInj)} mm derin yan duvarlara ve iç yüzeylere en az ${f(draftNeed)}° draft uygulanmalı (≥ 0,5°, tipik 1–2°, 25 mm derinlik başına ~1°); katı modelde uygulandığı oluşturma sonrası doğrulanır.`,
+    // Draft: katı modelle aynı formül (treat.js injectionDraft — tek kaynak): dış duvarın kalıp derinliği (ağız – taban altı)
+    const depthInj = cavTop - z0;
+    const draftNeed = injectionDraft(depthInj, wall, rules.draft_angle_min);
+    add('info', `Kalıp çıkma açısı: ${f(depthInj)} mm derin yan duvarlara ve iç yüzeylere en az ${f(draftNeed)}° draft uygulanmalı (Protolabs derinlik×et tablosu, 25 mm derinlik başına ~1°, en az 1°); katı modelde uygulandığı oluşturma sonrası doğrulanır.`,
       null, null, 'INJ-DRAFT', { limit: draftNeed, op: '>=', unit: '°' });
     // İç köşe ≥ 0,5·t (DuPont/Ticona); IP'de duvar conta payına çıkacağı için etkin kalınlık kullanılır
     const wallEff = seal ? Math.max(wall, groove.rimNeed) : wall;

@@ -53,7 +53,7 @@ try {
             if ($txt -and $txt.Contains('IKRA-SELFTEST-DONE')) { $done = $true; break }
         }
     }
-    $txt = if (Test-Path $errFile) { Get-Content $errFile -Raw } else { '' }
+    $txt = if (Test-Path $errFile) { Get-Content $errFile -Raw -Encoding UTF8 } else { '' }
     $errors = [regex]::Matches($txt, 'IKRA-SELFTEST-ERROR[^\r\n]*') | ForEach-Object { $_.Value }
     $m = [regex]::Match($txt, 'IKRA-SELFTEST-RESULT (\{.*\})", source:')
     if (-not $done -or -not $m.Success) {

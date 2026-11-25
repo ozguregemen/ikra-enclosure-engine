@@ -112,9 +112,16 @@ export function protolabsDraft(depth, wall) {
   return fits.length ? fits[fits.length - 1][1] : IM_DEEP_DRAFT;
 }
 
-/** Enjeksiyon çıkma açısı: max(kural en azı, Protolabs tablosu, 1° varsayılan — ABS/PC/PC-ABS için 1°, IM-10), 0,5°'ye yukarı yuvarlanır */
+/**
+ * Enjeksiyon çıkma açısı — inceleme (design.js INJ-DRAFT) ve katı model (cad-worker) için TEK kaynak.
+ * max(kural en azı, Protolabs derinlik×et tablosu, 25,4 mm derinlik başına ~1° (Protolabs), 1° varsayılan — ABS/PC/PC-ABS, IM-10);
+ * 50,8 mm'den derin ceplerde 3° (IM-12). 0,5°'ye yukarı yuvarlanır.
+ * @param depth dış duvarın kalıp derinliği (ağız – taban altı), mm
+ * @param wall et kalınlığı, mm
+ */
 export function injectionDraft(depth, wall, ruleMin) {
-  const v = Math.max(ruleMin || 0, protolabsDraft(depth, wall), 1);
+  const perInch = depth > 50.8 + 1e-9 ? IM_DEEP_DRAFT : Math.ceil((depth / 25.4) * 2 - 1e-9) / 2;
+  const v = Math.max(ruleMin || 0, protolabsDraft(depth, wall), perInch, 1);
   return Math.ceil(v * 2 - 1e-9) / 2;
 }
 
