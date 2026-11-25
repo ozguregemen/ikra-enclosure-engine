@@ -6,7 +6,7 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.5.0 (V1)';
+const APP_VERSION = '0.6.0 (V1)';
 const SAMPLE_URL = 'samples/ornek-kart.step';
 const LARGE_FILE_MB = 50;
 
@@ -26,8 +26,66 @@ let pending = null;
 let current = null;
 let selectedPart = null;
 
-const viewer = new Viewer($('#viewer'), { onPick: (id) => selectPart(id, { scroll: true }) });
+const viewer = new Viewer($('#viewer'), {
+  onPick: (id) => selectPart(id, { scroll: true }),
+  cubeContainer: $('#viewcube'),
+});
 $('#app-version').textContent = `Sürüm ${APP_VERSION}`;
+
+/* ---------- Sekmeler ---------- */
+
+function selectTab(name) {
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+  for (const id of ['analysis', 'design', 'output']) {
+    $(`#tab-${id}`).classList.toggle('hidden', id !== name);
+  }
+  $('.tab-panels').scrollTop = 0;
+}
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => selectTab(t.dataset.tab)));
+document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.goto)));
+
+// Tasarım panelinden gelen olaylar: DFM sayıları ve üretim tamamlandı
+document.addEventListener('ikra:checks', (e) => {
+  const { error = 0, warn = 0 } = e.detail || {};
+  const badge = $('#output-badge');
+  const chip = $('#dfm-chip');
+  const issues = error + warn;
+  badge.classList.toggle('hidden', !issues);
+  badge.classList.toggle('error', error > 0);
+  badge.textContent = issues ? String(issues) : '';
+  chip.hidden = false;
+  chip.className = `status-chip ${error ? 'error' : warn ? 'warn' : ''}`;
+  chip.textContent = error ? `${error} hata${warn ? ` · ${warn} uyarı` : ''}` : warn ? `${warn} uyarı` : 'DFM: sorun yok';
+});
+document.addEventListener('ikra:built', (e) => {
+  if (e.detail && e.detail.first) selectTab('output');
+});
+$('#dfm-chip').addEventListener('click', () => {
+  selectTab('output');
+  $('#dfm-anchor').scrollIntoView({ block: 'start' });
+});
+
+/* ---------- Görünüm ve kısayollar ---------- */
+
+$('#view-home').addEventListener('click', () => viewer.setView('iso'));
+$('#view-fit').addEventListener('click', () => viewer.fit());
+const helpDialog = $('#help-dialog');
+$('#help-btn').addEventListener('click', () => helpDialog.showModal());
+$('#help-close').addEventListener('click', () => helpDialog.close());
+
+const KEY_VIEWS = { 1: 'front', 2: 'back', 3: 'left', 4: 'right', 5: 'top', 6: 'bottom' };
+window.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'select' || tag === 'textarea' || document.querySelector('dialog[open]')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'f') viewer.fit();
+  else if (k === 'h') viewer.setView('iso');
+  else if (k === 'g') $('#guides-btn').click();
+  else if (KEY_VIEWS[k]) viewer.setView(KEY_VIEWS[k]);
+  else return;
+  e.preventDefault();
+});
 
 /* ---------- Durum katmanı ---------- */
 
@@ -50,7 +108,7 @@ function showError(text) {
 }
 
 function setControlsBusy(busy) {
-  $('#sample-btn').disabled = busy;
+  document.querySelectorAll('[data-action="sample"]').forEach((b) => { b.disabled = busy; });
 }
 
 /* ---------- STEP okuma (Web Worker) ---------- */
@@ -108,8 +166,12 @@ function finishLoad(msg) {
       analysis,
     };
     $('#empty-hint').classList.add('hidden');
+    $('#start-panel').classList.add('hidden');
+    $('#work').classList.remove('hidden');
+    $('#sidebar').classList.add('has-work');
     renderSummary(current);
     renderParts(current);
+    selectTab('analysis');
     setStatus(null);
     designUI.setAnalysis(current).catch((err) => {
       console.error(err);
@@ -141,7 +203,7 @@ $('#file-input').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
-$('#sample-btn').addEventListener('click', async () => {
+async function loadSample() {
   setControlsBusy(true);
   setStatus('Örnek kart indiriliyor…');
   try {
@@ -152,7 +214,8 @@ $('#sample-btn').addEventListener('click', async () => {
   } catch {
     showError('Örnek dosya indirilemedi.');
   }
-});
+}
+document.querySelectorAll('[data-action="sample"]').forEach((b) => b.addEventListener('click', loadSample));
 
 // Pencerenin her yerine sürükle-bırak
 let dragDepth = 0;
@@ -182,9 +245,6 @@ window.addEventListener('drop', (e) => {
 
 /* ---------- Görünüm araç çubuğu ---------- */
 
-document.querySelectorAll('[data-view]').forEach((btn) => {
-  btn.addEventListener('click', () => viewer.setView(btn.dataset.view));
-});
 $('#guides-btn').addEventListener('click', (e) => {
   const on = !e.currentTarget.classList.contains('on');
   e.currentTarget.classList.toggle('on', on);
@@ -208,10 +268,11 @@ const mmv = (v) => `${fmt(v)} <span class="unit">mm</span>`;
 function renderSummary({ fileName, sizeBytes, seconds, analysis: a }) {
   const el = $('#summary-panel');
   const sizeMb = sizeBytes / (1024 * 1024);
-  let html = `<div class="file-line"><span class="file-name" title="${esc(fileName)}">${esc(fileName)}</span>` +
-    `<span class="muted small">${sizeMb < 1 ? int.format(Math.round(sizeBytes / 1024)) + ' KB' : fmt(sizeMb) + ' MB'} · ${fmt(seconds)} sn</span></div>`;
+  $('#file-name').textContent = fileName;
+  $('#file-name').title = fileName;
+  $('#file-meta').textContent = `${sizeMb < 1 ? int.format(Math.round(sizeBytes / 1024)) + ' KB' : fmt(sizeMb) + ' MB'} · ${fmt(seconds)} sn'de okundu · ${a.partCount} parça`;
 
-  html += '<div class="stats">';
+  let html = '<div class="stats">';
   if (a.board) {
     const b = a.board;
     html += stat('PCB ölçüsü (sınır kutusu)',
@@ -246,7 +307,7 @@ function renderSummary({ fileName, sizeBytes, seconds, analysis: a }) {
   }
   html += '<div class="row"><button type="button" class="btn" id="report-btn">Analiz raporunu indir (JSON)</button></div>';
 
-  el.innerHTML = '<h2 class="panel-title">Analiz</h2>' + html;
+  el.innerHTML = '<h2 class="panel-title">PCB analizi</h2>' + html;
   el.classList.remove('hidden');
   $('#report-btn').addEventListener('click', downloadReport);
 }

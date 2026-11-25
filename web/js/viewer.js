@@ -4,15 +4,27 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { ViewCube } from './viewcube.js';
 
+// Kameranın hedeften bakan yönü (izleyicinin bulunduğu taraf)
 const VIEW_DIRS = {
   iso: [1, -1, 0.85],
-  top: [0, -0.0001, 1],
+  top: [0, 0, 1],
+  bottom: [0, 0, -1],
   front: [0, -1, 0],
   back: [0, 1, 0],
   right: [1, 0, 0],
   left: [-1, 0, 0],
 };
+const ANIM_MS = 380;
+const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+/** Z yukarı kamerada tam üst/alt bakışta yön belirsiz kalmasın diye çok küçük −Y payı */
+function safeDir(v) {
+  const d = v.clone().normalize();
+  if (Math.abs(d.z) > 0.9995) d.set(0, -0.002, Math.sign(d.z)).normalize();
+  return d;
+}
 
 const DEFAULT_COLOR = [0.62, 0.65, 0.69];
 const BOARD_COLOR = [0.12, 0.48, 0.28];
@@ -38,7 +50,7 @@ function cssVar(name) {
 }
 
 export class Viewer {
-  constructor(container, { onPick } = {}) {
+  constructor(container, { onPick, cubeContainer } = {}) {
     this.container = container;
     this.onPick = onPick || (() => {});
     this.materialCache = new Map();
@@ -71,6 +83,9 @@ export class Viewer {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.screenSpacePanning = true;
     this.controls.addEventListener('change', () => this.render());
+    this.controls.addEventListener('start', () => { this.anim = null; });
+
+    this.cube = cubeContainer ? new ViewCube(cubeContainer, this.camera, (dir) => this.orientTo(dir, { fit: false })) : null;
 
     this.modelGroup = new THREE.Group();
     this.guideGroup = new THREE.Group();
@@ -110,6 +125,7 @@ export class Viewer {
     this.highlightMaterial.emissive.copy(accent);
     this.enclosureMaterial.color.set(cssVar('--enclosure') || '#a9bccf');
     this.enclosureEdgeMaterial.color.set(cssVar('--enclosure-edge') || '#4a5866');
+    this.cube?.applyTheme();
   }
 
   resize() {
@@ -127,6 +143,7 @@ export class Viewer {
     requestAnimationFrame(() => {
       this.renderPending = false;
       this.renderer.render(this.scene, this.camera);
+      this.cube?.render();
     });
   }
 
@@ -217,7 +234,7 @@ export class Viewer {
 
     this.modelBox = new THREE.Box3().setFromObject(this.modelGroup);
     this.rebuildHelpers();
-    this.setView('iso');
+    this.setView('iso', { animate: false });
   }
 
   /** Muhafaza dahil görüntülenen her şeyin sınır kutusu */
@@ -319,10 +336,6 @@ export class Viewer {
         this.guideGroup.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), ringMat));
       }
     }
-    const size = box.getSize(new THREE.Vector3());
-    const axes = new THREE.AxesHelper(Math.max(size.x, size.y, size.z) * 0.22);
-    axes.position.copy(box.min);
-    this.guideGroup.add(axes);
     this.guideGroup.visible = this.guidesVisible;
   }
 
@@ -346,22 +359,70 @@ export class Viewer {
     this.render();
   }
 
-  setView(key) {
+  /** Adlandırılmış görünüş: iso, top, front, back, right, left (modele sığdırarak) */
+  setView(key, { animate = true } = {}) {
+    this.orientTo(new THREE.Vector3(...(VIEW_DIRS[key] || VIEW_DIRS.iso)), { fit: true, animate });
+  }
+
+  /** Mevcut bakış yönünü koruyarak modeli ekrana sığdır */
+  fit() {
+    const dir = this.camera.position.clone().sub(this.controls.target);
+    this.orientTo(dir, { fit: true });
+  }
+
+  fitParams() {
     const box = this.viewBox();
-    if (!box || box.isEmpty()) return;
+    if (!box || box.isEmpty()) return null;
     const sphere = box.getBoundingSphere(new THREE.Sphere());
-    const dir = new THREE.Vector3(...(VIEW_DIRS[key] || VIEW_DIRS.iso)).normalize();
     const halfFov = THREE.MathUtils.degToRad(this.camera.fov / 2);
     let dist = sphere.radius / Math.sin(halfFov);
     if (this.camera.aspect < 1) dist /= this.camera.aspect;
-    dist *= 1.08;
-    this.camera.position.copy(sphere.center).addScaledVector(dir, dist);
-    this.camera.near = Math.max(dist / 200, 0.01);
-    this.camera.far = dist * 50;
-    this.camera.updateProjectionMatrix();
-    this.controls.target.copy(sphere.center);
-    this.controls.update();
-    this.render();
+    return { center: sphere.center, dist: dist * 1.08 };
+  }
+
+  /**
+   * Kamerayı hedefin dir yönündeki tarafa çevirir (yumuşak geçişle).
+   * fit: true ise hedef ve uzaklık modele göre yeniden hesaplanır; değilse korunur.
+   */
+  orientTo(dirIn, { fit = false, animate = true } = {}) {
+    const fp = this.fitParams();
+    const toDir = safeDir(dirIn);
+    const fromTarget = this.controls.target.clone();
+    const fromOffset = this.camera.position.clone().sub(fromTarget);
+    const fromDist = fromOffset.length() || 1;
+    const fromDir = fromOffset.clone().normalize();
+    const toTarget = fit && fp ? fp.center.clone() : fromTarget.clone();
+    const toDist = fit && fp ? fp.dist : fromDist;
+    if (fp) {
+      this.camera.near = Math.max(Math.min(toDist, fromDist) / 200, 0.01);
+      this.camera.far = Math.max(toDist, fromDist) * 50;
+      this.camera.updateProjectionMatrix();
+    }
+    const q = new THREE.Quaternion().setFromUnitVectors(fromDir, toDir);
+    const apply = (t) => {
+      const qt = new THREE.Quaternion().slerp(q, t);
+      const dir = fromDir.clone().applyQuaternion(qt);
+      const target = fromTarget.clone().lerp(toTarget, t);
+      const dist = fromDist + (toDist - fromDist) * t;
+      this.controls.target.copy(target);
+      this.camera.position.copy(target).addScaledVector(dir, dist);
+      this.camera.up.set(0, 0, 1);
+      this.controls.update();
+      this.render();
+    };
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!animate || reduce) { this.anim = null; apply(1); return; }
+    const start = performance.now();
+    const token = {};
+    this.anim = token;
+    const step = (now) => {
+      if (this.anim !== token) return;
+      const t = Math.min(1, (now - start) / ANIM_MS);
+      apply(easeInOut(t));
+      if (t < 1) requestAnimationFrame(step);
+      else this.anim = null;
+    };
+    requestAnimationFrame(step);
   }
 
   highlight(partId) {

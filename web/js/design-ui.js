@@ -198,10 +198,9 @@ export function createDesignUI({ viewer, setStatus }) {
   function renderFastening() {
     const holes = state.analysis.holes || [];
     const mount = holes.map((h, i) => ({ ...h, index: i })).filter((h) => h.mount);
-    const others = holes.length - mount.length;
-    $('#holes-summary').textContent = holes.length
-      ? `${mount.length} montaj deliği${others ? ` · ${others} pin deliği yok sayıldı` : ''}`
-      : '';
+    $('#holes-summary').textContent = mount.length
+      ? `${state.selectedHoles.size}/${mount.length} delik · ${state.lidMode === 'screw' ? 'vidalı kapak' : 'geçme kapak'}`
+      : 'montaj deliği yok';
     $('#hole-list').innerHTML = mount.length
       ? mount.map((h, k) => {
         const s = state.fasteners ? pickScrew(h.d, state.fasteners.screws) : null;
@@ -219,6 +218,7 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#ip-desc').textContent = lvl && lvl.id !== 'none'
       ? `${lvl.desc}. Duvar üstünde Ø${f2(lvl.cord_d)} kordon conta kanalı açılır; kapak vidaları contayı sıkıştırır.`
       : 'Sızdırmazlık yok: kapak doğrudan gövdeye oturur.';
+    $('#sum-ip').textContent = lvl && lvl.id !== 'none' ? lvl.label : 'Yok';
   }
 
   $('#hole-list').addEventListener('change', (e) => {
@@ -335,6 +335,21 @@ export function createDesignUI({ viewer, setStatus }) {
     renderStats();
     renderChecks(d.checks || []);
 
+    // Kart özetleri ve kabuğa (sekme rozeti, durum çipi) bildirim
+    const proc = state.index.processes.find((pp) => pp.id === state.process);
+    $('#sum-process').textContent = `${proc.label} · ${state.rules.label}`;
+    $('#sum-params').textContent = d.params
+      ? `Et ${f2(d.params.wall)} · PCB altı ${f2(d.params.standoffHeight)} mm`
+      : 'geçersiz değer';
+    const mountCount = (state.analysis.holes || []).filter((h) => h.mount).length;
+    $('#holes-summary').textContent = mountCount
+      ? `${state.selectedHoles.size}/${mountCount} delik · ${state.lidMode === 'screw' ? 'vidalı kapak' : 'geçme kapak'}`
+      : 'montaj deliği yok';
+    const counts = { error: 0, warn: 0 };
+    for (const c of d.checks || []) if (c.level in counts) counts[c.level]++;
+    if (d.error) counts.error++;
+    document.dispatchEvent(new CustomEvent('ikra:checks', { detail: counts }));
+
     if (state.generated) {
       $('#stale-tag').classList.toggle('hidden', false);
       clearTimeout(state.autoTimer);
@@ -426,10 +441,13 @@ export function createDesignUI({ viewer, setStatus }) {
       z: s.lid ? d.geometry.zTop : state.analysis.board.top,
     }));
     viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws });
-    if (state.firstBuild) viewer.setView('iso');
+    const first = state.firstBuild;
+    if (first) viewer.setView('iso');
     state.firstBuild = false;
     $('#enc-toggles').classList.remove('hidden');
     $('#downloads').classList.remove('hidden');
+    $('#output-empty').classList.add('hidden');
+    document.dispatchEvent(new CustomEvent('ikra:built', { detail: { first } }));
     $('#generate-hint').textContent = `${nf0.format(msg.buildMs)} ms'de üretildi · parametre değişince kendiliğinden güncellenir`;
     $('#stale-tag').classList.toggle('hidden', state.design === d);
     setStatus(null);
@@ -462,14 +480,14 @@ export function createDesignUI({ viewer, setStatus }) {
     if (state.pendingId !== null) { setStatus('Muhafaza güncelleniyor, birazdan tekrar dene.', { error: true }); return; }
     state.drawingId = ++state.seq;
     $('#drawing-btn').disabled = true;
-    $('#drawing-btn').textContent = 'Teknik resim hazırlanıyor…';
+    $('#drawing-btn').lastElementChild.textContent = 'Hazırlanıyor…';
     getWorker().postMessage({ type: 'drawing', id: state.drawingId });
   }
 
   function onDrawing(msg) {
     state.drawingId = null;
     $('#drawing-btn').disabled = false;
-    $('#drawing-btn').textContent = 'Teknik resim (önizle / PDF)';
+    $('#drawing-btn').lastElementChild.textContent = 'Teknik resim (önizle)';
     if (msg.type === 'error') { setStatus('Teknik resim üretilemedi: ' + msg.message, { error: true }); return; }
     const d = state.result.design;
     const proc = state.index.processes.find((p) => p.id === state.process);
@@ -553,6 +571,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.firstBuild = true;
     $('#enc-toggles').classList.add('hidden');
     $('#downloads').classList.add('hidden');
+    $('#output-empty').classList.remove('hidden');
     $('#stale-tag').classList.add('hidden');
     $('#generate-hint').textContent = 'İlk seferde CAD çekirdeği (~6 MB) indirilir.';
     setBusy(false);

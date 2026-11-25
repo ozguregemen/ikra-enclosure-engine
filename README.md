@@ -51,6 +51,12 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   diğer görünüşler, genel ölçüler, delik ve açıklık tabloları, süreç tolerans notları, bağlantı elemanları, antet;
   tarayıcıda önizleme ve Türkçe fontlu PDF (jsPDF + svg2pdf.js + DejaVu Sans)
 
+**Arayüz**
+- Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; kamerayla birlikte döner,
+  eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
+- Sekmeli akış: Analiz → Tasarım (katlanır, özetli kartlar) → Çıktılar; ana eylem ve DFM durumu altta hep görünür
+- Kısayollar: `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt, `G` kılavuzlar (yardım: üst çubuktaki `?`)
+
 ## Kural dosyaları
 
 `web/rules/<süreç>/<malzeme>.json` dosyaları süreç × malzeme kural setlerini tutar
@@ -106,6 +112,7 @@ web/                  Yayınlanan statik site
   js/cad-worker.js    Katı model üretimi, STEP/STL çıktısı, teknik resim izdüşümleri (Web Worker, replicad)
   js/drawing.js       Teknik resim paftaları (SVG) ve PDF çıktısı
   js/viewer.js        3B önizleme (three.js)
+  js/viewcube.js      Yön küpü
   rules/              Süreç × malzeme kural dosyaları
   samples/            Örnek STEP dosyası
 tools/
