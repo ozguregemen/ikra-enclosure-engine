@@ -194,6 +194,7 @@ export function analyzeAssembly(root, meshes, options = {}) {
     envelope: null,
     counts: { top: 0, bottom: 0, edge: 0, overhang: 0, outside: 0 },
     parts,
+    meshBoxes,
     warnings,
     options: opts,
   };

@@ -28,7 +28,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">M0 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">M1 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -54,6 +54,37 @@
 
       <section class="panel hidden" id="summary-panel" aria-live="polite"></section>
 
+      <section class="panel hidden" id="design-panel">
+        <h2 class="panel-title">2 · Üretim yöntemi ve malzeme</h2>
+        <div class="seg-full" id="process-seg" role="radiogroup" aria-label="Üretim yöntemi"></div>
+        <div class="chips" id="material-chips" role="radiogroup" aria-label="Malzeme"></div>
+        <ul class="rule-notes muted small" id="rule-notes"></ul>
+
+        <div class="panel-head">
+          <h2 class="panel-title">3 · Parametreler</h2>
+          <button type="button" class="link-btn" id="params-reset">Kural değerlerine dön</button>
+        </div>
+        <div class="params" id="params"></div>
+
+        <div class="panel-head">
+          <h2 class="panel-title">4 · Muhafaza</h2>
+          <span class="stale-tag hidden" id="stale-tag">parametreler değişti</span>
+        </div>
+        <div class="note error hidden" id="design-error"></div>
+        <div class="stats" id="design-stats"></div>
+        <div class="row">
+          <button type="button" class="btn primary" id="generate-btn">Muhafaza oluştur</button>
+          <span class="hint" id="generate-hint">İlk seferde CAD çekirdeği (~6 MB) indirilir.</span>
+        </div>
+        <div class="downloads hidden" id="downloads">
+          <button type="button" class="btn" id="dl-step">STEP indir (gövde + kapak)</button>
+          <button type="button" class="btn" id="dl-stl-base">STL · gövde</button>
+          <button type="button" class="btn" id="dl-stl-lid">STL · kapak</button>
+        </div>
+        <h3 class="sub-title">DFM kontrolleri</h3>
+        <ul class="notes" id="dfm-list"></ul>
+      </section>
+
       <section class="panel hidden" id="parts-panel">
         <div class="panel-head">
           <h2 class="panel-title">Bileşenler</h2>
@@ -73,13 +104,13 @@
       <section class="panel" id="roadmap-panel">
         <h2 class="panel-title">V1 akışı</h2>
         <ol class="steps">
-          <li class="step active"><span class="num">1</span>STEP yükle ve analiz et<span class="tag now">M0</span></li>
-          <li class="step"><span class="num">2</span>Üretim yöntemi seç<span class="tag">M1</span></li>
-          <li class="step"><span class="num">3</span>Malzeme seç<span class="tag">M1</span></li>
-          <li class="step"><span class="num">4</span>Muhafaza oluştur (gövde + kapak)<span class="tag">M1</span></li>
-          <li class="step"><span class="num">5</span>Standoff, vida, port açıklıkları<span class="tag">M2–M3</span></li>
-          <li class="step"><span class="num">6</span>IP seviyesi, DFM uyarıları<span class="tag">M3–M4</span></li>
-          <li class="step"><span class="num">7</span>STEP / PDF indir<span class="tag">M1–M4</span></li>
+          <li class="step done"><span class="num">1</span>STEP yükle ve analiz et<span class="tag">M0</span></li>
+          <li class="step done"><span class="num">2</span>Üretim yöntemi seç<span class="tag">M1</span></li>
+          <li class="step done"><span class="num">3</span>Malzeme seç<span class="tag">M1</span></li>
+          <li class="step active"><span class="num">4</span>Gövde + kapak, temel DFM, STEP/STL<span class="tag now">M1</span></li>
+          <li class="step"><span class="num">5</span>Standoff ve vida noktaları<span class="tag">M2</span></li>
+          <li class="step"><span class="num">6</span>Port açıklıkları, DFM paneli<span class="tag">M3</span></li>
+          <li class="step"><span class="num">7</span>IP conta kanalı, PDF teknik resim<span class="tag">M4</span></li>
         </ol>
       </section>
 
@@ -99,6 +130,14 @@
           <button type="button" data-view="right">Sağ</button>
         </div>
         <button type="button" class="toggle on" id="guides-btn" aria-pressed="true" title="PCB ve zarf kutularını göster/gizle">Kılavuzlar</button>
+        <span class="toolbar-break"></span>
+        <div class="seg hidden" id="enc-toggles" role="group" aria-label="Muhafaza görünümü">
+          <button type="button" class="toggle-item on" data-enc="base" aria-pressed="true">Gövde</button>
+          <button type="button" class="toggle-item on" data-enc="lid" aria-pressed="true">Kapak</button>
+          <button type="button" class="toggle-item on" data-enc="pcb" aria-pressed="true">PCB</button>
+          <button type="button" class="toggle-item on" data-enc="transparent" aria-pressed="true">Şeffaf</button>
+          <button type="button" class="toggle-item" data-enc="exploded" aria-pressed="false">Patlat</button>
+        </div>
       </div>
 
       <div class="axis-legend" aria-hidden="true">

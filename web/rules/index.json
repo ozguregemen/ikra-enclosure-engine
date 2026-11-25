@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "aciklama": "Süreç × malzeme kural setleri. Değerler genel endüstri pratiğine dayanan başlangıç değerleridir; kurum standardınıza göre düzenleyin. Tüm uzunluklar mm, açılar derece.",
+  "processes": [
+    {
+      "id": "fdm",
+      "label": "3D Baskı (FDM)",
+      "materials": [
+        { "id": "pla", "label": "PLA", "file": "fdm/pla.json" },
+        { "id": "petg", "label": "PETG", "file": "fdm/petg.json" },
+        { "id": "abs", "label": "ABS / ASA", "file": "fdm/abs.json" }
+      ]
+    },
+    {
+      "id": "cnc",
+      "label": "CNC",
+      "materials": [
+        { "id": "pom", "label": "Delrin (POM)", "file": "cnc/pom.json" },
+        { "id": "abs", "label": "ABS", "file": "cnc/abs.json" },
+        { "id": "al6061", "label": "6061 Alüminyum", "file": "cnc/al6061.json" }
+      ]
+    },
+    {
+      "id": "injection",
+      "label": "Enjeksiyon",
+      "materials": [
+        { "id": "abs", "label": "ABS", "file": "injection/abs.json" },
+        { "id": "pcabs", "label": "PC/ABS", "file": "injection/pcabs.json" }
+      ]
+    }
+  ]
+}

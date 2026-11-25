@@ -73,7 +73,12 @@ export class Viewer {
     this.modelGroup = new THREE.Group();
     this.guideGroup = new THREE.Group();
     this.gridGroup = new THREE.Group();
-    this.scene.add(this.modelGroup, this.guideGroup, this.gridGroup);
+    this.enclosureGroup = new THREE.Group();
+    this.scene.add(this.modelGroup, this.guideGroup, this.gridGroup, this.enclosureGroup);
+    this.enclosure = null;
+    this.encOpts = { base: true, lid: true, pcb: true, transparent: true, exploded: false };
+    this.enclosureMaterial = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
+    this.enclosureEdgeMaterial = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.55 });
 
     this.highlightMaterial = new THREE.MeshStandardMaterial({
       roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide,
@@ -100,6 +105,8 @@ export class Viewer {
     this.scene.background = new THREE.Color(cssVar('--viewer-bg') || '#e9edf1');
     this.highlightMaterial.color.copy(accent);
     this.highlightMaterial.emissive.copy(accent);
+    this.enclosureMaterial.color.set(cssVar('--enclosure') || '#a9bccf');
+    this.enclosureEdgeMaterial.color.set(cssVar('--enclosure-edge') || '#4a5866');
   }
 
   resize() {
@@ -137,6 +144,7 @@ export class Viewer {
   }
 
   clear() {
+    this.clearEnclosure();
     for (const child of [...this.modelGroup.children]) {
       child.geometry.dispose();
       this.modelGroup.remove(child);
@@ -209,9 +217,69 @@ export class Viewer {
     this.setView('iso');
   }
 
+  /** Muhafaza dahil görüntülenen her şeyin sınır kutusu */
+  viewBox() {
+    if (!this.modelBox) return null;
+    const box = this.modelBox.clone();
+    if (this.enclosure) box.union(new THREE.Box3().setFromObject(this.enclosureGroup));
+    return box;
+  }
+
+  /** meshes: { base: {position, normal, index}, lid: {...} } — cad-worker çıktısı */
+  setEnclosure(meshes, { explodeOffset = 20 } = {}) {
+    this.clearEnclosure();
+    this.enclosure = {};
+    for (const key of ['base', 'lid']) {
+      const m = meshes[key];
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
+      geometry.setAttribute('normal', new THREE.BufferAttribute(m.normal, 3));
+      geometry.setIndex(new THREE.BufferAttribute(m.index, 1));
+      const holder = new THREE.Group();
+      holder.add(new THREE.Mesh(geometry, this.enclosureMaterial));
+      holder.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 25), this.enclosureEdgeMaterial));
+      this.enclosureGroup.add(holder);
+      this.enclosure[key] = holder;
+    }
+    this.explodeOffset = explodeOffset;
+    this.applyEnclosureOptions();
+    this.rebuildHelpers();
+    this.render();
+  }
+
+  clearEnclosure() {
+    for (const holder of [...this.enclosureGroup.children]) {
+      for (const child of holder.children) child.geometry.dispose();
+      this.enclosureGroup.remove(holder);
+    }
+    this.enclosure = null;
+    this.modelGroup.visible = true;
+  }
+
+  setEnclosureOptions(opts) {
+    Object.assign(this.encOpts, opts);
+    this.applyEnclosureOptions();
+    this.rebuildHelpers();
+    this.render();
+  }
+
+  applyEnclosureOptions() {
+    if (!this.enclosure) return;
+    const o = this.encOpts;
+    this.enclosure.base.visible = o.base;
+    this.enclosure.lid.visible = o.lid;
+    this.enclosure.lid.position.z = o.exploded ? this.explodeOffset : 0;
+    this.modelGroup.visible = o.pcb;
+    const mat = this.enclosureMaterial;
+    mat.transparent = o.transparent;
+    mat.opacity = o.transparent ? 0.32 : 1;
+    mat.depthWrite = !o.transparent;
+    mat.needsUpdate = true;
+  }
+
   rebuildHelpers() {
     this.clearGroup(this.guideGroup);
-    const box = this.modelBox;
+    const box = this.viewBox();
     if (!box || box.isEmpty()) return;
     this.buildGrid(box);
 
@@ -250,7 +318,7 @@ export class Viewer {
   }
 
   setView(key) {
-    const box = this.modelBox;
+    const box = this.viewBox();
     if (!box || box.isEmpty()) return;
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const dir = new THREE.Vector3(...(VIEW_DIRS[key] || VIEW_DIRS.iso)).normalize();
@@ -289,7 +357,7 @@ export class Viewer {
       if (!down) return;
       const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
       down = null;
-      if (moved > 4 || !this.modelGroup.children.length) return;
+      if (moved > 4 || !this.modelGroup.children.length || !this.modelGroup.visible) return;
       const r = el.getBoundingClientRect();
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       raycaster.setFromCamera(ndc, this.camera);

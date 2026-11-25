@@ -4,8 +4,9 @@
  */
 import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
+import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.1.1 (M0)';
+const APP_VERSION = '0.2.0 (M1)';
 const SAMPLE_URL = 'samples/ornek-kart.step';
 const LARGE_FILE_MB = 50;
 
@@ -39,6 +40,8 @@ function setStatus(text, { error = false } = {}) {
   el.classList.remove('hidden');
 }
 $('#status-close').addEventListener('click', () => setStatus(null));
+
+const designUI = createDesignUI({ viewer, setStatus });
 
 function showError(text) {
   pending = null;
@@ -108,6 +111,10 @@ function finishLoad(msg) {
     renderSummary(current);
     renderParts(current);
     setStatus(null);
+    designUI.setAnalysis(current).catch((err) => {
+      console.error(err);
+      setStatus('Tasarım paneli açılamadı: ' + err.message, { error: true });
+    });
   } catch (err) {
     console.error(err);
     showError('Model analiz edilemedi: ' + err.message);
@@ -302,6 +309,7 @@ function downloadReport() {
     envelope: a.envelope && { ...a.envelope, box: { min: r3(a.envelope.box.min), max: r3(a.envelope.box.max) } },
     counts: a.counts,
     warnings: a.warnings,
+    design: designUI.reportSection(),
     parts: a.parts.map((p) => ({
       name: p.name,
       side: p.side,
