@@ -686,3 +686,8 @@ kbd {
 .sample-btn:disabled { opacity: .55; cursor: progress; }
 .sample-btn b { font-size: 13px; }
 .sample-btn span { font-size: 11px; color: var(--muted); }
+
+/* ---------- Kutunun içine alınan taşan parçalar ---------- */
+.enc-list { display: grid; gap: 4px; margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); }
+.enc-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.enc-row .port-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

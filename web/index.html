@@ -31,7 +31,7 @@
       <span class="brand-name">Ikra</span>
       <span class="brand-sub">Enclosure Engine</span>
     </div>
-    <span class="badge" title="Geliştirme aşaması">V1.12 · önizleme</span>
+    <span class="badge" title="Geliştirme aşaması">V1.13 · önizleme</span>
     <span class="topbar-spacer"></span>
     <span class="privacy" title="STEP dosyası hiçbir sunucuya gönderilmez; tüm hesap bu tarayıcıda yapılır">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -183,6 +183,9 @@
                   </button>
                   <h3 class="sub-title">Montaj delikleri</h3>
                   <div class="hole-list" id="hole-list"></div>
+                  <h3 class="sub-title">Kart kenarı tutucu <span class="muted">· montaj deliği yoksa</span></h3>
+                  <div class="seg-full three" id="edge-hold" role="radiogroup" aria-label="Kart kenarı tutucu"></div>
+                  <p class="muted small" id="edge-desc"></p>
                   <h3 class="sub-title">Kapak bağlantısı</h3>
                   <div class="seg-full three" id="lid-mode" role="radiogroup" aria-label="Kapak bağlantısı"></div>
                   <div class="corner-pick-wrap hidden" id="corner-pick-wrap">
@@ -454,6 +457,7 @@
         <li class="step done"><span class="num">15</span>Proje kaydet / aç (.ikra.json, STEP gömülü ya da ayrı)<span class="tag">V1.10</span></li>
         <li class="step done"><span class="num">16</span>Montaj: taban hizasında kulaklar ya da tabandan içten vida<span class="tag">V1.11</span></li>
         <li class="step done"><span class="num">17</span>Kapak için ayrı malzeme; Arduino, Raspberry Pi, ESP32, Nucleo örnekleri<span class="tag">V1.12</span></li>
+        <li class="step done"><span class="num">18</span>Kart kenarı tutucu (deliksiz kartlar); taşan anten kutunun içinde<span class="tag">V1.13</span></li>
       </ol>
     </div>
   </dialog>

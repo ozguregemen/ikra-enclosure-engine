@@ -15,12 +15,15 @@ const LIP_MIN_LENGTH = 4; // mm: bundan kısa dil parçası üretilmez
 // RF bileşeni ipuçları: alt dize olarak aranacaklar ve tam kelime (token) olarak aranacaklar
 const RF_SUBSTR = /(gps|gnss|antenna|anten|bluetooth|lora|radar|u\.?fl|ipex|wi-?fi)/i;
 const RF_TOKENS = new Set(['ant', 'rf', 'sma', 'ble', 'lte', 'gsm', 'nfc', 'mmwave']);
+// PCB/çip anten: kartın dışına taşsa da kutunun içinde kalmalı (duvardan açıklık açılmaz)
+const isAntennaName = (name) => /(anten|antenna|chip_?ant|pcb_?ant)/i.test(name) || String(name).toLowerCase().split(/[^a-z0-9]+/).includes('ant');
 const isRfName = (name) => RF_SUBSTR.test(name) ||
   String(name).toLowerCase().split(/[^a-z0-9]+/).some((t) => RF_TOKENS.has(t));
 
-import { detectPorts } from './ports.js';
+import { detectPorts, isConnectorName } from './ports.js';
 import { planPanel } from './panel.js';
 import { planMount } from './mount.js';
+import { planEdgeHold } from './edgehold.js';
 import { toleranceOf, lidGap, adjustScrewRow, pocketAf, compHole } from './fits.js';
 
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
@@ -412,6 +415,21 @@ export function computeDesign(analysis, rules, params, options = {}) {
     min: [b.box.min[0] - clr, b.box.min[1] - clr],
     max: [b.box.max[0] + clr, b.box.max[1] + clr],
   };
+  // Kartın dışına taşan ama dışarıdan erişim gerektirmeyen parçalar (ör. modülün PCB anteni) kutunun içine alınır:
+  // adı anten olanlar kendiliğinden, diğerleri port listesinde "İçeri al" ile. encloseOverrides: Map(partId → true/false)
+  const encOv = options.encloseOverrides || new Map();
+  const enclosed = [];
+  for (const pt of analysis.parts) {
+    if (pt.isBoard || !pt.box || !(pt.edges || []).some((e) => e.kind === 'overhang')) continue;
+    const auto = isAntennaName(pt.name) && !isConnectorName(pt.name);
+    const want = encOv.has(pt.id) ? encOv.get(pt.id) : auto;
+    if (!want) continue;
+    for (const k of [0, 1]) {
+      cav.min[k] = Math.min(cav.min[k], pt.box.min[k] - clr);
+      cav.max[k] = Math.max(cav.max[k], pt.box.max[k] + clr);
+    }
+    enclosed.push({ partId: pt.id, name: pt.name, auto });
+  }
   // --- Köşe kapak vidaları (Paket C): boss'lar PCB köşesine çarpmasın diye kavite bir eksende uzatılır ---
   const cornerMode = (options.lidMode || 'screw') === 'corner';
   const cplan = cornerMode ? planCorner(options, rules) : null;
@@ -1293,6 +1311,17 @@ export function computeDesign(analysis, rules, params, options = {}) {
   });
   bom.push(...mount.bom);
 
+  // --- Kart kenarı tutucu: montaj deliği yoksa (ya da istenirse) alt destek + kapak baskısı ---
+  const lidItems = [];
+  for (const it of panel.items) {
+    if (it.face === 'lid' && Number.isFinite(it.x) && it.E) lidItems.push({ box: { min: [it.x - it.E / 2, it.y - it.E / 2, cavTop - (it.pd?.inner || 5)], max: [it.x + it.E / 2, it.y + it.E / 2, cavTop] }, name: it.title });
+    for (const q of it.positions || []) if (it.kind === 'lightpipe' && Number.isFinite(q.top)) lidItems.push({ box: { min: [q.x - 2, q.y - 2, q.top], max: [q.x + 2, q.y + 2, cavTop] }, name: 'ışık borusu' });
+  }
+  const edge = planEdgeHold({
+    mode: options.edgeHold, hasHoles: usedHoles.length > 0, b, cav, floorTop, cavTop, rIn, fit, clr, obstacles, standoffs, cornerBosses,
+    lidTubes, lidHoles, floorHoles: mount.floorHoles, lidItems, rules,
+  });
+
   // --- DFM kontrolleri ---
   cat = 'genel';
   if (wall < rules.min_wall) {
@@ -1369,6 +1398,9 @@ export function computeDesign(analysis, rules, params, options = {}) {
 
   // Port açıklıkları
   cat = 'port';
+  for (const en of enclosed) {
+    add('info', `${en.name} kartın dışına taşıyor; ${en.auto ? 'anten olduğu için' : 'seçiminizle'} duvardan açıklık açılmadı, kavite onu içine alacak kadar büyütüldü.`, null, { partId: en.partId });
+  }
   const styleText = (s) => (s === 'notch' ? 'çentik (üstten açık)' : 'pencere');
   let sideMachining = false;
   for (const pt of ports) {
@@ -1422,11 +1454,15 @@ export function computeDesign(analysis, rules, params, options = {}) {
   // Bağlantı kontrolleri
   cat = 'baglanti';
   if (!mountHoles.length) {
-    add('warn', 'Kartta montaj deliği bulunamadı: PCB tutucu (standoff) üretilmedi, kart muhafaza içinde serbest kalır.');
-    if (lidMode === 'screw') add('info', 'Kapak vidası montaj deliklerine bağlı olduğundan kapak yalnızca geçmeyle tutunur.');
+    if (!edge.active) add('warn', 'Kartta montaj deliği bulunamadı: PCB tutucu (standoff) üretilmedi, kart muhafaza içinde serbest kalır.', { key: 'edgeHold', value: 'on', label: 'Kart kenarı tutucu' });
+    if (lidMode === 'screw') {
+      add('info', 'Kapak vidası montaj deliklerine bağlı olduğundan kapak yalnızca geçmeyle tutunur; vidalı kapak için köşe vidaları seçin.',
+        { key: 'lidMode', value: 'corner', label: 'Köşe vidaları' });
+    }
   } else if (!usedHoles.length) {
-    add('warn', 'Hiçbir montaj deliği seçilmedi: PCB tutucu üretilmedi.');
+    if (!edge.active) add('warn', 'Hiçbir montaj deliği seçilmedi: PCB tutucu üretilmedi.', { key: 'edgeHold', value: 'on', label: 'Kart kenarı tutucu' });
   }
+  for (const [level, text, fix] of edge.checks) add(level, text, fix);
   for (const [level, text, fix] of fastenChecks) add(level, text, fix);
   if (standoffs.length) {
     const st = standoffs[0];
@@ -1532,9 +1568,13 @@ export function computeDesign(analysis, rules, params, options = {}) {
       panelSpots: panel.spots,
       ears: mount.ears,
       mountHoles: mount.floorHoles,
+      edgePads: edge.pads,
+      edgePressers: edge.pressers,
     },
     panel: { items: panel.items, visuals: panel.visuals },
     mount: { type: mount.type, info: mount.info, footprint: mount.footprint, holes: mount.holes },
+    edgeHold: { active: edge.active, info: edge.info, pads: edge.pads.length, pressers: edge.pressers.length },
+    enclosed,
     sealing: seal ? { id: seal.id, label: seal.label, cord_d: seal.cord_d, squeeze: seal.squeeze, groove, cordLength } : null,
     ports,
     lipBars,

@@ -90,6 +90,8 @@ export function createDesignUI({ viewer, setStatus }) {
     fits: { lid: 'normal', screw: 'normal' }, // geçme sınıfları
     mount: { type: 'none', size: 'M4', count: 4, axis: 'auto', hole: 'round' }, // kutunun bağlanması
     lidSel: null, // { process, material } — null: kapak gövdeyle aynı malzeme
+    edgeHold: 'auto', // kart kenarı tutucu: auto (delik yoksa) / on / off
+    encloseOverrides: new Map(), // partId → true (kutunun içine al) / false (duvardan çıkar)
     lidRules: null,
     tolEdit: 'body', // tolerans kartında düzenlenen malzeme: gövde / kapak
     tolOverrides: loadTolOverrides(), // { 'fdm/pla': { general, per_100mm, hole_comp, press, normal, loose } } — kendi yazıcı/atölye değerleri
@@ -435,6 +437,8 @@ export function createDesignUI({ viewer, setStatus }) {
     lidRules: state.lidSel ? state.lidRules : null,
     lidTolerance: state.lidSel && state.lidRules ? state.tolOverrides[state.lidRules.id] || null : null,
     mount: state.mount,
+    edgeHold: state.edgeHold,
+    encloseOverrides: state.encloseOverrides,
   });
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
 
@@ -512,6 +516,7 @@ export function createDesignUI({ viewer, setStatus }) {
       return;
     }
     if (key === 'fitLid') { setFit('lid', value); return; }
+    if (key === 'edgeHold') { setEdgeHold(value); return; }
     if (key === 'holeOff') { const prev = currentDefaults(); state.selectedHoles.delete(Number(value)); renderFastening(); refreshAutoParams(prev); update(); return; }
     if (key === 'mountAxis') { setMount({ axis: value }); return; }
     if (key === 'mountType') { setMount({ type: value }); return; }
@@ -560,7 +565,7 @@ export function createDesignUI({ viewer, setStatus }) {
           `<span>Delik ${k + 1} · Ø${f2(h.d)}${s ? ` · ${s.size}` : ''}</span>` +
           `<span class="pos">${f2(h.x)}; ${f2(h.y)}</span></label>`;
       }).join('')
-      : '<div class="hole-empty">Kartta montaj deliği bulunamadı. PCB tutucu üretilemez; kart kenarı tutucuları sonraki sürümlerde.</div>';
+      : '<div class="hole-empty">Kartta montaj deliği bulunamadı: kart, aşağıdaki kart kenarı tutucularıyla (alt destek + kapak baskısı) tutulur.</div>';
     $('#lid-mode').innerHTML = LID_MODES.map((m) =>
       `<button type="button" role="radio" data-lid="${m.id}" aria-checked="${m.id === state.lidMode}">${esc(m.label)}</button>`).join('');
     const levels = state.sealingIndex?.levels || [];
@@ -615,11 +620,19 @@ export function createDesignUI({ viewer, setStatus }) {
           <select data-port-style="${esc(p.key)}" aria-label="Açıklık tipi" ${p.enabled ? '' : 'disabled'}>
             <option value="window" ${p.style === 'window' ? 'selected' : ''}>Pencere</option>
             <option value="notch" ${p.style === 'notch' ? 'selected' : ''}>Çentik</option>
+            ${p.crossing ? '<option value="enclose">İçeri al (açıklık yok)</option>' : ''}
           </select>
           <span class="port-meta"><span class="pill side">${esc(p.side)}</span>${p.crossing ? 'duvardan geçiyor' : 'duvara dayalı'}` +
           `${!p.crossing && p.connectorLike ? ' · konnektör' : ''}${p.autoNotch ? ' · üstte ince duvar kaldığı için çentik' : ''}</span>
         </div>`).join('')
       : '<div class="hole-empty">Duvara değen veya dayalı bileşen yok.</div>';
+    // Kartın dışına taşıp kutunun içine alınan parçalar (anten kendiliğinden ya da "İçeri al" ile)
+    const enc = d.enclosed || [];
+    if (enc.length) {
+      $('#port-list').innerHTML += `<div class="enc-list"><span class="muted small">Kutunun içine alınanlar (taşan, açıklık yok):</span>${enc.map((en) =>
+        `<div class="enc-row" data-part="${en.partId}"><span class="port-name" title="${esc(en.name)}">${esc(en.name)}</span><span class="muted small">${en.auto ? 'anten' : 'elle'}</span>` +
+        `<button type="button" class="link-btn" data-unenclose="${en.partId}">Duvardan çıkar</button></div>`).join('')}</div>`;
+    }
   }
 
   $('#port-list').addEventListener('change', (e) => {
@@ -627,12 +640,25 @@ export function createDesignUI({ viewer, setStatus }) {
     const sel = e.target.closest('select[data-port-style]');
     const key = cb ? cb.dataset.port : sel ? sel.dataset.portStyle : null;
     if (!key) return;
+    // "İçeri al": taşan parça kutunun içine alınır (kavite büyür, açıklık açılmaz)
+    if (sel && sel.value === 'enclose') { setEnclose(Number(String(key).split('|')[0]), true); return; }
     const ov = { ...(state.portOverrides.get(key) || {}) };
     if (cb) ov.enabled = cb.checked;
     if (sel) ov.style = sel.value;
     state.portOverrides.set(key, ov);
     update();
   });
+  $('#port-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-unenclose]');
+    if (b) setEnclose(Number(b.dataset.unenclose), false);
+  });
+  function setEnclose(partId, on) {
+    const prev = state.rules && state.analysis ? currentDefaults() : null;
+    state.encloseOverrides = new Map(state.encloseOverrides);
+    state.encloseOverrides.set(partId, on);
+    if (prev) refreshAutoParams(prev);
+    update();
+  }
   $('#port-list').addEventListener('mouseover', (e) => {
     const row = e.target.closest('.port-row');
     if (row) viewer.highlight(Number(row.dataset.part));
@@ -739,6 +765,25 @@ export function createDesignUI({ viewer, setStatus }) {
     renderTolerance();
     update();
   });
+
+  /* ---------- Kart kenarı tutucu ---------- */
+
+  function renderEdgeHold(d = state.design) {
+    $('#edge-hold').innerHTML = [['auto', 'Otomatik'], ['on', 'Açık'], ['off', 'Kapalı']].map(([id, label]) =>
+      `<button type="button" role="radio" data-edge="${id}" aria-checked="${state.edgeHold === id}">${label}</button>`).join('');
+    const eh = d?.edgeHold;
+    $('#edge-desc').textContent = !eh ? ''
+      : !eh.active ? (state.edgeHold === 'off' ? 'Kapalı: kart yalnızca montaj deliklerinden tutulur.' : 'Kart montaj deliklerinden tutuluyor; kenar tutucu gerekmiyor (Açık seçilirse ek olarak eklenir).')
+        : `${eh.pads} alt destek (tabana ve duvara bağlı) + ${eh.pressers} kapak baskısı; kart kenarından ${eh.info?.overlap ? String(eh.info.overlap).replace('.', ',') : '–'} mm içeri tutulur.`;
+  }
+  function setEdgeHold(v) {
+    if (!['auto', 'on', 'off'].includes(v) || v === state.edgeHold) return;
+    const prev = state.rules && state.analysis ? currentDefaults() : null;
+    state.edgeHold = v;
+    if (prev) refreshAutoParams(prev);
+    update();
+  }
+  $('#edge-hold').addEventListener('click', (e) => { const b = e.target.closest('[data-edge]'); if (b) setEdgeHold(b.dataset.edge); });
 
   /* ---------- Montaj (kutunun bağlanması) ---------- */
 
@@ -928,6 +973,7 @@ export function createDesignUI({ viewer, setStatus }) {
     renderPanelCard(d);
     renderTolerance(d);
     renderMount(d);
+    renderEdgeHold(d);
 
     const errEl = $('#design-error');
     errEl.classList.toggle('hidden', !d.error);
@@ -1302,6 +1348,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.cornerAxis = 'auto'; // köşe payı ekseni karta göre yeniden seçilir
     state.panelParts = state.panelParts.map((sp) => ({ ...sp, u: null, v: null })); // panel elemanları korunur, konumları yeni karta göre
     state.portOverrides = new Map();
+    state.encloseOverrides = new Map();
     state.sheets = null;
     state.drawingId = null;
     state.params = currentDefaults();
@@ -1375,6 +1422,8 @@ export function createDesignUI({ viewer, setStatus }) {
       lidMaterial: state.lidSel,
       lidToleranceOverride: state.lidSel && state.lidRules ? state.tolOverrides[state.lidRules.id] || null : null,
       mount: state.mount,
+      edgeHold: state.edgeHold,
+      encloseOverrides: [...state.encloseOverrides.entries()],
     };
   }
 
@@ -1415,6 +1464,8 @@ export function createDesignUI({ viewer, setStatus }) {
     if ((s.panelParts || []).length !== state.panelParts.length) warnings.push('Bazı panel elemanı tipleri bu sürümde yok; atlandı.');
     state.fits = { lid: 'normal', screw: 'normal', ...(s.fits || {}) };
     state.mount = { type: 'none', size: 'M4', count: 4, axis: 'auto', hole: 'round', ...(s.mount || {}) };
+    state.edgeHold = ['auto', 'on', 'off'].includes(s.edgeHold) ? s.edgeHold : 'auto';
+    state.encloseOverrides = new Map(Array.isArray(s.encloseOverrides) ? s.encloseOverrides : []);
     if (s.toleranceOverride && Object.keys(s.toleranceOverride).length) {
       state.tolOverrides = { ...state.tolOverrides, [state.rules.id]: { ...s.toleranceOverride } };
       saveTolOverrides(state.tolOverrides);

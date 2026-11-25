@@ -162,6 +162,8 @@ function buildEnclosure(g) {
         .extrude(c.depth + over, { extrusionProfile: { profile: 'linear', endFactor: rb / rt } }));
     }
   }
+  // Kart kenarı tutucu: tabana ve duvara bağlı alt destekler (kartı kenar bandından taşır)
+  for (const pd of g.edgePads || []) base = base.fuse(makeBox(pd.min, pd.max));
   // Köşe kapak vidası boss'ları: duvarlara yaslı silindir + köşeyi dolduran blok, üstten vida deliği
   for (const c of g.cornerBosses || []) {
     base = base.fuse(makeCylinder(c.od / 2, c.z1 - c.z0 + 0.5, [c.x, c.y, c.z0 - 0.5], up));
@@ -223,6 +225,8 @@ function buildEnclosure(g) {
 
   // Kapak: düz plaka + kenarlara konumlandırma dili + PCB'ye inen vida boruları
   let lid = roundedSlab(g.outer.L, g.outer.W, g.outer.r, cx, cy, g.cavTop, g.lidT);
+  // Kart kenarı tutucu: kapaktan inen baskı dilleri (kapak kapanınca kartı üstten sıkıştırır)
+  for (const pr of g.edgePressers || []) lid = lid.fuse(makeBox(pr.min, pr.max));
   for (const bar of g.lipBars) {
     lid = lid.fuse(makeBox(bar.min, bar.max));
   }

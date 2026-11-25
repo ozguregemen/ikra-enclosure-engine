@@ -397,6 +397,7 @@ function baseSheet(ctx) {
     `Et kalınlığı ${d1(d.params.wall)} mm, taban ${d1(d.params.floor)} mm, iç köşe R${d1(d.params.rIn)}, dış köşe R${d1(d.params.rOut)}.`,
     `Açıklık konumu duvar boyunca sıfır noktasından, Z gövde altından ölçülür; açıklıklar konnektör + ${d1(rules.cutout_clearance_xy)} mm boşlukla.`,
   ];
+  if (d.edgeHold?.active && d.edgeHold.pads) n.push(`Kart kenarı tutucu: ${d.edgeHold.pads} alt destek kartı kenarından ${d1(d.edgeHold.info?.overlap ?? 2)} mm içeri taşır; kapakta ${d.edgeHold.pressers} baskı dili kartı üstten sıkıştırır.`);
   if (d.mount?.info) n.push(`Montaj delikleri (M): ${d.mount.holes.length} × Ø${d2(d.mount.info.d)}, aralık ${d.mount.info.spacing.filter((v) => v > 0.05).map(d1).join(' × ')} mm${d.mount.footprint ? `; kulaklarla taban izi ${d1(d.mount.footprint.L)} × ${d1(d.mount.footprint.W)} mm` : ''}.`);
   if (panelRows.length) n.push('Panel delikleri (E): merkez konumu duvar boyunca sıfır noktasından, Z gövde altından; D-deliklerde düzlük üstte. Lamba, parçanın panel kalınlığı sınırı için yerel et inceltmedir.');
   if (d.sealing) {

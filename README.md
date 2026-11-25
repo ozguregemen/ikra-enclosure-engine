@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.12 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj + kapak malzemesi)
+## Şu anki durum: V1.13 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj + kapak malzemesi + kart kenarı tutucu)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -194,6 +194,14 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   yükseklikleri ve PCB kalınlıkları yaklaşıktır (üreteçte işaretli). Standoff bir bileşene çarparsa hata, o noktaya
   sığacak en büyük boss çapını ve "Bu deliği kullanma" düzeltmesini gösterir
 
+**Kart kenarı tutucu (V1.13)** — Bağlantı › Kart kenarı tutucu (Otomatik / Açık / Kapalı)
+- Montaj deliği olmayan kartlarda kendiliğinden: tabana ve duvara bağlı alt destekler kartı kenar bandından (2 mm, gerekirse
+  1,5 / 1,2 mm) taşır, kapaktan inen baskı dilleri kapak kapanınca üstten sıkıştırır; yerler kenar bandında altında / üstünde
+  bileşen, standoff, boss, kapak borusu, ışık borusu ve kapak panel elemanı olmayan noktalardan köşelere yayılarak seçilir
+- En az 3 destek bulunamazsa hata; baskı yeri yoksa köpük bant önerisi; yanal konum kavite duvarlarıyla
+- Kartın dışına taşan PCB anteni (ad içinde anten/antenna/ant) duvardan açıklık açmak yerine kutunun içine alınır;
+  diğer taşan parçalar port listesinde "İçeri al" ile, geri almak için "Duvardan çıkar"
+
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
@@ -238,7 +246,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.9 | Malzeme kütüphanesi (8 FDM filamenti, 15 CNC malzemesi), malzemeye özel tolerans ve sıkı/normal/bol geçme, ISO 273 delik serileri |
 | V1.10 | Proje kaydet / aç (.ikra.json): tüm tasarım ayarları, STEP isteğe bağlı gömülü, kart kimliği (SHA-256) kontrolü |
 | V1.11 | Montaj: taban hizasında montaj kulakları (2/4, yuvarlak ya da uzun delik, M3–M6) ya da tabandan içten vidalı delikler |
-| **V1.12** | Kapak için ayrı süreç/malzeme (ısıl genleşme farkı dahil), örnek kartlar: Arduino UNO R3, Raspberry Pi 4 B, ESP32-DevKitC, STM32 Nucleo-64 |
+| V1.12 | Kapak için ayrı süreç/malzeme (ısıl genleşme farkı dahil), örnek kartlar: Arduino UNO R3, Raspberry Pi 4 B, ESP32-DevKitC, STM32 Nucleo-64 |
+| **V1.13** | Kart kenarı tutucu (alt destek + kapak baskısı), taşan anten/parçaları kutunun içine alma |
 | **V1.7** | Panel elemanları: SMA/RP-SMA (D-delik), kablo rakoru, basınç dengeleme, ışık borusu, lastik ayak, özel delik |
 
 ## Yerelde çalıştırma
@@ -286,6 +295,7 @@ web/                  Yayınlanan statik site
   js/bom.js           BOM CSV ve tercihli parça (stok kodu) listesi
   js/fits.js          Tolerans ve geçme modeli (malzeme + sıkı/normal/bol, ISO 273, FDM delik telafisi)
   js/mount.js         Montaj: taban hizasında kulaklar ve tabandan içten vidalı delikler (saf fonksiyonlar)
+  js/edgehold.js      Kart kenarı tutucu: alt destek ve kapak baskısı yerleşimi (saf fonksiyonlar)
   rules/              Süreç × malzeme kural dosyaları
   rules/toolbox/      Toolbox kütüphaneleri (ISO vidalar/pullar/somunlar, dişli burçlar/aralayıcılar, panel elemanları)
   samples/            Örnek STEP dosyaları (ornek-kart, arduino-uno-r3, raspberry-pi-4b, esp32-devkitc, nucleo-64)

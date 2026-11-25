@@ -6,7 +6,7 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.18.0 (V1.12)';
+const APP_VERSION = '0.19.0 (V1.13)';
 
 const LARGE_FILE_MB = 50;
 
