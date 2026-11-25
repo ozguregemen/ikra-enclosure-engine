@@ -2,9 +2,9 @@
  * Tasarım paneli (M1): süreç/malzeme seçimi, parametreler, muhafaza üretimi ve indirme.
  * Hesap design.js'te, katı model üretimi cad-worker.js'te yapılır.
  */
-import { computeDesign, defaultParams, paramHint, pickScrew, LID_MODES, PARAM_FIELDS } from './design.js';
+import { computeDesign, defaultParams, paramHint, pickScrew, screwTable, libraryTypes, LID_MODES, PARAM_FIELDS } from './design.js';
 import { buildSheets, exportPdf } from './drawing.js';
-import { createToolbox, headIcon, parseDrive } from './toolbox.js';
+import { createToolbox, headIcon } from './toolbox.js';
 
 const $ = (sel) => document.querySelector(sel);
 const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -107,7 +107,7 @@ export function createDesignUI({ viewer, setStatus }) {
     }
   }
 
-  const toolboxTypes = () => (state.toolbox ? state.toolbox.categories.flatMap((c) => c.types) : []);
+  const toolboxTypes = () => libraryTypes(state.toolbox);
 
   /** Toolbox seçimini uygula: kullanıcının elle değiştirmediği parametreler yeni vidaya göre yeniden hesaplanır */
   function setScrewSpec(spec) {
@@ -162,7 +162,7 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#screw-pick-icon').innerHTML = headIcon(t.head);
     const groups = new Map();
     for (const s of d?.screws || []) {
-      const key = `${s.size}×${s.length ?? '?'}`;
+      const key = `${s.size}×${s.length === null || s.length === undefined ? '?' : String(s.length).replace('.', ',')}`;
       groups.set(key, (groups.get(key) || 0) + 1);
     }
     const list = [...groups.keys()];
@@ -300,7 +300,7 @@ export function createDesignUI({ viewer, setStatus }) {
     $('#hole-list').innerHTML = mount.length
       ? mount.map((h, k) => {
         const s = !state.fasteners ? null
-          : state.screwSpec.size !== 'auto' ? { size: state.screwSpec.size } : pickScrew(h.d, state.fasteners.screws, allowed);
+          : state.screwSpec.size !== 'auto' ? { size: state.screwSpec.size } : pickScrew(h.d, screwTable(state.fasteners, t), allowed);
         return `<label class="hole-row"><input type="checkbox" data-hole="${h.index}" ${state.selectedHoles.has(h.index) ? 'checked' : ''}>` +
           `<span>Delik ${k + 1} · Ø${f2(h.d)}${s ? ` · ${s.size}` : ''}</span>` +
           `<span class="pos">${f2(h.x)}; ${f2(h.y)}</span></label>`;
@@ -442,7 +442,7 @@ export function createDesignUI({ viewer, setStatus }) {
     const mountCount = (state.analysis.holes || []).filter((h) => h.mount).length;
     const sc = d.screws && d.screws[0];
     $('#holes-summary').textContent = mountCount
-      ? `${state.selectedHoles.size}/${mountCount} delik` + (sc ? ` · ${sc.code ? sc.code + ' ' : ''}${sc.size}×${sc.length ?? '?'}` : '') +
+      ? `${state.selectedHoles.size}/${mountCount} delik` + (sc ? ` · ${sc.code ? sc.code + ' ' : ''}${sc.size}×${sc.length === null || sc.length === undefined ? '?' : String(sc.length).replace('.', ',')}` : '') +
         (state.lidMode === 'screw' ? '' : ' · geçme kapak')
       : 'montaj deliği yok';
     const counts = { error: 0, warn: 0 };
@@ -538,7 +538,7 @@ export function createDesignUI({ viewer, setStatus }) {
     state.generated = true;
     const screws = d.screws.map((s) => ({
       x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
-      head: s.head, driveSize: parseDrive(s.driveSize),
+      head: s.head, headDActual: s.head_d_actual, driveKind: s.driveKind, drive: s.driveVal, driveA: s.driveA, driveM: s.driveM,
       z: s.lid ? d.geometry.zTop : state.analysis.board.top,
     }));
     viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws });
@@ -722,7 +722,7 @@ export function createDesignUI({ viewer, setStatus }) {
       screwSpec: d.screwSpec,
       screws: d.screws.map((s) => ({
         standard: s.code, name: s.name, size: s.size, length: s.length, engagement: s.engagement, lid: s.lid, x: s.x, y: s.y,
-        head: s.head, drive: s.drive, driveSize: s.driveSize,
+        head: s.head, drive: s.driveText, designation: s.designation,
       })),
       bom: d.bom,
       volumes_mm3: state.result ? state.result.volumes : null,

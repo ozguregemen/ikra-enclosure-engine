@@ -125,6 +125,45 @@ function typeSize(ttype, size) {
   return ttype && ttype.sizes ? ttype.sizes[size] || null : null;
 }
 
+/** Toolbox kütüphanesindeki tüm tipler (kategori › grup › tip) */
+export function libraryTypes(lib) {
+  return lib ? lib.categories.flatMap((c) => (c.groups || []).flatMap((g) => g.types)) : [];
+}
+
+/** Sac vidası (ST dişi): dişini plastikte kendisi açar */
+export const isTapping = (ttype) => !!ttype && ttype.thread === 'ST';
+
+/**
+ * Tipin boyut tablosu (geçiş deliği, PCB deliği, kılavuz/insert/ön delik). Metrik tiplerde fasteners.json,
+ * sac vidalarında tipin kendi ölçüleri kullanılır.
+ */
+export function screwTable(fasteners, ttype) {
+  if (!isTapping(ttype)) return fasteners ? fasteners.screws : [];
+  return Object.entries(ttype.sizes).map(([size, z]) => ({
+    size, d: z.d, min_pcb_hole: z.min_pcb_hole, clearance: z.clearance,
+    selftap_pilot: z.pilot, tap_drill: z.pilot, insert_hole: null, insert_length: null, head_d: z.dk, head_h: z.k,
+  }));
+}
+
+const nfDrive = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
+/** Tahrik ölçüsü metni: PH1, T10, imbus 2,5 mm, düz 0,8 mm */
+export function driveText(ttype, sz) {
+  if (!ttype || !sz || sz.drive === undefined) return '';
+  switch (ttype.drive_kind) {
+    case 'cross': return `${ttype.recess === 'Z' ? 'PZ' : 'PH'}${sz.drive}`;
+    case 'torx': return `T${sz.drive}`;
+    case 'hex': return `imbus ${nfDrive.format(sz.drive)} mm`;
+    case 'slot': return `düz ${nfDrive.format(sz.drive)} mm`;
+    default: return String(sz.drive);
+  }
+}
+
+/** SolidWorks Toolbox tarzı tanım: "ISO 7045 - M3 × 12 - H", "ISO 7049 - ST2.9 × 13 - C - H" */
+export function designation(ttype, size, L) {
+  const len = L === null || L === undefined ? '…' : nfDrive.format(L);
+  return `${ttype.code} - ${size} × ${len}${ttype.form ? ' - ' + ttype.form : ''}${ttype.recess ? ' - ' + ttype.recess : ''}`;
+}
+
 function distToBoxXY(box, x, y) {
   const nx = Math.max(box.min[0], Math.min(x, box.max[0]));
   const ny = Math.max(box.min[1], Math.min(y, box.max[1]));
@@ -311,7 +350,13 @@ export function computeDesign(analysis, rules, params, options = {}) {
   // --- Bağlantı (M2): montaj deliklerinden standoff, kapak borusu ve vidalar ---
   const fasteners = options.fasteners;
   const lidMode = options.lidMode || 'screw';
-  const method = rules.fastening || 'insert';
+  // Toolbox seçimi: vida tipi (ISO), boyut ve boy ('auto' = hesapla)
+  const spec = { type: 'iso7045', size: 'auto', length: 'auto', ...(options.screwSpec || {}) };
+  const ttype = (options.toolbox?.types || []).find((t) => t.id === spec.type) || null;
+  const tapping = isTapping(ttype);
+  // Sac vidası dişini plastikte kendisi açar: süreçten bağımsız olarak gövdede ön delik
+  const method = tapping ? 'self_tap' : rules.fastening || 'insert';
+  const table = screwTable(fasteners, ttype);
   const mountHoles = (analysis.holes || []).map((h, i) => ({ ...h, index: i })).filter((h) => h.mount);
   const usedHoles = options.selectedHoles ? mountHoles.filter((h) => options.selectedHoles.has(h.index)) : mountHoles;
   const standoffs = [];
@@ -323,9 +368,6 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const at = (h) => `(${f(h.x)}; ${f(h.y)})`;
   const available = p.standoffHeight + floor - MIN_FLOOR_UNDER_HOLE;
 
-  // Toolbox seçimi: vida tipi (ISO), boyut ve boy ('auto' = hesapla)
-  const spec = { type: 'iso7045', size: 'auto', length: 'auto', ...(options.screwSpec || {}) };
-  const ttype = (options.toolbox?.types || []).find((t) => t.id === spec.type) || null;
   const typeSizes = ttype ? Object.keys(ttype.sizes) : null;
   const countersunk = !!ttype && ttype.head === 'countersunk';
   const specIssues = new Map();
@@ -336,19 +378,19 @@ export function computeDesign(analysis, rules, params, options = {}) {
     for (const h of usedHoles) {
       let s;
       if (spec.size === 'auto') {
-        s = pickScrew(h.d, fasteners.screws, typeSizes);
+        s = pickScrew(h.d, table, typeSizes);
         if (!s) {
           noteSpec('error', `Ø${f(h.d)} delikten geçen ${ttype ? ttype.code + ' ' : ''}vida boyutu yok; başka bir vida tipi seç.`);
           continue;
         }
       } else {
-        s = fasteners.screws.find((x) => x.size === spec.size);
+        s = table.find((x) => x.size === spec.size);
         if (!s) continue;
         if (ttype && !typeSize(ttype, s.size)) {
           noteSpec('error', `${ttype.code} ${s.size} boyutunda tanımlı değil; listeden başka bir boyut seç.`);
         }
         if (s.min_pcb_hole > h.d + 1e-6) {
-          const fit = pickScrew(h.d, fasteners.screws, typeSizes);
+          const fit = pickScrew(h.d, table, typeSizes);
           noteSpec('error', `${s.size} vida Ø${f(h.d)} PCB deliğinden geçmez (en az Ø${f(s.min_pcb_hole)} gerekir).${fit ? ` ${fit.size} seçilebilir.` : ''}`,
             fit ? { key: 'screwSize', value: fit.size, label: `${fit.size} seç` } : null);
         }
@@ -358,10 +400,12 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const headH = ts ? ts.k : s.head_h;
       const lengths = ts ? ts.lengths : fasteners.standard_lengths;
       const featureD = method === 'insert' ? s.insert_hole : method === 'tapped' ? s.tap_drill : s.selftap_pilot;
-      const required = method === 'insert' ? s.insert_length + 0.5 : rules.thread_engagement_d * s.d + 0.5;
-      const minEngage = method === 'insert' ? 0.7 * s.insert_length : rules.thread_engagement_d * s.d;
+      // Plastikte sac vidası: en az 2·d diş boyu, boss dış çapı ≥ 2,5 × ön delik
+      const engageD = tapping ? Math.max(2, rules.thread_engagement_d) : rules.thread_engagement_d;
+      const required = method === 'insert' ? s.insert_length + 0.5 : engageD * s.d + 0.5;
+      const minEngage = method === 'insert' ? 0.7 * s.insert_length : engageD * s.d;
       let od = Math.max(rules.boss_min_diameter, featureD + 2 * rules.boss_outer_wall);
-      if (method === 'self_tap') od = Math.max(od, 2.2 * s.d);
+      if (method === 'self_tap') od = Math.max(od, 2.2 * s.d, tapping ? 2.5 * featureD : 0);
 
       if (available < required - 1e-6) {
         const need = Math.ceil((required - floor + MIN_FLOOR_UNDER_HOLE) * 10) / 10;
@@ -404,8 +448,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
             noteSpec('info', `${s.size} havşası ${f(depthC)} mm derin; ${f(lidT)} mm kapağın altında vida borusunun içinde devam ediyor.`);
           }
         } else {
-          noteSpec('error', `${ttype.code} havşa başlı vida yalnızca kapak vidası olarak kullanılabilir; PCB yüzeyine havşa açılamaz. Bu delikler için ISO 7045 veya ISO 4762 seç.`,
-            { key: 'screwType', value: 'iso7045', label: 'ISO 7045 seç' });
+          const alt = (options.toolbox?.types || []).find((t) => t.id === ttype.alt);
+          noteSpec('error', `${ttype.code} havşa başlı vida yalnızca kapak vidası olarak kullanılabilir; PCB yüzeyine havşa açılamaz.` +
+            (alt ? ` Bu delikler için ${alt.code} (${alt.short.toLocaleLowerCase('tr')}) seç.` : ''),
+            alt ? { key: 'screwType', value: alt.id, label: `${alt.code} seç` } : null);
         }
       }
 
@@ -460,10 +506,26 @@ export function computeDesign(analysis, rules, params, options = {}) {
       standoffs.push({ x: h.x, y: h.y, od, holeD: featureD, depth, z0: floorTop, z1: b.bottom, screw: s.size });
       screws.push({
         size: s.size, length: len.L, engagement: len.engagement, ok: len.ok, lid: !!tube, x: h.x, y: h.y,
-        head_d: headD, head_h: headH, head: ttype ? ttype.head : 'pan', d: s.d, grip,
+        head_d: headD, head_h: headH, head_d_actual: ts?.dk_actual ?? headD, head: ttype ? ttype.head : 'pan', d: s.d, grip,
         type: ttype ? ttype.id : null, code: ttype ? ttype.code : null, name: ttype ? ttype.name : 'vida',
-        drive: ttype ? ttype.drive : null, driveSize: ts ? ts.drive_size : null,
+        driveKind: ttype ? ttype.drive_kind : null, driveText: driveText(ttype, ts),
+        driveVal: ts ? ts.drive : null, driveA: ts?.A ?? null, driveM: ts?.m ?? null,
+        designation: ttype ? designation(ttype, s.size, len.L) : null,
       });
+    }
+    // Vida tipi ile gövde süreci uyumu
+    if (usedHoles.length && ttype) {
+      const tapAlt = (options.toolbox?.types || []).find((t) => t.id === (ttype.head === 'countersunk' ? 'iso7050' : 'iso7049'));
+      const machineAlt = (options.toolbox?.types || []).find((t) => t.id === (ttype.head === 'countersunk' ? 'iso7046' : 'iso7045'));
+      if (tapping && rules.conductive) {
+        noteSpec('warn', `${ttype.code} sac vidası metal gövdeye önerilmez: metrik vida + ${METHOD_TEXT[rules.fastening || 'tapped']} kullan.`,
+          machineAlt ? { key: 'screwType', value: machineAlt.id, label: `${machineAlt.code} seç` } : null);
+      } else if (tapping && rules.process === 'fdm') {
+        noteSpec('info', `Sac vidası baskı gövdeye dişini kendisi açar (Ø${f(standoffs[0]?.holeD ?? 0)} ön delik). Sık sökülüp takılacaksa ısıyla gömülen insert + metrik vida daha dayanıklıdır.`);
+      } else if (!tapping && method === 'self_tap') {
+        noteSpec('warn', `${rules.label} gövdede vida dişini plastiğe kendisi açmalı: metrik ${ttype.code} yerine sac vidası seç.`,
+          tapAlt ? { key: 'screwType', value: tapAlt.id, label: `${tapAlt.code} seç` } : null);
+      }
     }
     for (const [level, text, fix] of specIssues.values()) fastenChecks.push([level, text, fix]);
     for (const di of depthIssues.values()) {
@@ -483,14 +545,16 @@ export function computeDesign(analysis, rules, params, options = {}) {
     groups.get(key).count++;
   }
   for (const g of groups.values()) {
-    const drive = g.driveSize ? ` (${g.head === 'pan' ? `yıldız ${g.driveSize}` : `imbus ${g.driveSize} mm`})` : '';
-    bom.push(`${g.count} × ${g.code ? g.code + ' ' : ''}${g.size}×${g.length ?? '?'} ${g.name.toLocaleLowerCase('tr')}${drive} — ${g.lid ? 'kapak + PCB' : 'PCB'}`);
+    const drive = g.driveText ? ` (${g.driveText})` : '';
+    const len = g.length === null || g.length === undefined ? '?' : f(g.length);
+    bom.push(`${g.count} × ${g.code ? g.code + ' ' : ''}${g.size}×${len} ${g.name.toLocaleLowerCase('tr')}${drive} — ${g.lid ? 'kapak + PCB' : 'PCB'}`);
   }
   if (standoffs.length && fasteners) {
-    const s = fasteners.screws.find((x) => x.size === standoffs[0].screw);
+    const s = table.find((x) => x.size === standoffs[0].screw);
     if (method === 'insert') bom.push(`${standoffs.length} × ${s.size} ısıyla gömülen insert (L ${f(s.insert_length)}; delik Ø${f(s.insert_hole)})`);
     if (method === 'tapped') bom.push(`${standoffs.length} × ${s.size} kılavuz (matkap Ø${f(s.tap_drill)})`);
-    if (method === 'self_tap') bom.push(`Vidalar plastik için sac vidası tipinde seçilmeli (ön delik Ø${f(s.selftap_pilot)})`);
+    if (method === 'self_tap' && tapping) bom.push(`Gövde: ${standoffs.length} × Ø${f(s.selftap_pilot)} ön delik (${s.size} sac vidası dişini kendisi açar; insert gerekmez)`);
+    if (method === 'self_tap' && !tapping) bom.push(`Vidalar plastik için sac vidası tipinde seçilmeli (ön delik Ø${f(s.selftap_pilot)})`);
   }
 
   // Conta kanalı geometrisi: duvarın orta çizgisi boyunca yuvarlatılmış halka

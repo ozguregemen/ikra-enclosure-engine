@@ -4,7 +4,7 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
-## Şu anki durum: V1.1 (M0–M4 + Toolbox)
+## Şu anki durum: V1.2 (M0–M4 + Toolbox)
 
 **Analiz (M0)**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -51,10 +51,21 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   diğer görünüşler, genel ölçüler, delik ve açıklık tabloları, süreç tolerans notları, bağlantı elemanları, antet;
   tarayıcıda önizleme ve Türkçe fontlu PDF (jsPDF + svg2pdf.js + DejaVu Sans)
 
-**Toolbox (V1.1)**
-- SolidWorks Toolbox benzeri standart bağlantı elemanı kütüphanesi: ISO › Cıvata ve vidalar
-  - ISO 7045 yıldız başlı bombe vida, ISO 4762 imbus silindir başlı cıvata, ISO 10642 imbus havşa başlı cıvata
-- Vida tipi, boyut (M2–M4) ve boy seçimi; ölçülü önizleme çizimi (dk, k, L, diş) ve "ISO 4762 - M3 × 12" tanımı
+**Toolbox (V1.1–V1.2)**
+- SolidWorks Toolbox benzeri standart bağlantı elemanı kütüphanesi: ISO › Cıvata ve vidalar, 13 tip:
+
+  | Grup | Tipler |
+  |---|---|
+  | Yıldız (Phillips) | ISO 7045 bombe baş, ISO 7046-1 havşa baş |
+  | Düz (tornavida) | ISO 1207 silindir baş, ISO 1580 bombe baş, ISO 2009 havşa baş |
+  | İmbus | ISO 4762 silindir baş, ISO 7380-1 mercimek baş, ISO 10642 havşa baş |
+  | Torx | ISO 14580 silindir baş, ISO 14583 bombe baş, ISO 14581 havşa baş |
+  | Sac vidası (ST) | ISO 7049 bombe baş, ISO 7050 havşa baş |
+
+- Vida tipi, boyut (M2–M4, sac vidasında ST2.2–ST4.2) ve boy seçimi; ölçülü önizleme çizimi (dk, k, L, diş,
+  tahrik izi) ve "ISO 7049 - ST2.9 × 13 - C - H" gibi tanım
+- Sac vidası seçilince gövdede insert/kılavuz yerine ön delik açılır (diş vidayla açılır, ≥ 2·d tutunma, boss ≥ 2,5 × ön delik);
+  enjeksiyonda metrik vida seçiliyse sac vidası, metal gövdede sac vidası seçiliyse metrik vida önerilir
 - Her boy için bu karttaki durum canlı hesaplanır: uygun / kısa / standoff uyarlanır. Uzun vida seçilirse
   PCB altı yükseklik kendiliğinden artar; PCB deliğinden geçmeyen boyutlar kapalıdır
 - Havşa başlıda kapağa 90° havşa açılır (baş kapakla aynı hizada); 3B önizlemede başlar tipine göre çizilir
@@ -75,7 +86,7 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 kurum standardına göre düzenlenmesi beklenir. Yeni malzeme eklemek için dosyayı oluşturup `web/rules/index.json`'a ekle.
 Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş ölçüleri, standart boylar) `web/rules/fasteners.json`,
 IP seviyelerinin kordon çapı, sıkıştırma, et payı ve kapak sıkıştırma aralığı `web/rules/sealing.json` içindedir.
-Toolbox kütüphanesi `web/rules/toolbox/iso-screws.json`: vida tipi başına baş ölçüleri (dk, k), diş adımı, tahrik ölçüsü
+Toolbox kütüphanesi `web/rules/toolbox/iso-screws.json` (gruplar › tipler): vida tipi başına baş ölçüleri (dk, k), diş adımı, tahrik ölçüsü
 ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kaydı eklemek yeterli.
 
 ## Yol haritası (V1)
@@ -87,7 +98,8 @@ ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kayd
 | M2 | Montaj deliklerini tanıma, standoff/boss ve vida noktaları |
 | M3 | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
 | M4 | IP65/66/67 conta kanalı, temel PDF teknik resim |
-| **V1.1** | Toolbox: ISO vidalar (tip, boyut, boy), havşa |
+| V1.1 | Toolbox: ISO vidalar (tip, boyut, boy), havşa |
+| **V1.2** | Toolbox 13 tipe: yıldız, düz, imbus, torx, sac vidası (ST) |
 
 ## Yerelde çalıştırma
 
@@ -127,6 +139,7 @@ web/                  Yayınlanan statik site
   js/viewer.js        3B önizleme (three.js)
   js/viewcube.js      Yön küpü
   js/toolbox.js       Toolbox penceresi ve ölçülü vida önizlemesi
+  js/screw-shapes.js  Vida başı ve tahrik izi geometrisi (3B ve çizim ortak)
   rules/              Süreç × malzeme kural dosyaları
   rules/toolbox/      Standart bağlantı elemanı kütüphanesi (ISO vidalar)
   samples/            Örnek STEP dosyası

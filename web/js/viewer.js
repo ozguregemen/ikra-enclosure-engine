@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ViewCube } from './viewcube.js';
+import { headProfile, headTop, driveOutline } from './screw-shapes.js';
 
 // Kameranın hedeften bakan yönü (izleyicinin bulunduğu taraf)
 const VIEW_DIRS = {
@@ -285,24 +286,10 @@ export class Viewer {
    */
   makeScrew(s) {
     const group = new THREE.Group();
-    const r = s.headD / 2;
     const k = s.headH;
     const sunk = s.head === 'countersunk';
-    let profile;
-    if (sunk) {
-      profile = [[0, -k], [s.d / 2, -k], [r, 0], [0, 0]];
-    } else if (s.head === 'socket') {
-      const ch = Math.min(0.12 * k, 0.3);
-      profile = [[0, 0], [r, 0], [r, k - ch], [r - ch, k], [0, k]];
-    } else {
-      // Bombe baş: düşük kenar, yuvarlatılmış omuz, düz tepe
-      profile = [[0, 0], [r, 0], [r, 0.35 * k]];
-      for (let i = 1; i <= 6; i++) {
-        const a = (i / 6) * (Math.PI / 2);
-        profile.push([0.55 * r + 0.45 * r * Math.cos(a), 0.35 * k + 0.65 * k * Math.sin(a)]);
-      }
-      profile.push([0, k]);
-    }
+    const shape = { head: s.head, dk: s.headD, dkActual: s.headDActual, k, d: s.d, driveKind: s.driveKind, drive: s.drive, A: s.driveA, m: s.driveM };
+    const profile = headProfile(shape);
     const head = new THREE.Mesh(
       new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 32),
       this.screwMaterial,
@@ -317,23 +304,13 @@ export class Viewer {
     shank.position.set(s.x, s.y, shankTop - shankLen / 2);
     group.add(head, shank);
 
-    // Tahrik izi (yalnızca görsel): yıldız artı, imbus altıgen
-    const topZ = sunk ? s.z : s.z + k;
-    const decalH = 0.04;
-    if (s.head === 'pan') {
-      const len = 0.5 * s.headD;
-      const w = 0.12 * s.headD;
-      for (const rot of [0, Math.PI / 2]) {
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(len, w, decalH), this.recessMaterial);
-        bar.rotation.z = rot;
-        bar.position.set(s.x, s.y, topZ + decalH / 2);
-        group.add(bar);
-      }
-    } else if (s.driveSize) {
-      const hex = new THREE.Mesh(new THREE.CylinderGeometry(s.driveSize / Math.sqrt(3), s.driveSize / Math.sqrt(3), decalH, 6), this.recessMaterial);
-      hex.rotation.x = Math.PI / 2;
-      hex.position.set(s.x, s.y, topZ + decalH / 2);
-      group.add(hex);
+    // Tahrik izi (yalnızca görsel): baş tepesine düz şekil (yıldız, yarık, altıgen, torx)
+    const topZ = s.z + headTop(shape) + 0.03;
+    for (const poly of driveOutline(shape)) {
+      const sh = new THREE.Shape(poly.map(([x, y]) => new THREE.Vector2(x, y)));
+      const mark = new THREE.Mesh(new THREE.ShapeGeometry(sh), this.recessMaterial);
+      mark.position.set(s.x, s.y, topZ);
+      group.add(mark);
     }
     return group;
   }

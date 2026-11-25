@@ -1,59 +1,170 @@
 {
-  "aciklama": "Toolbox · ISO cıvata ve vidalar. Baş ölçüleri ilgili standardın tablo değerleridir (dk: baş çapı en büyük / havşada teorik, k: baş yüksekliği en büyük, P: ISO 261 kaba diş adımı, drive_size: yıldız uç no. ya da imbus anahtar ölçüsü). Boylar yaygın standart boy serisidir; tedarikçi kataloğuyla doğrulayın. Uzunluklar mm. Geçiş deliği, kılavuz matkabı ve insert ölçüleri boyuta göre fasteners.json'dan gelir.",
+  "aciklama": "Toolbox · ISO cıvata ve vidalar (mm). dk: baş çapı en büyük; havşa başlarda dk teorik (keskin kenar) çaptır ve havşa bununla açılır, dk_actual gerçek baş çapıdır. k: baş yüksekliği en büyük. P: diş adımı. drive: yıldızda uç no. (PH), düz başta yarık genişliği n, imbusta anahtar ölçüsü s, torx'ta T no.; A: torx uç ölçüsü, m: yıldız iz çapı. Boylar yaygın katalog boylarıdır, tedarikçiyle doğrulayın. Metrik (M) tiplerde geçiş deliği, kılavuz ve insert ölçüleri fasteners.json'dan gelir; sac vidalarında (ST) d, PCB deliği, geçiş deliği ve plastik için ön delik (pilot, ≈0,87·d başlangıç değeri, malzemeye göre deneyle doğrulayın) burada tanımlıdır.",
   "standard": "ISO",
   "categories": [
     {
       "id": "screws",
       "label": "Cıvata ve vidalar",
-      "types": [
+      "groups": [
         {
-          "id": "iso7045",
-          "code": "ISO 7045",
-          "name": "Yıldız başlı bombe vida",
-          "short": "Yıldız bombe baş",
-          "head": "pan",
-          "drive": "Yıldız (H, Phillips)",
-          "recess": "H",
-          "length_includes_head": false,
-          "sizes": {
-            "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive_size": "H1", "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
-            "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive_size": "H1", "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
-            "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive_size": "H1", "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
-            "M4": { "dk": 8.0, "k": 3.1, "P": 0.7, "drive_size": "H2", "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
-          }
+          "id": "cross",
+          "label": "Yıldız başlı (Phillips)",
+          "types": [
+            {
+              "id": "iso7045", "code": "ISO 7045", "name": "Yıldız başlı bombe vida", "short": "Yıldız bombe baş",
+              "head": "pan", "drive_kind": "cross", "recess": "H", "thread": "M", "length_includes_head": false,
+              "sizes": {
+                "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 0, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 1, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive": 1, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 8.0, "k": 3.1, "P": 0.7, "drive": 2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            },
+            {
+              "id": "iso7046", "code": "ISO 7046-1", "alt": "iso7045", "name": "Yıldız havşa başlı vida", "short": "Yıldız havşa baş",
+              "head": "countersunk", "drive_kind": "cross", "recess": "H", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "sizes": {
+                "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 0, "m": 1.9, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "P": 0.45, "drive": 1, "m": 2.9, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 6.3, "dk_actual": 5.5, "k": 1.65, "P": 0.5, "drive": 1, "m": 3.2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 9.4, "dk_actual": 8.4, "k": 2.7, "P": 0.7, "drive": 2, "m": 4.6, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            }
+          ]
         },
         {
-          "id": "iso4762",
-          "code": "ISO 4762",
-          "name": "İmbus silindir başlı cıvata",
-          "short": "İmbus silindir baş",
-          "head": "socket",
-          "drive": "İç altıgen (imbus)",
-          "length_includes_head": false,
-          "sizes": {
-            "M2": { "dk": 3.8, "k": 2.0, "P": 0.4, "drive_size": "1,5", "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
-            "M2.5": { "dk": 4.5, "k": 2.5, "P": 0.45, "drive_size": "2", "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
-            "M3": { "dk": 5.5, "k": 3.0, "P": 0.5, "drive_size": "2,5", "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
-            "M4": { "dk": 7.0, "k": 4.0, "P": 0.7, "drive_size": "3", "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
-          }
+          "id": "slot",
+          "label": "Düz (tornavida) başlı",
+          "types": [
+            {
+              "id": "iso1207", "code": "ISO 1207", "name": "Düz silindir başlı vida", "short": "Düz silindir baş",
+              "head": "cheese", "drive_kind": "slot", "thread": "M", "length_includes_head": false,
+              "sizes": {
+                "M2": { "dk": 3.8, "k": 1.4, "P": 0.4, "drive": 0.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 4.5, "k": 1.8, "P": 0.45, "drive": 0.6, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 5.5, "k": 2.0, "P": 0.5, "drive": 0.8, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 7.0, "k": 2.6, "P": 0.7, "drive": 1.2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            },
+            {
+              "id": "iso1580", "code": "ISO 1580", "name": "Düz bombe başlı vida", "short": "Düz bombe baş",
+              "head": "pan", "drive_kind": "slot", "thread": "M", "length_includes_head": false,
+              "sizes": {
+                "M2": { "dk": 4.0, "k": 1.3, "P": 0.4, "drive": 0.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.0, "k": 1.5, "P": 0.45, "drive": 0.6, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 5.6, "k": 1.8, "P": 0.5, "drive": 0.8, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 8.0, "k": 2.4, "P": 0.7, "drive": 1.2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            },
+            {
+              "id": "iso2009", "code": "ISO 2009", "alt": "iso1580", "name": "Düz havşa başlı vida", "short": "Düz havşa baş",
+              "head": "countersunk", "drive_kind": "slot", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "sizes": {
+                "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 0.5, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "P": 0.45, "drive": 0.6, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 6.3, "dk_actual": 5.5, "k": 1.65, "P": 0.5, "drive": 0.8, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 9.4, "dk_actual": 8.4, "k": 2.7, "P": 0.7, "drive": 1.2, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            }
+          ]
         },
         {
-          "id": "iso10642",
-          "code": "ISO 10642",
-          "name": "İmbus havşa başlı cıvata",
-          "short": "İmbus havşa baş",
-          "head": "countersunk",
-          "drive": "İç altıgen (imbus)",
-          "countersink_angle": 90,
-          "length_includes_head": true,
-          "sizes": {
-            "M3": { "dk": 6.72, "k": 1.86, "P": 0.5, "drive_size": "2", "lengths": [8, 10, 12, 16, 20, 25, 30] },
-            "M4": { "dk": 8.96, "k": 2.48, "P": 0.7, "drive_size": "2,5", "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40] }
-          }
+          "id": "hex",
+          "label": "İmbus (iç altıgen)",
+          "types": [
+            {
+              "id": "iso4762", "code": "ISO 4762", "name": "İmbus silindir başlı cıvata", "short": "İmbus silindir baş",
+              "head": "socket", "drive_kind": "hex", "thread": "M", "length_includes_head": false,
+              "sizes": {
+                "M2": { "dk": 3.8, "k": 2.0, "P": 0.4, "drive": 1.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 4.5, "k": 2.5, "P": 0.45, "drive": 2, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 5.5, "k": 3.0, "P": 0.5, "drive": 2.5, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 7.0, "k": 4.0, "P": 0.7, "drive": 3, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            },
+            {
+              "id": "iso7380", "code": "ISO 7380-1", "name": "İmbus mercimek başlı cıvata", "short": "İmbus mercimek baş",
+              "head": "button", "drive_kind": "hex", "thread": "M", "length_includes_head": false,
+              "sizes": {
+                "M3": { "dk": 5.7, "k": 1.65, "P": 0.5, "drive": 2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 7.6, "k": 2.2, "P": 0.7, "drive": 2.5, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            },
+            {
+              "id": "iso10642", "code": "ISO 10642", "alt": "iso4762", "name": "İmbus havşa başlı cıvata", "short": "İmbus havşa baş",
+              "head": "countersunk", "drive_kind": "hex", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "sizes": {
+                "M3": { "dk": 6.72, "k": 1.86, "P": 0.5, "drive": 2, "lengths": [8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 8.96, "k": 2.48, "P": 0.7, "drive": 2.5, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            }
+          ]
+        },
+        {
+          "id": "torx",
+          "label": "Torx (iç yıldız)",
+          "types": [
+            {
+              "id": "iso14580", "code": "ISO 14580", "name": "Torx silindir başlı cıvata", "short": "Torx silindir baş",
+              "head": "cheese", "drive_kind": "torx", "thread": "M", "length_includes_head": false,
+              "sizes": {
+                "M2": { "dk": 3.8, "k": 1.55, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 4.5, "k": 1.85, "P": 0.45, "drive": 8, "A": 2.4, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 5.5, "k": 2.4, "P": 0.5, "drive": 10, "A": 2.8, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 7.0, "k": 3.1, "P": 0.7, "drive": 20, "A": 3.95, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            },
+            {
+              "id": "iso14583", "code": "ISO 14583", "name": "Torx bombe başlı vida", "short": "Torx bombe baş",
+              "head": "pan", "drive_kind": "torx", "thread": "M", "length_includes_head": false,
+              "sizes": {
+                "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 8, "A": 2.4, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive": 10, "A": 2.8, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 8.0, "k": 3.1, "P": 0.7, "drive": 20, "A": 3.95, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            },
+            {
+              "id": "iso14581", "code": "ISO 14581", "alt": "iso14583", "name": "Torx havşa başlı vida", "short": "Torx havşa baş",
+              "head": "countersunk", "drive_kind": "torx", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "sizes": {
+                "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "P": 0.45, "drive": 8, "A": 2.4, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 6.3, "dk_actual": 5.5, "k": 1.65, "P": 0.5, "drive": 10, "A": 2.8, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 9.4, "dk_actual": 8.4, "k": 2.7, "P": 0.7, "drive": 20, "A": 3.95, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] }
+              }
+            }
+          ]
+        },
+        {
+          "id": "tapping",
+          "label": "Sac vidaları (plastiğe doğrudan)",
+          "types": [
+            {
+              "id": "iso7049", "code": "ISO 7049", "name": "Yıldız bombe başlı sac vidası", "short": "Sac vidası, bombe baş",
+              "head": "pan", "drive_kind": "cross", "recess": "H", "form": "C", "thread": "ST", "length_includes_head": false,
+              "sizes": {
+                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.2, "k": 1.8, "P": 0.8, "drive": 1, "lengths": [4.5, 6.5, 9.5, 13, 16] },
+                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 5.6, "k": 2.2, "P": 1.1, "drive": 1, "lengths": [6.5, 9.5, 13, 16, 19, 22, 25] },
+                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 6.9, "k": 2.6, "P": 1.3, "drive": 2, "lengths": [9.5, 13, 16, 19, 22, 25, 32] },
+                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 8.2, "k": 3.05, "P": 1.4, "drive": 2, "lengths": [9.5, 13, 16, 19, 22, 25, 32, 38] }
+              }
+            },
+            {
+              "id": "iso7050", "code": "ISO 7050", "alt": "iso7049", "name": "Yıldız havşa başlı sac vidası", "short": "Sac vidası, havşa baş",
+              "head": "countersunk", "drive_kind": "cross", "recess": "H", "form": "C", "thread": "ST", "countersink_angle": 90, "length_includes_head": true,
+              "sizes": {
+                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.4, "dk_actual": 3.8, "k": 1.1, "P": 0.8, "drive": 0, "m": 1.9, "lengths": [6.5, 9.5, 13, 16] },
+                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 6.3, "dk_actual": 5.5, "k": 1.7, "P": 1.1, "drive": 1, "m": 3.2, "lengths": [6.5, 9.5, 13, 16, 19, 22, 25] },
+                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 8.2, "dk_actual": 7.3, "k": 2.35, "P": 1.3, "drive": 2, "m": 4.4, "lengths": [9.5, 13, 16, 19, 22, 25, 32] },
+                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 9.4, "dk_actual": 8.4, "k": 2.6, "P": 1.4, "drive": 2, "m": 4.6, "lengths": [9.5, 13, 16, 19, 22, 25, 32, 38] }
+              }
+            }
+          ]
         }
       ]
     },
-    { "id": "nuts", "label": "Somunlar", "soon": true, "types": [] },
-    { "id": "washers", "label": "Pullar", "soon": true, "types": [] }
+    { "id": "nuts", "label": "Somunlar", "soon": true, "groups": [] },
+    { "id": "washers", "label": "Pullar", "soon": true, "groups": [] }
   ]
 }
