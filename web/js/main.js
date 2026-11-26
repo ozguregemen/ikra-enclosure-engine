@@ -313,18 +313,19 @@ function identityOf(el) {
   return `${host ? `#${CSS.escape(host.id)} ` : ''}${el.tagName.toLowerCase()}${attrs}`;
 }
 /** Etkinleştirilen öğe yeniden çizilip kaybolursa odak eşdeğerine döner (klavye kullanıcısı yerini kaybetmez) */
+let focusToken = 0;
 function keepFocusAfter(el) {
   const sel = identityOf(el);
+  const token = ++focusToken; // yeni etkinleştirme eskilerin geri yüklemesini iptal eder
   if (!sel) return;
   const restore = () => {
+    if (token !== focusToken) return;
     const a = document.activeElement;
     if (a && a !== document.body && a.isConnected) return;
     const n = document.querySelector(sel);
     if (n && n.offsetParent !== null) n.focus({ preventScroll: true });
   };
-  setTimeout(restore, 0);
-  setTimeout(restore, 150);
-  setTimeout(restore, 450);
+  for (const ms of [0, 150, 450, 1000]) setTimeout(restore, ms);
 }
 document.addEventListener('click', (e) => {
   const el = e.target.closest?.('button, [role="radio"], [role="tab"], input, select, summary');

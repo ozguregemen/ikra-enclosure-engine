@@ -584,7 +584,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     const withStar = (t, html) => (isPref(t.code) ? html.replace('</span><span class="tb-name">', `${STAR}</span><span class="tb-name">`) : html);
     const lib = (L, itemFor, count) => {
       const cats = L.categories.map((cat) => {
-        if (cat.soon) return tokens.length ? '' : `<div class="tb-node lvl1 soon"><span class="tb-caret" aria-hidden="true"></span>${esc(cat.label)}<span class="tb-soon">yakında</span></div>`;
+        if (cat.soon) return ''; // henüz kütüphanesi olmayan kategoriler arayüzde gösterilmez
         const groups = (cat.groups || []).map((g) => {
           const list = g.types.filter(hit);
           if (!list.length) return '';
