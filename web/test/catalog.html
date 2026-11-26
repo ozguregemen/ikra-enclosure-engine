@@ -26,7 +26,8 @@
 import { RULES, ruleInfo, CATEGORIES, LEVELS, PROCESSES, TREAT_RULE_IDS } from '../js/dfm/catalog.js';
 import { findingsFromChecks, reviewBuild, summarize, fingerprint, mergeBuildFindings, staleWaivers } from '../js/dfm/review.js';
 import { runDesignLoop, baseParams, AUTO_KEYS } from '../js/dfm/loop.js';
-import { defaultParams, libraryTypes, usesTapOverrun, hexCornerFit } from '../js/design.js';
+import { defaultParams, libraryTypes, usesTapOverrun, hexCornerFit, computeDesign, paramHint } from '../js/design.js';
+import { treatmentFor, nutMaxTool, nutDogboneR, cncToolDiameter, concaveMinR, lidTubeDraft, stdCutterAtMost, bossRoot } from '../js/treat.js';
 import * as fitsMod from '../js/fits.js';
 
 const results = [];
@@ -38,7 +39,7 @@ const CORE = ['GEN-WALL-MIN', 'GEN-WALL-RANGE', 'GEN-CORNER-MIN', 'GEN-STANDOFF-
   'FDM-INSERT-DEPTH', 'FDM-PRINT-ORIENT', 'FDM-WARP', 'CNC-CORNER-TOOL', 'CNC-CORNER-DEPTH', 'CNC-POCKET-DEPTH', 'CNC-TAP-DEPTH', 'CNC-SETUPS',
   'INJ-DRAFT', 'INJ-CORNER-RADIUS', 'INJ-UNIFORM-WALL', 'INJ-BOSS-WALL', 'INJ-LIP-RATIO', 'INJ-SIDE-ACTION', 'IP-RIM', 'IP-GROOVE-RADIUS',
   'IP-CLAMP-PITCH', 'RF-KEEPOUT-METAL', 'RF-METAL-BODY', 'RF-LOSSY-MATERIAL', 'GEO-TREAT', 'GEO-BUILD'];
-const PREFIXES = ['GEN', 'FDM', 'CNC', 'INJ', 'PORT', 'LID', 'FAS', 'MNT', 'PNL', 'EDGE', 'IP', 'RF', 'GEO'];
+const PREFIXES = ['GEN', 'REQ', 'FDM', 'CNC', 'INJ', 'PORT', 'LID', 'FAS', 'MNT', 'PNL', 'EDGE', 'IP', 'RF', 'GEO'];
 const ids = Object.keys(RULES);
 check('Katalogda kural var', ids.length > 50, `${ids.length} kural`);
 for (const id of CORE) check(`Çekirdek kural tanımlı: ${id}`, !!RULES[id]);
@@ -73,13 +74,13 @@ check('Her kuralın en az bir URL\'li ya da standart kaynağı var', ids.every((
 check('ruleInfo bilinmeyen kimlikte null döner', ruleInfo('YOK-BOYLE') === null && ruleInfo('GEN-WALL-MIN')?.id === 'GEN-WALL-MIN');
 
 // ---------- 2) Kaynak kodda geçen kural kimlikleri ----------
-const SRC = ['../js/design.js', '../js/panel.js', '../js/mount.js', '../js/edgehold.js', '../js/dfm/review.js', '../js/dfm/loop.js'];
+const SRC = ['../js/design.js', '../js/panel.js', '../js/mount.js', '../js/edgehold.js', '../js/dfm/review.js', '../js/dfm/loop.js', '../js/design-ui.js', '../js/cad-worker.js', '../js/treat.js'];
 const IGNORE = new Set(['TS35', 'IP67', 'IP65', 'IP66', 'IP68']);
 const unknown = [];
 let used = 0;
 for (const url of SRC) {
   const txt = await (await fetch(url)).text();
-  for (const m of txt.matchAll(/['"`]((?:GEN|FDM|CNC|INJ|PORT|LID|FAS|MNT|PNL|EDGE|IP|RF|GEO)-[A-Z0-9]+(?:-[A-Z0-9]+)*)['"`]/g)) {
+  for (const m of txt.matchAll(/['"`]((?:GEN|REQ|FDM|CNC|INJ|PORT|LID|FAS|MNT|PNL|EDGE|IP|RF|GEO)-[A-Z0-9]+(?:-[A-Z0-9]+)*)['"`]/g)) {
     if (IGNORE.has(m[1])) continue;
     used++;
     if (!RULES[m[1]]) unknown.push(`${url.split('/').pop()}: ${m[1]}`);
@@ -472,9 +473,12 @@ for (const [rid, extra] of cases) {
   const nut = runDesignLoop(analysis, await rulesFor('cnc/pom'), { userParams: {} }, opts({
     insertSpec: { type: 'nut', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' } }));
   const np = nut.findings.find((fd) => fd.rule === 'CNC-NUT-POCKET-TOOL');
-  check('G1: CNC M3 somun cebi (SW 5,6) Ø3 takımla → CNC-NUT-POCKET-TOOL hata (girişim), uygulanabilir öneri Helicoil (otomatik değil)',
-    np && np.level === 'error' && np.fix?.key === 'insertType' && np.fix.value === 'helicoil-fr' && !np.fixAuto && np.measured === 3 && np.limit === 2.8 && np.op === '<=' &&
-    /girişim/.test(np.text) && /Ø2,5 mm/.test(np.text) && /R1,5/.test(np.text) && !/keskin kalır/.test(np.text), np?.text);
+  check('G1: CNC M3 somun cebi (SW 5,6) Ø3 takımla → CNC-NUT-POCKET-TOOL hata (girişim), uygulanabilir öneri Helicoil (otomatik değil), sınır 2·(s/4 − 0,02)',
+    np && np.level === 'error' && np.fix?.key === 'insertType' && np.fix.value === 'helicoil-fr' && !np.fixAuto && np.measured === 3 && np.limit === 2.76 && np.op === '<=' &&
+    /girişim/.test(np.text) && /Ø2,5 mm/.test(np.text) && /R1,5/.test(np.text) && /s\/4 − 0,02 = 1,38 mm/.test(np.text) && !/keskin kalır/.test(np.text), np?.text);
+  check('G1/dfm3: somun cebi hatasında ikinci düzeltme Ø2,5 freze (nutMaxTool 2,75 altındaki en büyük standart freze, otomatik değil)',
+    Array.isArray(np?.fixes) && np.fixes.length === 2 && np.fixes[0].key === 'insertType' && np.fixes[1].key === 'toolDiameter' && np.fixes[1].value === 2.5 &&
+    np.fixes[1].auto === false && /Ø2,5 mm freze seç/.test(np.fixes[1].label), JSON.stringify(np?.fixes));
   // Köşe oturma geometrisi: M3 (s 5,5, e 6,01) cep SW 5,6 ve R1,5 → girişim; SW 5,8 → pay; R1,25 (Ø2,5) → pay
   const g56 = hexCornerFit(5.6, 1.5, 5.5, 6.01);
   check('hexCornerFit: M3 cep SW 5,6 R1,5 → ≈ 0,02 mm girişim; SW 5,8 → pay; R1,25 → pay', g56 < -0.015 && g56 > -0.03 && hexCornerFit(5.8, 1.5, 5.5, 6.01) > 0.05 &&
@@ -566,6 +570,177 @@ for (const [rid, extra] of cases) {
     RULES['CNC-NUT-POCKET-TOOL'].conf === 'medium' && /türetilmiştir/.test(RULES['CNC-NUT-POCKET-TOOL'].why));
   check('E17: GEN-CORNER-MIN başlığı "kural dosyasındaki en küçük değer"', /kural dosyasındaki en küçük değer/.test(RULES['GEN-CORNER-MIN'].title));
   check('D14: IP-VENT başlığı IP65 ve üstü', /IP65 ve üstü/.test(RULES['IP-VENT'].title));
+}
+
+// ---------- 9) dfm3 motoru: REQ-TEMP, değişiklik nedeni, freze çapı seçeneği, kapak borusu açısı, CNC iç köşe, duvar boşluğu ----------
+{
+  const mk = (list, extra = {}) => ({ ...analysis, parts: list.map((p, i) => ({ id: i, name: p.name, meshIdx: [i], box: p.box, isBoard: !!p.isBoard, edges: p.edges || [] })),
+    meshBoxes: list.map((p) => p.box), ...extra });
+  // 9.1 Katalog
+  const rt = RULES['REQ-TEMP'];
+  check('dfm3: REQ-TEMP katalogda (başlık, süreç kategorisi, hata, orta güven; UL 746B RTI + Ensinger + veri sayfası kaynağı)',
+    rt && rt.title === 'Çalışma sıcaklığı gereksinimi' && rt.cat === 'surec' && rt.level === 'error' && rt.conf === 'medium' && rt.processes.length === 3 &&
+    rt.source.some((s) => /^https:\/\/www\.ul\.com\//.test(s.url) && /746B/.test(s.title)) && rt.source.some((s) => /ensinger/i.test(s.url)) && /RTI/.test(rt.why) && /HDT/.test(rt.why),
+    rt ? rt.source.map((s) => s.url || s.title).join(' | ') : 'yok');
+  check('dfm3: GEO-TREAT / GEO-BUILD başlıkları uygun (ok) satırda da doğru okunur', RULES['GEO-TREAT'].title === 'Kenar işlemleri' && RULES['GEO-BUILD'].title === 'Katı model öğeleri');
+  const reqF = findingsFromChecks({ ok: true, rulesId: 'fdm/pla', checks: [{ level: 'error', rule: 'REQ-TEMP', cat: 'surec', part: 'all', text: 'Malzeme 50 °C', measured: 50, limit: 90, op: '>=', unit: '°C' }] })[0];
+  check('dfm3: REQ-TEMP bulgusu katalogdan başlık, neden ve kaynak alır', reqF.title === rt.title && reqF.why === rt.why && reqF.source.length === rt.source.length && !reqF.uncatalogued && reqF.conf === 'medium');
+  check('dfm3: LID-TUBE-WALL katalogda (kapak, uyarı, URL\'li kaynak)', RULES['LID-TUBE-WALL']?.cat === 'kapak' && RULES['LID-TUBE-WALL'].level === 'warn' &&
+    RULES['LID-TUBE-WALL'].source.some((s) => /^https:/.test(s.url)));
+  check('dfm3: CNC-NUT-POCKET-TOOL nedeni s/4 − 0,02 sınırını anlatır', /s\/4 − 0,02/.test(RULES['CNC-NUT-POCKET-TOOL'].why));
+
+  // 9.2 Döngü değişikliği tetikleyen bulgunun ölçü/sınırını taşır
+  const chs = allLoops.flatMap((Lx) => Lx.changes);
+  check('dfm3: her değişiklik measured/limit/op/unit alanlarını taşır', chs.length > 0 && chs.every((c) => 'measured' in c && 'limit' in c && 'op' in c && 'unit' in c), `${chs.length} değişiklik`);
+  const insC = runDesignLoop(analysis, await rulesFor('fdm/pla'), { userParams: {} }, opts()).changes.find((c) => c.rule === 'FDM-INSERT-DEPTH');
+  check('dfm3: FDM-INSERT-DEPTH değişikliğinin nedeni: ölçülen < sınır (mm, >=)', insC && Number.isFinite(insC.measured) && Number.isFinite(insC.limit) && insC.measured < insC.limit &&
+    insC.op === '>=' && insC.unit === 'mm', insC ? `${insC.measured} ${insC.op} ${insC.limit} ${insC.unit}` : 'yok');
+  const ipC = allLoops[6].changes.find((c) => c.rule === 'IP-RIM');
+  check('dfm3: IP-RIM değişikliğinin nedeni (et kalınlığı < conta payı)', ipC && ipC.measured === ipC.from && ipC.limit > ipC.measured && ipC.unit === 'mm', ipC ? JSON.stringify(ipC) : 'yok');
+  const rejAll = [...allLoops.flatMap((Lx) => Lx.rejected), ...runDesignLoop(analysis, await rulesFor('fdm/pla'), { userParams: {}, compute: (an, ru, p) => ({ ok: true, rulesId: ru.id,
+    params: { ...p }, geometry: { center: [0, 0] }, checks: p.wall < 5 ? [{ level: 'warn', text: 'A', rule: 'IP-RIM', fix: { key: 'wall', value: 5 }, measured: p.wall, limit: 5, op: '>=', unit: 'mm' }, ...(p.wall > 4 ? [{ level: 'warn', text: 'B', rule: 'GEN-WALL-RANGE' }, { level: 'warn', text: 'C', rule: 'INJ-UNIFORM-WALL' }] : [])]
+      : [{ level: 'warn', text: 'B', rule: 'GEN-WALL-RANGE' }, { level: 'warn', text: 'C', rule: 'INJ-UNIFORM-WALL' }] }) }, opts()).rejected];
+  check('dfm3: reddedilen düzeltmeler de ölçü/sınırı taşır', rejAll.length > 0 && rejAll.every((c) => 'measured' in c && 'limit' in c && 'op' in c && 'unit' in c) &&
+    rejAll.some((c) => c.rule === 'IP-RIM' && c.limit === 5), `${rejAll.length} ret`);
+
+  // 9.3 Freze çapı seçeneği (options.toolDiameter)
+  const pom = await rulesFor('cnc/pom');
+  const nutSpec = { type: 'nut', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' };
+  const b0 = runDesignLoop(analysis, pom, { userParams: {} }, opts());
+  const b3 = runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: 3 }));
+  const bN = runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: null }));
+  const idsOf = (Lx) => Lx.findings.map((fd) => fd.id).join();
+  check('dfm3: freze çapı verilmezse ya da kural değerine eşitse tasarım aynı (eski projeler)', JSON.stringify(b0.params) === JSON.stringify(b3.params) &&
+    idsOf(b0) === idsOf(b3) && idsOf(b0) === idsOf(bN) && b0.design.geometry.toolDiameter === 3 && b0.design.cncTool?.user === false && b3.design.cncTool?.user === true &&
+    JSON.stringify(treatmentFor(b0.design, pom)) === JSON.stringify(treatmentFor(b3.design, pom)));
+  const pla = await rulesFor('fdm/pla');
+  check('dfm3: geçersiz freze çapı (metin, 0, negatif, 100, boş) kural değerine düşer; CNC dışı süreçte null', ['abc', 0, -1, 100, ''].every((v) => cncToolDiameter(pom, v) === 3) &&
+    cncToolDiameter(pom, 2.5) === 2.5 && cncToolDiameter(pla, 2.5) === null && runDesignLoop(analysis, pla, { userParams: {} }, opts({ toolDiameter: 2 })).design.geometry.toolDiameter === null);
+  const t4 = runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: 4 }));
+  const ct4 = t4.findings.find((fd) => fd.rule === 'CNC-CORNER-TOOL');
+  const tr4 = treatmentFor(t4.design, pom);
+  check('dfm3: Ø4 freze → iç köşe 1,3 × 2 = 2,6 mm\'ye yükseltilir, CNC-CORNER-TOOL geçer; geometri ve işlem politikası Ø4 (içbükey en az, somun boşaltması)',
+    t4.params.cornerRadius >= 2.6 - 1e-9 && ct4?.level === 'ok' && /Ø4/.test(ct4.text) && t4.design.geometry.toolDiameter === 4 && tr4.base.toolD === 4 && tr4.base.nutDogbone === 2 &&
+    tr4.base.concaveMinR === concaveMinR(pom, t4.params.wall, 4) && tr4.base.concaveMinR === 2.6, `${t4.params.cornerRadius}; ${ct4?.text}`);
+  const t4c = runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: 4, lidMode: 'corner' }));
+  check('dfm3: köşe kapağında köşe boss\'u–duvar radyüsü (geometry.cornerConcaveR) seçilen frezeyle 1,3 × 2 = 2,6', t4c.design.geometry.cornerConcaveR === 2.6, `${t4c.design.geometry.cornerConcaveR}`);
+  const ph = paramHint('cornerRadius', pom, analysis, null, 4);
+  check('dfm3: paramHint köşe radyüsü ipucu seçilen frezeyle (Ø4 → önerilen 2,6)', /Ø4/.test(ph) && /2,6/.test(ph) && /Ø3/.test(paramHint('cornerRadius', pom, analysis)), ph);
+  const lk = runDesignLoop(analysis, pom, { userParams: { cornerRadius: 1.6 } }, opts());
+  const lkc = lk.findings.find((fd) => fd.rule === 'CNC-CORNER-TOOL');
+  check('dfm3: köşe radyüsü kilitli 1,6 mm + Ø3 → CNC-CORNER-TOOL uyarısında ikinci düzeltme Ø2 freze (1,3 × 1 ≤ 1,6), otomatik değil',
+    lkc?.level === 'warn' && lkc.fix?.key === 'cornerRadius' && lkc.fixes?.length === 2 && lkc.fixes[0].key === 'cornerRadius' && lkc.fixes[1].key === 'toolDiameter' &&
+    lkc.fixes[1].value === 2 && lkc.fixes[1].auto === false && !lkc.fixAuto && lk.stop === 'needs-user', JSON.stringify(lkc?.fixes));
+  const lk2 = runDesignLoop(analysis, pom, { userParams: { cornerRadius: 1.6 } }, opts({ toolDiameter: 2 }));
+  check('dfm3: Ø2 freze seçilince kilitli 1,6 mm köşe CNC-CORNER-TOOL\'u geçer', lk2.findings.find((fd) => fd.rule === 'CNC-CORNER-TOOL')?.level === 'ok');
+  check('dfm3: standart freze önerisi (1, 1,5 … 6)', stdCutterAtMost(2.75) === 2.5 && stdCutterAtMost(0.9) === null && stdCutterAtMost(7) === 6 && stdCutterAtMost(2) === 2);
+  const n25 = runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: 2.5, insertSpec: nutSpec }));
+  const n25f = n25.findings.filter((fd) => fd.rule === 'CNC-NUT-POCKET-TOOL');
+  const tr25 = treatmentFor(n25.design, pom);
+  check('dfm3: Ø2,5 freze → somun cebi boşaltması sığar (CNC-NUT-POCKET-TOOL uygun), işlem politikası R1,25 tam boşaltma, tasarım engellenmez',
+    n25f.length === 1 && n25f[0].level === 'ok' && n25f[0].measured === 2.5 && n25f[0].limit === 2.76 && tr25.base.nutDogbone === 1.25 &&
+    nutDogboneR(5.6, tr25.base.nutDogbone) === 1.25 && n25.status !== 'blocked', n25f.map((fd) => `${fd.level}: ${fd.text}`).join(' | '));
+  const n275 = runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: nutMaxTool(5.6), insertSpec: nutSpec })).findings.find((fd) => fd.rule === 'CNC-NUT-POCKET-TOOL');
+  const n28 = runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: 2.8, insertSpec: nutSpec })).findings.find((fd) => fd.rule === 'CNC-NUT-POCKET-TOOL');
+  check('dfm3: sınırda nutMaxTool(5,6) = Ø2,75 uygun; Ø2,8 (yarıçap 1,4 > 1,38) boşaltma sığmaz', nutMaxTool(5.6) === 2.75 && n275?.level === 'ok' && n28 && n28.level !== 'ok',
+    `${n275?.level} / ${n28?.level}: ${n28?.text}`);
+  const mixC = runDesignLoop(analysis, await rulesFor('fdm/petg'), { userParams: {} }, opts({ lidRules: await rulesFor('cnc/pmma'), toolDiameter: 6 }));
+  const lpd = mixC.findings.find((fd) => fd.rule === 'CNC-POCKET-DEPTH' && fd.part === 'lid');
+  check('dfm3: FDM gövde + CNC kapak → kapak işleme derinliği seçilen Ø6 frezeyle; gövde geometrisinde freze yok', lpd && /Ø6/.test(lpd.text) &&
+    mixC.design.geometry.toolDiameter === null && mixC.design.geometry.lidToolDiameter === 6 && treatmentFor(mixC.design, await rulesFor('fdm/petg'), await rulesFor('cnc/pmma')).lid.toolD === 6, lpd?.text);
+  check('dfm3: döngü önbelleği freze çapını ayırt eder', runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: 4 })).design.geometry.toolDiameter === 4 &&
+    runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: 2 })).design.geometry.toolDiameter === 2);
+  const nf3 = runDesignLoop(analysis, pom, { userParams: {} }, opts({ insertSpec: nutSpec }));
+  check('dfm3: düzeltme seçenekleri (fixes) döngü önbelleğinden bağımsız kopya', (() => { const a = nf3.findings.find((fd) => fd.fixes); a.fixes[1].value = 99;
+    return runDesignLoop(analysis, pom, { userParams: {} }, opts({ insertSpec: nutSpec })).findings.find((fd) => fd.fixes)?.fixes[1].value === 2.5; })());
+
+  // 9.4 Kapak borusu çıkma açısı (enjeksiyon kapağı, uzun borular): katı model politikası ön inceleme sınırıyla aynı
+  const tallList = [{ name: 'TEST_PCB', box: boardBox, isBoard: true }, { name: 'CP_Elec_Tall', box: { min: [30, 15, 1.6], max: [42, 27, 31.6] } }];
+  const tallX = { maxAbove: { value: 30, partId: 1, name: 'CP_Elec_Tall' }, maxBelow: { value: 0, partId: null, name: null } };
+  const petg = await rulesFor('fdm/petg');
+  const abs = await rulesFor('injection/abs');
+  const Lt = runDesignLoop(mk(tallList, tallX), petg, { userParams: {} }, opts({ lidRules: abs }));
+  const lcT = Lt.design.checks.find((c) => c.rule === 'INJ-DRAFT' && c.part === 'lid');
+  const trT = treatmentFor(Lt.design, petg, abs);
+  const tubeLen = Math.max(...Lt.design.geometry.lidTubes.map((t) => t.z1 - t.z0));
+  check('dfm3: enjeksiyon kapağı boru çıkma açısı = lidTubeDraft(lidT, boru boyu) = ön inceleme limits.tube (sabit 1° değil)',
+    trT.lid.bossDraftDeg === lcT?.limits?.tube && trT.lid.bossDraftDeg === lidTubeDraft(Lt.design.params.lidT, tubeLen, abs.draft_angle_min) && trT.lid.bossDraftDeg > 1,
+    `${trT.lid.bossDraftDeg}° / sınır ${lcT?.limits?.tube}° (boru ${tubeLen.toFixed(1)} mm)`);
+  const t0g = Lt.design.geometry.lidTubes[0];
+  const expG = bossRoot({ h: tubeLen, rTip: t0g.od / 2, draftDeg: trT.lid.bossDraftDeg, rootR: trT.lid.tubeRootFillet }).E[0] - t0g.od / 2;
+  check('dfm3: boru kök büyümesi (growth.tubeRoot) yeni açıyla', Math.abs(trT.growth.tubeRoot - Math.round(expG * 100) / 100) < 0.011, `${trT.growth.tubeRoot} / ${expG.toFixed(3)}`);
+  const lrow = (key, size) => ({ part: 'lid', key, feature: key, kind: 'draft', size, applied: size, unit: '°', ok: true, limited: false, count: 1, rule: key === 'tube.draft' ? 'GEO-BOSS' : 'INJ-DRAFT', note: '' });
+  const postT = reviewBuild(Lt.design, [lrow('draft.plate', trT.lid.draftDeg), lrow('lip.draft', trT.lid.lipDraftDeg), lrow('tube.draft', trT.lid.bossDraftDeg)]).filter((fd) => fd.rule === 'INJ-DRAFT');
+  check('dfm3: politika açılarıyla katı model sonrası kapak INJ-DRAFT uygun', postT.length === 1 && postT[0].level === 'ok', postT[0]?.text);
+  const short = runDesignLoop(analysis, await rulesFor('injection/abs'), { userParams: {} }, opts());
+  const trS = treatmentFor(short.design, await rulesFor('injection/abs'));
+  check('dfm3: kısa borularda (aynı malzeme enjeksiyon) boru açısı yine kapak sınırıyla aynı', trS.lid.bossDraftDeg === short.design.checks.find((c) => c.rule === 'INJ-DRAFT' && c.part === 'lid')?.limits?.tube,
+    `${trS.lid.bossDraftDeg}`);
+  check('dfm3: FDM ve CNC kapakta boru açısı yok', treatmentFor(b0.design, pom).lid.bossDraftDeg === 0 && treatmentFor(runDesignLoop(analysis, petg, { userParams: {} }, opts()).design, petg).lid.bossDraftDeg === 0);
+  // Açılı boru kökü engeli: anma çapına göre boşlukta kalan ama açılı köke değen bileşenin yanında boru yapılmaz
+  const alpha = trT.lid.bossDraftDeg;
+  const zPart = 25;
+  const gAt = (zPart - (boardBox.max[2] + 0.1)) * Math.tan((alpha * Math.PI) / 180);
+  const mkNear = (off) => mk([...tallList, { name: 'CP_Near_Tube', box: { min: [3.5 + t0g.od / 2 + 0.2 + off, 2.5, 1.6], max: [3.5 + t0g.od / 2 + 2.2 + off, 4.5, zPart] } }], tallX);
+  const hasTube = (Lx) => Lx.design.lidTubes.some((t) => Math.abs(t.x - 3.5) < 1e-6 && Math.abs(t.y - 3.5) < 1e-6);
+  const Lnear = runDesignLoop(mkNear(0.5 * gAt), petg, { userParams: {} }, opts({ lidRules: abs }));
+  const Lfar = runDesignLoop(mkNear(gAt + 0.3), petg, { userParams: {} }, opts({ lidRules: abs }));
+  check('dfm3: açılı kökü bileşene değen boru yapılmaz (LID-TUBE-NONE); bileşen kök büyümesinin ötesindeyse boru var',
+    hasTube(Lt) && !hasTube(Lnear) && Lnear.findings.some((fd) => fd.rule === 'LID-TUBE-NONE' && /CP_Near_Tube/.test(fd.text)) && hasTube(Lfar), `α ${alpha}°, büyüme ${gAt.toFixed(2)} mm`);
+
+  // 9.5 Katı model sonrası CNC dikey iç köşe: freze yarıçapının altı uyarı (satır başına tek bulgu, CNC-CORNER-TOOL yinelenmez)
+  const cncD = runDesignLoop(analysis, pom, { userParams: {} }, opts({ lidMode: 'corner' })).design;
+  const crow = (o) => ({ part: 'base', key: 'corner.concave', feature: "köşe boss'u–duvar birleşimi (içbükey radyüs)", kind: 'fillet', size: 1.95, applied: 1.95, unit: 'mm', ok: true,
+    limited: false, count: 4, rule: 'GEO-CORNER-CONCAVE', note: '', ...o });
+  const rowsC = [crow({ applied: 0.74, limited: true, note: 'kapak dili ucu nedeniyle R0,74 ile sınırlandı' }),
+    crow({ key: 'ear.concave', feature: 'kulak–duvar birleşimi (plan radyüsü)', rule: 'GEO-FILLET-INNER', applied: 1.6, limited: true }),
+    crow({ key: 'pad.concave', feature: 'kart desteği–duvar iç köşesi radyüsü', rule: 'GEO-FILLET-INNER', applied: 0, ok: false }),
+    crow({ key: 'floor', feature: 'taban–duvar iç köşesi', rule: 'GEO-FILLET-INNER', size: 1, applied: 0.4, limited: true })];
+  const fc = reviewBuild(cncD, rowsC);
+  const cc = fc.filter((fd) => fd.rule === 'GEO-CORNER-CONCAVE');
+  check('dfm3: CNC köşe boss\'u–duvar R0,74 < Ø3/2 → uyarı (işlenemez), ölçü/sınır 0,74/1,5, öneri Ø1 freze (otomatik değil), tek bulgu',
+    cc.length === 1 && cc[0].level === 'warn' && cc[0].measured === 0.74 && cc[0].limit === 1.5 && /işlenemez/.test(cc[0].text) && cc[0].fix?.key === 'toolDiameter' &&
+    cc[0].fix.value === 1 && !cc[0].fixAuto, cc.map((fd) => `${fd.level} ${fd.text}`).join(' | '));
+  const fi = fc.filter((fd) => fd.rule === 'GEO-FILLET-INNER');
+  check('dfm3: CNC kulak R1,6 ≥ R1,5 → sınırlı bilgi; kart desteği R0 → uyarı (keskin köşe); yatay taban köşesi freze kuralına girmez',
+    fi.length === 3 && fi.some((fd) => /kulak/.test(fd.text) && fd.level === 'info') && fi.some((fd) => /kart desteği/.test(fd.text) && fd.level === 'warn' && /keskin/.test(fd.text) && !fd.fix) &&
+    fi.some((fd) => /taban–duvar/.test(fd.text) && fd.level === 'info'), fi.map((fd) => `${fd.level} ${fd.text}`).join(' | '));
+  check('dfm3: katı model sonrası CNC-CORNER-TOOL bulgusu üretilmez; özet satırı freze uyarılı satırı saymaz', !fc.some((fd) => fd.rule === 'CNC-CORNER-TOOL') &&
+    !fc.some((fd) => fd.rule === 'GEO-TREAT' && fd.level === 'ok'));
+  const fd1 = reviewBuild({ ...cncD, geometry: { ...cncD.geometry, toolDiameter: 1 } }, rowsC.slice(0, 1));
+  check('dfm3: Ø1 freze seçiliyse R0,74 işlenebilir (≥ R0,5) → bilgi', fd1.filter((fd) => fd.rule === 'GEO-CORNER-CONCAVE')[0]?.level === 'info');
+  const fdmD = runDesignLoop(analysis, pla, { userParams: {} }, opts({ lidMode: 'corner' })).design;
+  check('dfm3: FDM gövdede aynı satır freze uyarısı üretmez (bilgi)', reviewBuild(fdmD, rowsC.slice(0, 1)).filter((fd) => fd.rule === 'GEO-CORNER-CONCAVE')[0]?.level === 'info');
+  const fv1 = reviewBuild({ rulesId: 'cnc/pom', checks: [] }, rowsC.slice(0, 1));
+  check('dfm3: freze çapı bilinmeyen eski tasarımda Ø3 varsayılır', fv1[0]?.level === 'warn' && fv1[0].limit === 1.5, fv1[0]?.text);
+  const fG = reviewBuild(cncD, [crow({ key: 'corner.concave.limited', applied: 1.2, limited: true })]);
+  check('dfm3: gruplanmış satır anahtarı (corner.concave.limited) da değerlendirilir; R1,2 için öneri Ø2', fG[0]?.level === 'warn' && fG[0].fix?.value === 2, fG[0]?.text);
+
+  // 9.6 Kapak borusu / yastığı gövde duvarına kapak boşluğundan yakın inmez (gövde ∩ kapak girişimi, L11)
+  const sdf = (x, y, c) => { const qx = Math.abs(x - c.cx) - (c.L / 2 - c.r); const qy = Math.abs(y - c.cy) - (c.W / 2 - c.r); return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - c.r; };
+  const edgeAn = { ...analysis, holes: [[2.5, 2.5], [76.5, 3.5], [3.5, 46.5], [76.5, 46.5]].map(([x, y]) => ({ x, y, d: 3.2, mount: true })) };
+  const We = runDesignLoop(edgeAn, pom, { userParams: {} }, opts());
+  const ge = We.design.geometry;
+  const fitE = We.design.params.fit;
+  const cl = ge.lidTubes.filter((t) => t.clip);
+  const c0 = cl[0]?.clip;
+  const dIn = c0 ? -sdf(cl[0].x, cl[0].y, c0) : null;
+  check('dfm3: duvara 2,5 mm delikteki kapak borusu kırpılır: kırpma sınırı kavite − 2 × kapak boşluğu, köşe r − boşluk',
+    cl.length === 1 && Math.abs(c0.L - (ge.cavity.L - 2 * fitE)) < 1e-9 && Math.abs(c0.W - (ge.cavity.W - 2 * fitE)) < 1e-9 && Math.abs(c0.r - Math.max(0, ge.cavity.r - fitE)) < 1e-9 &&
+    Math.abs(c0.trim - Math.round((cl[0].od / 2 - dIn) * 100) / 100) < 1e-9 && c0.trim > 0.5, c0 ? `trim ${c0.trim}, d ${dIn.toFixed(2)}, R ${cl[0].od / 2}` : 'kırpma yok');
+  const tw = We.findings.find((fd) => fd.rule === 'LID-TUBE-WALL');
+  check('dfm3: kırpılan boruda kalan et (1,36 mm) POM en az et kalınlığının (1,5) altında → LID-TUBE-WALL uyarısı, öneri "Bu deliği kullanma"',
+    tw && tw.level === 'warn' && tw.part === 'lid' && tw.cat === 'kapak' && Math.abs(tw.measured - (dIn - cl[0].holeD / 2)) < 0.006 && tw.limit === pom.min_wall && tw.fix?.key === 'holeOff' && tw.fix.value === 0 &&
+    /düzleştirildi/.test(tw.text), tw?.text);
+  check('dfm3: duvardan uzak deliklerde kırpma yok, LID-TUBE-WALL yok', b0.design.geometry.lidTubes.every((t) => !t.clip) && !b0.findings.some((fd) => fd.rule === 'LID-TUBE-WALL'));
+  const allClear = (Lx) => Lx.design.geometry.lidTubes.every((t) => { const g0 = Lx.design.geometry; const c = { L: g0.cavity.L - 2 * Lx.design.params.fit, W: g0.cavity.W - 2 * Lx.design.params.fit,
+    r: Math.max(0, g0.cavity.r - Lx.design.params.fit), cx: g0.center[0], cy: g0.center[1] }; return t.clip || t.od / 2 <= -sdf(t.x, t.y, c) + 1e-6; });
+  check('dfm3: tüm döngü durumlarında kırpılmamış her boru kapak boşluğu sınırının içinde', allLoops.every(allClear) && allClear(We));
+  const cbSpec = { type: 'iso4762', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match', headSeat: 'counterbore' };
+  const Wc = runDesignLoop(analysis, pom, { userParams: {} }, opts({ lidMode: 'corner', screwSpec: cbSpec }));
+  const pads = Wc.design.geometry.lidHoles.filter((hh) => hh.pad);
+  check('dfm3: köşe vidası yastığı boss\'tan büyükse duvar tarafında kırpılır (girişim yok)', pads.length === 4 && pads.every((hh) => (hh.pad.od > Wc.design.cornerPlan.od + 1e-6 ? !!hh.pad.clip : true)) &&
+    pads.some((hh) => hh.pad.clip) && Wc.findings.some((fd) => fd.rule === 'LID-TUBE-WALL' && /yastığı/.test(fd.text)), pads.map((hh) => `${hh.pad.od}${hh.pad.clip ? '✂' : ''}`).join(' '));
 }
 
 // ---------- Sonuç ----------

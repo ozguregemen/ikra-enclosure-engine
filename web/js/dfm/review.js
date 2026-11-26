@@ -4,8 +4,10 @@
  * Girdi nesneleri (tasarım, işlem raporu, muafiyetler) hiçbir zaman değiştirilmez.
  *
  * Finding = { id, rule, level, cat, part, title, text, measured, limit, op, unit, why, source, conf,
- *             fix, fixAuto, focus, waived, autoFixed, limits? }
+ *             fix, fixAuto, focus, waived, autoFixed, limits?, fixes? }
  *   limits   yalnız yüzey başına sınırı olan kurallarda (ör. kapak INJ-DRAFT: { plate, lip, tube }, °)
+ *   fixes    birden çok düzeltme yolu olan bulgularda: [fix, ...seçenekler] (ör. Helicoil ya da daha küçük freze,
+ *            { key: 'toolDiameter', value, label, auto: false }); fixes[0] her zaman fix ile aynıdır
  *   id       kararlı parmak izi: kural + odak parça + rakamları atılmış metin (yeniden üretimde aynı kalır;
  *            muafiyetler bu kimliğe bağlanır)
  *   fixAuto  düzeltme döngünün kendiliğinden uygulayacağı türden mi (sayısal, otomatik anahtar, kilitsiz, artırır)
@@ -13,6 +15,7 @@
  *            sayımlarda ayrı tutulur
  */
 import { RULES } from './catalog.js';
+import { stdCutterAtMost } from '../treat.js';
 
 /** Döngünün kendiliğinden değiştirebildiği sayısal parametreler (yalnızca artırarak) */
 export const AUTO_PARAM_KEYS = ['wall', 'pcbClearance', 'topClearance', 'standoffHeight', 'cornerRadius'];
@@ -68,6 +71,7 @@ export function cloneFinding(fd) {
   return {
     ...fd,
     fix: fd.fix ? { ...fd.fix } : null,
+    ...(Array.isArray(fd.fixes) ? { fixes: fd.fixes.map((x) => ({ ...x })) } : {}),
     focus: fd.focus ? { ...fd.focus } : null,
     waived: fd.waived ? { ...fd.waived } : null,
     source: Array.isArray(fd.source) ? fd.source.map((s) => ({ ...s })) : [],
@@ -102,6 +106,8 @@ export function toFinding(c, opts = {}) {
     source: info ? info.source.map((s) => ({ ...s })) : [],
     conf: info ? info.conf : 'low',
     fix,
+    // Seçenekli düzeltmeler (fixes[0] === fix): ör. Helicoil ya da daha küçük freze
+    ...(Array.isArray(c.fixes) && c.fixes.length ? { fixes: c.fixes.filter(Boolean).map((x) => ({ ...x })) } : {}),
     fixAuto: isAutoFix(fix, opts.params || null, opts.locks || null),
     focus: c.focus ? { ...c.focus } : null,
     waived: null,
@@ -169,6 +175,16 @@ export const DRAFT_FALLBACK = 1;
 const LIP_DRAFT_MIN = 2;
 const DEFAULT_UNIT = { draft: '°', boolean: 'adet', build: 'adet' };
 
+/**
+ * Dikey içbükey köşe satırları (plan radyüsü; CNC'de parmak frezenin yan yüzüyle işlenir): köşe boss'u–duvar, kart
+ * desteği–duvar, kulak–duvar. Satır anahtarı bunlardan biri ya da rapor gruplamasındaki son ekli biçimi (.limited/.failed).
+ * Taban–duvar köşesi, dil kökü gibi yatay kenarlar ve kavitenin kendi köşeleri (ön incelemede CNC-CORNER-TOOL) dahil değildir.
+ */
+const VERTICAL_CONCAVE_KEYS = ['corner.concave', 'pad.concave', 'ear.concave'];
+const isVerticalConcave = (t) => (t.rule === 'GEO-CORNER-CONCAVE' || t.rule === 'GEO-FILLET-INNER') &&
+  VERTICAL_CONCAVE_KEYS.some((k) => t.key === k || String(t.key || '').startsWith(`${k}.`));
+
+const r3 = (v) => Math.round(v * 1000) / 1000;
 const numOrNull = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 /** Değer + birim: "0,5 mm", "1,5°", "3 adet" */
 const withUnit = (v, unit) => (unit === '°' ? `${f(v)}°` : `${f(v)} ${unit || 'mm'}`);
@@ -212,6 +228,16 @@ export function reviewBuild(design, treatReport, opts = {}) {
   const catOf = (rule) => RULES[rule]?.cat || 'geometri';
   const isBaseDraft = (t) => process === 'injection' && t.part === 'base' && !!DRAFT_KEYS[t.key] && numOrNull(t.size) > 0;
   const isLidDraft = (t) => lidProcess === 'injection' && t.part === 'lid' && String(t.kind || '') === 'draft' && numOrNull(t.size) > 0;
+  // CNC parçada geçerli freze çapı: tasarımın değeri (geometry.toolDiameter / lidToolDiameter), yoksa işlem politikası
+  // (geometry.treat), yoksa opts.toolDiameter, yoksa kural dosyalarının varsayılanı Ø3
+  const g = design.geometry || {};
+  const toolOf = (part) => {
+    const proc = part === 'lid' ? lidProcess : process;
+    if (proc !== 'cnc') return null;
+    const v = [part === 'lid' ? g.lidToolDiameter : g.toolDiameter, g.treat?.[part === 'clip' ? 'clip' : part === 'lid' ? 'lid' : 'base']?.toolD,
+      opts.toolDiameter, 3].map(numOrNull).find((x) => x !== null && x > 0);
+    return v ?? null;
+  };
   let okRows = 0;
   let okInstances = 0;
   for (const t of list || []) {
@@ -256,6 +282,20 @@ export function reviewBuild(design, treatReport, opts = {}) {
     const legacyLimited = !notApplied && t.limited === undefined && t.ok === false && applied !== null && applied > 1e-9;
     const limited = !notApplied && (legacyLimited || (t.ok !== false && (t.limited === true || (size !== null && applied !== null && applied < size - 1e-6))));
     const fullOk = !notApplied && t.ok !== false && !limited;
+    // CNC dikey iç köşe: uygulanan radyüs freze yarıçapından küçükse bu köşe o frezeyle işlenemez → uyarı (satır başına
+    // tek bulgu, satırın kendi kuralıyla; kavite köşeleri ön incelemedeki CNC-CORNER-TOOL'dadır, burada yinelenmez)
+    const tool = isVerticalConcave(t) ? toolOf(t.part) : null;
+    const gotR = notApplied || t.ok === false ? 0 : Math.max(0, applied ?? size ?? 0);
+    if (tool && gotR < tool / 2 - 1e-6) {
+      const cutter = gotR > 0.05 ? stdCutterAtMost(2 * gotR) : null;
+      const sug = cutter && cutter < tool - 1e-9 ? cutter : null;
+      out.push({ level: 'warn', rule, cat: catOf(rule), part, measured: r3(gotR), limit: r3(tool / 2), op: '>=', unit: 'mm',
+        fix: sug ? { key: 'toolDiameter', value: sug, label: `Ø${f(sug)} mm freze seç`, auto: false } : null,
+        text: gotR > 0.05
+          ? `${who}, ${feature}: uygulanan R${f(gotR)} Ø${f(tool)} frezenin yarıçapından (R${f(tool / 2)}) küçük; bu iç köşe bu frezeyle işlenemez${note}. ${sug ? `Ø${f(sug)} mm ya da daha küçük freze seçilmeli ya da köşeye radyüs için yer açılmalı.` : 'Köşeye radyüs için yer açılmalı.'}`
+          : `${who}, ${feature}: iç köşe radyüssüz (keskin) kaldı${note}; döner freze keskin iç köşe işleyemez, Ø${f(tool)} freze burada en az R${f(tool / 2)} bırakır. Köşeye radyüs için yer açılmalı.` });
+      continue;
+    }
     if (fullOk) { okRows++; okInstances += Number.isFinite(Number(t.count)) && Number(t.count) > 0 ? Number(t.count) : 1; }
     // Enjeksiyonda çıkma açısı satırları INJ-DRAFT değerlendirmesinde (gövde: dış/cep; kapak: tüm çıkma açıları)
     if (isBaseDraft(t) || isLidDraft(t)) continue;

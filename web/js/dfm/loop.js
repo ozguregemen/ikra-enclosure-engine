@@ -115,6 +115,15 @@ const strCmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const bySeverity = (a, b) => a.rank - b.rank || a.priority - b.priority || ORDER.indexOf(a.key) - ORDER.indexOf(b.key) ||
   b.to - a.to || strCmp(String(a.rule), String(b.rule));
 
+/**
+ * Değişikliği tetikleyen bulgunun sayısal karşılaştırması (arayüz: "neden: 3 mm < 5,5 mm"): measured, limit, op, unit.
+ * Bulguda olmayan alan null; aralık sınırı ([alt, üst]) kopyalanır.
+ */
+function triggerOf(fd) {
+  const v = (x) => (x === undefined ? null : x);
+  return { measured: v(fd?.measured), limit: Array.isArray(fd?.limit) ? [...fd.limit] : v(fd?.limit), op: v(fd?.op), unit: v(fd?.unit) };
+}
+
 function changeText(c) {
   const title = RULES[c.rule]?.title || c.rule || '';
   return `${PARAM_LABEL[c.key] || c.key} ${f(c.from)} → ${f(c.to)} mm (${title}).`;
@@ -157,6 +166,7 @@ function optionsKey(o) {
     screwSpec: o.screwSpec, insertSpec: o.insertSpec, panelParts: o.panelParts, fits: o.fits, tolerance: o.tolerance,
     lidRules: o.lidRules ? `${o.lidRules.id}#${idOf(o.lidRules)}` : null, lidTolerance: o.lidTolerance,
     mount: o.mount, edgeHold: o.edgeHold, encloseOverrides: o.encloseOverrides ? [...o.encloseOverrides.entries()] : null,
+    toolDiameter: o.toolDiameter ?? null,
   };
   const tb = o.toolbox || {};
   const big = [idOf(o.fasteners), ...['types', 'inserts', 'washers', 'nuts', 'standoffs', 'panel', 'materials'].map((k) => listKey(tb[k])), idOf(tb.model)].join('|');
@@ -174,7 +184,8 @@ function cloneDesign(d) {
   return {
     ...d,
     geometry: d.geometry && typeof d.geometry === 'object' ? { ...d.geometry } : d.geometry,
-    checks: Array.isArray(d.checks) ? d.checks.map((c) => ({ ...c, fix: c.fix ? { ...c.fix } : c.fix, ...(c.limits ? { limits: { ...c.limits } } : {}) })) : d.checks,
+    checks: Array.isArray(d.checks) ? d.checks.map((c) => ({ ...c, fix: c.fix ? { ...c.fix } : c.fix, ...(c.limits ? { limits: { ...c.limits } } : {}),
+      ...(Array.isArray(c.fixes) ? { fixes: c.fixes.map((x) => ({ ...x })) } : {}) })) : d.checks,
     params: d.params && typeof d.params === 'object' ? { ...d.params } : d.params,
   };
 }
@@ -186,8 +197,8 @@ function cloneResult(r) {
     params: { ...r.params },
     locks: [...r.locks],
     findings: r.findings.map(cloneFinding),
-    changes: r.changes.map((c) => ({ ...c })),
-    rejected: r.rejected.map((c) => ({ ...c, introduced: [...(c.introduced || [])] })),
+    changes: r.changes.map((c) => ({ ...c, ...(Array.isArray(c.limit) ? { limit: [...c.limit] } : {}) })),
+    rejected: r.rejected.map((c) => ({ ...c, introduced: [...(c.introduced || [])], ...(Array.isArray(c.limit) ? { limit: [...c.limit] } : {}) })),
     counts: { ...r.counts },
   };
 }
@@ -264,7 +275,7 @@ export function runDesignLoop(analysis, rules, input = {}, options = {}) {
       if (tabu.has(c.tabuKey)) return;
       const ids = new Set(cur.findings.map((fd) => fd.id));
       const introduced = ev ? [...new Set(ev.findings.filter((fd) => !fd.waived && (fd.level === 'error' || fd.level === 'warn') && !ids.has(fd.id)).map((fd) => fd.rule))] : [];
-      rejected.push({ iter, rule: c.rule, key: c.key, from: c.from, to: c.to, why, introduced });
+      rejected.push({ iter, rule: c.rule, key: c.key, from: c.from, to: c.to, why, introduced, ...triggerOf(c.finding) });
       tabu.add(c.tabuKey);
     };
     let acc = null;
@@ -301,14 +312,15 @@ export function runDesignLoop(analysis, rules, input = {}, options = {}) {
         const without = acc.list.filter((x) => x !== c);
         const t = tryApply(without);
         if (!t.osc && t.ev.score <= acc.ev.score) {
-          rejected.push({ iter, rule: c.rule, key: c.key, from: c.from, to: c.to, why: 'no-effect', introduced: [] });
+          rejected.push({ iter, rule: c.rule, key: c.key, from: c.from, to: c.to, why: 'no-effect', introduced: [], ...triggerOf(c.finding) });
           tabu.add(c.tabuKey);
           acc = { list: without, ...t };
         }
       }
     }
     for (const c of acc.list) {
-      changes.push({ iter, rule: c.rule, title: RULES[c.rule]?.title || c.rule, key: c.key, from: c.from, to: c.to, level: c.finding.level, text: changeText(c) });
+      changes.push({ iter, rule: c.rule, title: RULES[c.rule]?.title || c.rule, key: c.key, from: c.from, to: c.to, level: c.finding.level, text: changeText(c),
+        ...triggerOf(c.finding) });
     }
     params = acc.ev.params;
     cur = acc.ev;

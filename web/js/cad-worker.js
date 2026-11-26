@@ -131,6 +131,28 @@ function panelHoleShape(h) {
   return s;
 }
 
+/**
+ * Kapaktan kaviteye inen öğeyi (vida borusu, köşe vidası yastığı) gövde duvarından kapak boşluğu kadar içeride kırpan
+ * prizma. c: design.js clip = { L, W, r, cx, cy } (kavite − 2 × kapak boşluğu, köşe r − boşluk); z0..z1 öğeyi kapsar.
+ */
+function insetClip(c, z0, z1) {
+  if (c.r > 0.05) return roundedSlab(c.L, c.W, c.r, c.cx, c.cy, z0, z1 - z0);
+  return makeBox([c.cx - c.L / 2, c.cy - c.W / 2, z0], [c.cx + c.L / 2, c.cy + c.W / 2, z1]);
+}
+/** Kırpma (varsa): öğe ∩ prizma; öğenin kendi z aralığından 1 mm taşan prizmayla */
+const clipTo = (s, c, z0, z1) => (c ? s.intersect(insetClip(c, Math.min(z0, z1) - 1, Math.max(z0, z1) + 1)) : s);
+/**
+ * Enjeksiyon kapağında kırpma yüzü de kalıptan çıkmalı: kırpma sınırı kökte (zRoot, kapak plakası altı) kavite − kapak
+ * boşluğu, uca doğru boru çıkma açısıyla içeri kayar (düzleşen yüz borunun açısıyla; boşluk hiçbir yükseklikte azalmaz).
+ */
+function clipToDrafted(s, c, zTip, zRoot, deg) {
+  if (!c) return s;
+  const ta = tanD(deg);
+  if (!(ta > 0)) return clipTo(s, c, zTip, zRoot);
+  const at = (z) => { const k = (z - zRoot) * ta; return { L: c.L + 2 * k, W: c.W + 2 * k, r: Math.max(c.r + k, 0.05), z }; };
+  return s.intersect(taperSlab([at(Math.min(zTip, zRoot) - 1), at(Math.max(zTip, zRoot) + 1.5)], c.cx, c.cy));
+}
+
 /** İşlemsiz (eski) üretim: üç parça ayrı fonksiyonlarda, böylece işlemli üretimde yalnız düşen parça yeniden kurulur */
 function buildEnclosure(g) {
   return { base: legacyBase(g), lid: legacyLid(g), clip: g.din ? buildClip(g.din) : null };
@@ -246,7 +268,8 @@ function legacyLid(g, outline = g.outer) {
   }
   const tubes = g.lidTubes || [];
   for (const t of tubes) {
-    lid = lid.fuse(makeCylinder(t.od / 2, t.z1 - t.z0 + 0.5, [t.x, t.y, t.z0], up));
+    // Gövde duvarına kapak boşluğundan yakın boru duvar tarafında kırpılır (design.js clip)
+    lid = lid.fuse(clipTo(makeCylinder(t.od / 2, t.z1 - t.z0 + 0.5, [t.x, t.y, t.z0], up), t.clip, t.z0, t.z1 + 0.5));
   }
   for (const t of tubes) {
     lid = lid.cut(makeCylinder(t.holeD / 2, g.zTop - t.z0 + 1, [t.x, t.y, t.z0 - 0.5], up));
@@ -255,7 +278,7 @@ function legacyLid(g, outline = g.outer) {
   }
   // Köşe vidası kapak delikleri: gerekirse kapağın altına boss'a oturan yastık, geçiş deliği, havşa ya da gömme oyuk
   for (const hh of g.lidHoles || []) {
-    if (hh.pad) lid = lid.fuse(makeCylinder(hh.pad.od / 2, hh.pad.h + 0.3, [hh.x, hh.y, g.cavTop - hh.pad.h], up));
+    if (hh.pad) lid = lid.fuse(clipTo(makeCylinder(hh.pad.od / 2, hh.pad.h + 0.3, [hh.x, hh.y, g.cavTop - hh.pad.h], up), hh.pad.clip, g.cavTop - hh.pad.h, g.cavTop + 0.3));
   }
   for (const hh of g.lidHoles || []) {
     const zb = g.cavTop - (hh.pad ? hh.pad.h : 0) - 0.5;
@@ -1423,7 +1446,8 @@ function buildLidTreated(g, T, rep, st) {
     adds.push({ key: 'lip', feature: 'kapak dili', shape: m.shape, err: m.err, plain, treats });
   }
   for (const t of g.lidTubes || []) {
-    const plain = () => makeCylinder(t.od / 2, t.z1 - t.z0 + 0.5, [t.x, t.y, t.z0], up);
+    // Gövde duvarına kapak boşluğundan yakın boru (kök büyümesi dahil) duvar tarafında kırpılır (design.js clip)
+    const plain = () => clipTo(makeCylinder(t.od / 2, t.z1 - t.z0 + 0.5, [t.x, t.y, t.z0], up), t.clip, t.z0, t.z1 + 0.5);
     const h = Math.abs(t.z1 - t.z0);
     const bw = (t.od - t.holeD) / 2;
     const tipC = Math.min(L.bossTipChamfer, 0.4 * bw);
@@ -1439,11 +1463,23 @@ function buildLidTreated(g, T, rep, st) {
         note: tipA < L.bossTipChamfer - 1e-3 ? `boru et kalınlığı ${numTr(bw)} mm olduğundan ${tipA > 0.02 ? `${numTr(tipA)} mm ile sınırlandı` : 'pah uygulanmadı'}` : '' });
     }
     if (L.bossDraftDeg > 0) treats.push({ key: 'tube.draft', feature: 'kapak borusu çıkma açısı', kind: 'draft', size: L.bossDraftDeg, rule: 'GEO-BOSS', note: 'uçta anma çapı, köke doğru büyür' });
-    const m = treats.length ? tryMake(() => bossSolid({ x: t.x, y: t.y, zRoot: t.z1, zTip: t.z0, rTip: t.od / 2, draftDeg: L.bossDraftDeg, rootR: L.tubeRootFillet, tipC, embed: 0.5 })) : { shape: null, err: '' };
+    if (t.clip) {
+      // Kırpma derinliği kökte (çıkma açısı + kök radyüsü izi dahil): eksen ile kırpma sınırı arası uzaklığın ötesi
+      const dIn = -sdfRR(t.x, t.y, t.clip.cx, t.clip.cy, t.clip.L, t.clip.W, t.clip.r);
+      const rTrace = bossRoot({ h, rTip: t.od / 2, draftDeg: L.bossDraftDeg, rootR: L.tubeRootFillet }).E[0];
+      const cut = r3(Math.max(0, rTrace - dIn));
+      if (cut > 0.005) {
+        treats.push({ key: 'tube.trim', feature: 'kapak borusu gövde duvarı tarafında düzleştirildi', kind: 'info', size: cut, unit: 'mm', rule: 'GEO-BOSS',
+          note: `kapak takılırken duvara çarpmasın diye gövde duvarıyla kapak boşluğu kadar açıklık bırakıldı${L.bossDraftDeg > 0 ? `; düzleşen yüz borunun çıkma açısıyla (${numTr(L.bossDraftDeg)}°)` : ''}` });
+      }
+    }
+    // Kırpma: enjeksiyon kapağında düzleşen yüz de borunun çıkma açısıyla (kalıptan çıkar)
+    const m = treats.length ? tryMake(() => clipToDrafted(bossSolid({ x: t.x, y: t.y, zRoot: t.z1, zTip: t.z0, rTip: t.od / 2, draftDeg: L.bossDraftDeg, rootR: L.tubeRootFillet, tipC, embed: 0.5 }),
+      t.clip, t.z0, t.z1, L.process === 'injection' ? L.bossDraftDeg : 0)) : { shape: null, err: '' };
     adds.push({ key: 'tube', feature: 'kapak borusu', shape: m.shape, err: m.err, plain, treats });
   }
   for (const hh of g.lidHoles || []) {
-    if (hh.pad) adds.push({ key: 'lidpad', feature: 'köşe vidası yastığı', shape: null, plain: () => makeCylinder(hh.pad.od / 2, hh.pad.h + 0.3, [hh.x, hh.y, g.cavTop - hh.pad.h], up), treats: [] });
+    if (hh.pad) adds.push({ key: 'lidpad', feature: 'köşe vidası yastığı', shape: null, plain: () => clipTo(makeCylinder(hh.pad.od / 2, hh.pad.h + 0.3, [hh.x, hh.y, g.cavTop - hh.pad.h], up), hh.pad.clip, g.cavTop - hh.pad.h, g.cavTop + 0.3), treats: [] });
   }
   lid = applyBatch(rep, P, 'fuse', lid, adds);
 

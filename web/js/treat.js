@@ -115,6 +115,35 @@ export function majorDiameter(size) {
   return m ? Number(m[1].replace(',', '.')) : null;
 }
 
+/**
+ * Enjeksiyon kapağında vida borusu çıkma açısı: boru kapak plakasının altından tubeLen kadar iner, kalıp derinliği
+ * lidT + tubeLen'dir (design.js kapak INJ-DRAFT limits.tube ile aynı formül, tek kaynak). En az IM-28 boss açısı (1°).
+ */
+export function lidTubeDraft(lidT, tubeLen, ruleMin) {
+  return Math.max(IM_BOSS_DRAFT, injectionDraft(lidT + Math.max(0, tubeLen || 0), lidT, ruleMin));
+}
+
+/** Standart parmak freze çapları (mm): takım önerileri bunlardan birine aşağı yuvarlanır */
+export const STD_CUTTERS = [1, 1.5, 2, 2.5, 3, 4, 5, 6];
+/** d mm'yi aşmayan en büyük standart freze çapı (yoksa null) */
+export const stdCutterAtMost = (d) => [...STD_CUTTERS].reverse().find((c) => c <= d + 1e-9) ?? null;
+/** Kullanıcı freze çapı seçeneğinin geçerli aralığı (mm) */
+const TOOL_MIN = 0.5;
+const TOOL_MAX = 20;
+/**
+ * CNC'de geçerli parmak freze çapı (mm): kullanıcı seçimi (options.toolDiameter, geçerli sayıysa) ya da kural dosyasının
+ * process_params.tool_diameter değeri. CNC dışı süreçlerde null. design.js, treat.js ve cad-worker aynı değeri kullanır.
+ */
+export function cncToolDiameter(rules, toolDiameter = null) {
+  if (rules?.process !== 'cnc') return null;
+  return validToolDiameter(toolDiameter) ?? (rules.process_params?.tool_diameter || 3);
+}
+/** Kullanıcı freze çapı geçerliyse sayı (mm), değilse (boş, null, aralık dışı) null */
+export function validToolDiameter(v) {
+  const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+  return Number.isFinite(n) && n >= TOOL_MIN - 1e-9 && n <= TOOL_MAX + 1e-9 ? n : null;
+}
+
 /** Cep/boss köşe yuvarlatma için: cep köşe radyüsünü geçmeyen (torus bozulmasın) radyüs */
 const capBelow = (v, limit) => Math.max(0, Math.min(v, limit - 0.05));
 const numTr = (v) => String(r2(v)).replace('.', ',');
@@ -123,12 +152,13 @@ const numTr = (v) => String(r2(v)).replace('.', ',');
  * Dikey iç köşelerde (köşe boss'u–duvar, kart desteği–duvar, kulak–duvar) istenen en küçük plan radyüsü:
  * FDM nozul çapı / 0,5 mm (FDM-12), enjeksiyon r_i = 0,5·t ≥ 0,5 mm (IM-07), CNC 1,3 × takım yarıçapı (CNC-03).
  * design.js (kapak dili ucu konumu) ve cad-worker aynı değeri kullansın diye dışa açıktır.
+ * toolD: CNC'de geçerli freze çapı (cncToolDiameter); verilmezse kural dosyasındaki çap.
  */
-export function concaveMinR(rules, wall) {
+export function concaveMinR(rules, wall, toolD = null) {
   const pp = rules?.process_params || {};
   if (rules?.process === 'fdm') return Math.max(FDM_CONCAVE_MIN, pp.nozzle_diameter || 0.4);
   if (rules?.process === 'injection') return Math.max(IM_INNER_R_FACTOR * wall, IM_INNER_R_MIN);
-  if (rules?.process === 'cnc') return r2(CNC_CORNER_FACTOR * (pp.tool_diameter || 3) / 2);
+  if (rules?.process === 'cnc') return r2(CNC_CORNER_FACTOR * (cncToolDiameter(rules, toolD) || 3) / 2);
   return 0;
 }
 
@@ -191,7 +221,8 @@ export function bottomEdge(P, floor, hasEars) {
 
 function partPolicy(process, rules, ctx) {
   const { wall, floor, rIn, rOut, lidT, depth } = ctx;
-  const tool = rules.process_params?.tool_diameter || 3;
+  // CNC: tasarımın geçerli freze çapı (kullanıcı seçimi ya da kural dosyası; geometry.toolDiameter)
+  const tool = (process === 'cnc' ? cncToolDiameter(rules, ctx.toolD) : null) || rules.process_params?.tool_diameter || 3;
   const P = {
     process,
     pull: null, // kalıptan çıkma yönü (yalnız enjeksiyon)
@@ -282,7 +313,7 @@ function partPolicy(process, rules, ctx) {
     P.bossTipChamfer = CNC_EDGE_BREAK;
     P.floorFillet = 0; // CNC-09: düz parmak freze; taban radyüsü gerekmedikçe kullanılmaz
     P.holeEntry = { insert: CNC_EDGE_BREAK, tapped: TAP_CSK_OVER_MAJOR, selfTap: SELF_TAP_RELIEF, clearance: CNC_EDGE_BREAK };
-    P.concaveMinR = concaveMinR(rules, wall);
+    P.concaveMinR = concaveMinR(rules, wall, tool);
     P.toolD = tool;
     P.nutDogbone = r2(tool / 2);
     P.cutoutBreak = CNC_EDGE_BREAK;
@@ -330,14 +361,20 @@ export function treatmentFor(design, rules, lidRules = rules) {
   const rIn = g.cavity.r;
   const rOut = g.outer.r;
   const depthBase = g.cavTop - g.z0; // dış duvarın kalıp derinliği
-  const ctxB = { wall, floor, rIn, rOut, lidT, depth: depthBase };
+  // CNC freze çapı: tasarımın geçerli değeri (geometry.toolDiameter / lidToolDiameter; eski tasarımda kural dosyası)
+  const toolOf = (v) => (Number.isFinite(v) && v > 0 ? v : null);
+  const ctxB = { wall, floor, rIn, rOut, lidT, depth: depthBase, toolD: toolOf(g.toolDiameter) };
   const base = partPolicy(rules.process, rules, ctxB);
   // Kapak: plaka yan yüzü + dil + boru boyu en derin özelliktir
-  const tubeLen = Math.max(0, ...(g.lidTubes || []).map((t) => t.z1 - t.z0), ...(g.lipBars || []).map((b) => b.max[2] - b.min[2]));
-  const lid = partPolicy(lr.process, lr, { ...ctxB, wall: lidT, depth: lidT + tubeLen });
+  const tubeH = Math.max(0, ...(g.lidTubes || []).map((t) => Math.abs(t.z1 - t.z0)));
+  const tubeLen = Math.max(tubeH, ...(g.lipBars || []).map((b) => b.max[2] - b.min[2]));
+  const lid = partPolicy(lr.process, lr, { ...ctxB, wall: lidT, depth: lidT + tubeLen, toolD: toolOf(g.lidToolDiameter) ?? (lr.process === rules.process && lr.id === rules.id ? ctxB.toolD : null) });
   if (lid.process === 'injection') {
     lid.pull = [0, 0, -1];
     lid.draftDeg = Math.max(lr.draft_angle_min || 0, 1); // plaka yan yüzü yalnız kapak kalınlığı kadar: 1° (IM-10)
+    // Vida boruları plakadan boru boyu kadar aşağı iner: kalıp derinliği lidT + boru boyu (design.js kapak INJ-DRAFT
+    // limits.tube ile aynı formül; katı model sonrası kapak INJ-DRAFT bu sınırla doğrulanır)
+    if (tubeH > 0) lid.bossDraftDeg = lidTubeDraft(lidT, tubeH, lr.draft_angle_min);
   }
   // Gövdeye özgü olmayan alanlar kapakta kullanılmaz (ve tersi): rapor sade kalsın
   base.lipTipChamfer = 0; base.lipRootFillet = 0; base.lipDraftDeg = 0; base.tubeRootFillet = 0; base.outerTopFillet = 0;
