@@ -15,7 +15,7 @@
  *            sayımlarda ayrı tutulur
  */
 import { RULES } from './catalog.js';
-import { stdCutterAtMost } from '../treat.js';
+import { stdCutterAtMost, cncDepthMachinable } from '../treat.js';
 
 /** Döngünün kendiliğinden değiştirebildiği sayısal parametreler (yalnızca artırarak) */
 export const AUTO_PARAM_KEYS = ['wall', 'pcbClearance', 'topClearance', 'standoffHeight', 'cornerRadius'];
@@ -59,6 +59,36 @@ export function validWaiver(w) {
   return String(w.reason ?? '').replace(/\s+/g, '').length >= WAIVER_REASON_MIN;
 }
 
+/**
+ * Muafiyet verilirken ölçülen değer bulgunun kuralına göre kötüleştiyse (op '>=': küçüldü, op '<=': büyüdü) ya da ölçü birimi
+ * değiştiyse muafiyet bulguyu örtmez: parmak izi rakamları attığı için muafiyet ölçü değişince de aynı bulguya bağlı kalır,
+ * kabul edilen sapmadan büyük bir sapmayı sessizce örtmemelidir. Ölçü kaydı olmayan (eski) muafiyetlerde ve aralık/kat
+ * karşılaştırmalarında kontrol yapılmaz. Dönüş: null (muafiyet geçerli) ya da { from, to, unit }.
+ */
+export function waiverWorsened(fd, w) {
+  const wm = numOrNull(w?.measured);
+  const m = numOrNull(fd?.measured);
+  if (wm === null || m === null) return null;
+  const unit = fd.unit ?? null;
+  if ((w.unit ?? null) !== unit) return { from: wm, to: m, unit, unitChanged: true };
+  const eps = 0.005; // değerler iki ondalığa yuvarlanır
+  if (fd.op === '>=' && m < wm - eps) return { from: wm, to: m, unit };
+  if (fd.op === '<=' && m > wm + eps) return { from: wm, to: m, unit };
+  return null;
+}
+
+/**
+ * Bulguya muafiyeti uygula (yerinde): gerekçesiz muafiyet yok sayılır; ölçü kötüleştiyse bulgu açık kalır ve
+ * fd.waiverWorse = { from, to, unit } işaretlenir (arayüz bunu "ölçü kötüleşti" diye eşleşmeyen muafiyetlerde gösterir).
+ */
+export function applyWaiver(fd, w) {
+  if (!fd || fd.level === 'ok' || !validWaiver(w)) return fd;
+  const worse = waiverWorsened(fd, w);
+  if (worse) { fd.waiverWorse = worse; return fd; }
+  fd.waived = { reason: String(w.reason).trim(), date: w.date || null };
+  return fd;
+}
+
 function defaultPart(c, cat) {
   if (c.part) return c.part;
   if (cat === 'kapak') return 'lid';
@@ -74,6 +104,7 @@ export function cloneFinding(fd) {
     ...(Array.isArray(fd.fixes) ? { fixes: fd.fixes.map((x) => ({ ...x })) } : {}),
     focus: fd.focus ? { ...fd.focus } : null,
     waived: fd.waived ? { ...fd.waived } : null,
+    ...(fd.waiverWorse ? { waiverWorse: { ...fd.waiverWorse } } : {}),
     source: Array.isArray(fd.source) ? fd.source.map((s) => ({ ...s })) : [],
     limit: Array.isArray(fd.limit) ? [...fd.limit] : fd.limit,
     ...(fd.limits && typeof fd.limits === 'object' ? { limits: { ...fd.limits } } : {}),
@@ -125,7 +156,7 @@ function finalize(list, waivers) {
     seen.set(fd.id, n + 1);
     if (n) fd.id = `${fd.id}-${n + 1}`;
     const w = waivers && Object.prototype.hasOwnProperty.call(waivers, fd.id) ? waivers[fd.id] : null;
-    if (fd.level !== 'ok' && validWaiver(w)) fd.waived = { reason: String(w.reason).trim(), date: w.date || null };
+    applyWaiver(fd, w);
   }
   return list;
 }
@@ -151,7 +182,8 @@ export function findingsFromChecks(design, opts = {}) {
  */
 export function staleWaivers(waivers, findings) {
   if (!waivers || typeof waivers !== 'object') return [];
-  const ids = new Set((findings || []).map((fd) => fd && fd.id));
+  // Bulgusu var ama ölçüsü muafiyet verildiğinden kötü olanlar da (waiverWorse) eşleşmeyen sayılır: muafiyet onu örtmez
+  const ids = new Set((findings || []).filter((fd) => fd && !fd.waiverWorse).map((fd) => fd.id));
   return Object.keys(waivers).filter((k) => !ids.has(k));
 }
 
@@ -166,9 +198,10 @@ const KIND_TEXT = {
 /** Yalnızca bilgi satırları: işlem sayılmaz, uyarı üretmez (sürüm 1 adları geriye uyum için) */
 const INFO_KINDS = new Set(['info', 'sharp', 'embed', 'offset']);
 /** Gövdenin INJ-DRAFT toplu değerlendirmesine giren satırlar (sözleşme A) */
-const DRAFT_KEYS = { 'draft.outer': 'dış duvar', 'draft.pocket': 'cep (iç duvar)' };
+const DRAFT_KEYS = { 'draft.outer': 'dış duvar', 'draft.pocket': 'cep (iç duvar)', 'pad.draft': 'kart destekleri' };
 /** Kapağın INJ-DRAFT değerlendirmesinde satır adları (kapakta kind 'draft' ve size > 0 olan tüm satırlar değerlendirilir) */
-const LID_DRAFT_KEYS = { 'draft.plate': 'plaka yan yüzü', 'lip.draft': 'dil', 'tube.draft': 'vida boruları' };
+const LID_DRAFT_KEYS = { 'draft.plate': 'plaka yan yüzü', 'lip.draft': 'dil', 'lip.end.draft': 'dil uç yüzleri', 'tube.draft': 'vida boruları',
+  'presser.draft': 'kart baskı dilleri' };
 /** Ön incelemede sınır bulunamazsa: IM-10 (Protolabs) olağan en az çıkma açısı; injectionDraft'ın tabanı da 1° */
 export const DRAFT_FALLBACK = 1;
 /** Kapak dili en az çıkma açısı (IM-24/IM-39), ön incelemede lipLimit yoksa */
@@ -238,6 +271,13 @@ export function reviewBuild(design, treatReport, opts = {}) {
       opts.toolDiameter, 3].map(numOrNull).find((x) => x !== null && x > 0);
     return v ?? null;
   };
+  // Parçanın işleme derinliği (freze önerisinin CNC-POCKET-DEPTH hata sınırını aşmaması için): gövdede kavite derinliği,
+  // kapakta plakadan inen en uzun dil/boru; bilinmiyorsa 0 (kısıt yok)
+  const depthOf = (part) => {
+    if (part === 'lid') return Math.max(0, ...(g.lidTubes || []).map((x) => Math.abs((x.z1 ?? 0) - (x.z0 ?? 0))), ...(g.lipBars || []).map((b) => (b.max?.[2] ?? 0) - (b.min?.[2] ?? 0)));
+    const d = (numOrNull(g.cavTop) ?? 0) - (numOrNull(g.z0) ?? 0) - (numOrNull(g.floor) ?? 0);
+    return Number.isFinite(d) && d > 0 ? d : 0;
+  };
   let okRows = 0;
   let okInstances = 0;
   for (const t of list || []) {
@@ -287,8 +327,10 @@ export function reviewBuild(design, treatReport, opts = {}) {
     const tool = isVerticalConcave(t) ? toolOf(t.part) : null;
     const gotR = notApplied || t.ok === false ? 0 : Math.max(0, applied ?? size ?? 0);
     if (tool && gotR < tool / 2 - 1e-6) {
-      const cutter = gotR > 0.05 ? stdCutterAtMost(2 * gotR) : null;
-      const sug = cutter && cutter < tool - 1e-9 ? cutter : null;
+      // Öneri: bu radyüsü 1,3 × takım yarıçapı kuralıyla (CNC-03) işleyen ve parçanın cep derinliğini işleyebilen
+      // (CNC-POCKET-DEPTH hata sınırı) en büyük standart freze; hata eşiği yine takım yarıçapıdır
+      const cutter = gotR > 0.05 ? stdCutterAtMost((2 * gotR) / 1.3) : null;
+      const sug = cutter && cutter < tool - 1e-9 && cncDepthMachinable(depthOf(t.part), cutter) ? cutter : null;
       out.push({ level: 'warn', rule, cat: catOf(rule), part, measured: r3(gotR), limit: r3(tool / 2), op: '>=', unit: 'mm',
         fix: sug ? { key: 'toolDiameter', value: sug, label: `Ø${f(sug)} mm freze seç`, auto: false } : null,
         text: gotR > 0.05
@@ -357,7 +399,9 @@ export function reviewBuild(design, treatReport, opts = {}) {
     const plateLim = optL ?? numOrNull(lc?.limits?.plate) ?? DRAFT_FALLBACK; // plaka yan yüzü yalnız kapak kalınlığı kadar derin
     const lipLim = optL ?? numOrNull(lc?.limits?.lip) ?? Math.max(featLim, LIP_DRAFT_MIN);
     const tubeLim = optL ?? numOrNull(lc?.limits?.tube) ?? featLim;
-    const limitOf = (t) => (t.key === 'draft.plate' ? plateLim : t.key === 'lip.draft' ? lipLim : t.key === 'tube.draft' ? tubeLim : featLim);
+    const presserLim = optL ?? numOrNull(lc?.limits?.presser) ?? tubeLim; // kart baskı dili boru gibi plakadan iner
+    const limitOf = (t) => (t.key === 'draft.plate' ? plateLim : t.key === 'lip.draft' || t.key === 'lip.end.draft' ? lipLim : t.key === 'tube.draft' ? tubeLim
+      : t.key === 'presser.draft' ? presserLim : featLim);
     out.push(draftFinding({ part: 'lid', prefix: 'Kapak kalıp çıkma açısı', surfaces: 'kapak yan yüzleri, dil ve vida boruları',
       rows: (list || []).filter(isLidDraft), limitOf, nameOf: (t) => LID_DRAFT_KEYS[t.key] || String(t.feature || 'yüzey'),
       mainLimit: featLim, fallback, perRow: true }));

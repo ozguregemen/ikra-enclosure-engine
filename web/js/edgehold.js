@@ -21,7 +21,8 @@ const cyl = (x, y, d, z0, z1) => ({ min: [x - d / 2, y - d / 2, z0], max: [x + d
 
 /**
  * ctx: { mode: 'auto'|'on'|'off', hasHoles, b (board: box, top, bottom), cav, floorTop, cavTop, rIn, fit, clr,
- *        obstacles (bileşen kutuları {box,name}), standoffs, cornerBosses, lidTubes, lidHoles, floorHoles, lidItems, rules }
+ *        obstacles (bileşen kutuları {box,name}), standoffs, cornerBosses, cornerReach (köşe boss'u–duvar radyüsünün kavite
+ *        köşesinden duvar boyunca uzandığı mesafe, mm), lidTubes, lidHoles, floorHoles, lidItems, rules }
  * Dönüş: { active, pads: [{min,max,edge}], pressers: [{min,max,edge}], checks, info }
  */
 export function planEdgeHold(ctx) {
@@ -43,7 +44,14 @@ export function planEdgeHold(ctx) {
   }
   for (const s of ctx.standoffs || []) below.push({ box: cyl(s.x, s.y, s.insert?.kind === 'standoff' ? s.insert.sw * 1.155 : s.od, s.z0, b.bottom), name: 'standoff' });
   for (const c of ctx.cornerBosses || []) {
-    const bx = { min: [Math.min(c.wall[0], c.x - c.od / 2), Math.min(c.wall[1], c.y - c.od / 2), c.z0], max: [Math.max(c.wall[0], c.x + c.od / 2), Math.max(c.wall[1], c.y + c.od / 2), c.z1] };
+    // Boss + duvar köşesi + boss–duvar içbükey radyüsü (GEO-CORNER-CONCAVE): radyüs duvar boyunca kavite köşesinden
+    // cornerReach kadar uzanır (design.js; kapak dili ucuyla aynı bağıntı). Kutu köşeden iki duvar boyunca bu kadar büyür.
+    const [wx, wy] = c.wall;
+    const mx = Math.sign(c.x - wx) || 1;
+    const my = Math.sign(c.y - wy) || 1;
+    const ex = Math.max(Math.abs(c.x - wx) + c.od / 2, ctx.cornerReach || 0);
+    const ey = Math.max(Math.abs(c.y - wy) + c.od / 2, ctx.cornerReach || 0);
+    const bx = { min: [Math.min(wx, wx + mx * ex), Math.min(wy, wy + my * ey), c.z0], max: [Math.max(wx, wx + mx * ex), Math.max(wy, wy + my * ey), c.z1] };
     below.push({ box: bx, name: 'köşe boss' });
     above.push({ box: bx, name: 'köşe boss' });
   }

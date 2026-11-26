@@ -20,7 +20,7 @@ import {
   getOC,
   cast,
 } from 'https://cdn.jsdelivr.net/npm/replicad@1.2.1/+esm';
-import { bossRoot, bottomEdge, EAR_EMBED, nutDogboneR, nutMaxTool } from './treat.js';
+import { bossRoot, bottomEdge, EAR_EMBED, nutDogboneR, nutMaxTool, NUT_RELIEF_MIN } from './treat.js';
 
 // Teknik resim görünüşleri. replicad'de kamera yönü nesneden İZLEYİCİYE doğrudur;
 // xAxis kağıtta sağ, yön × xAxis kağıtta yukarı olacak şekilde seçildi (aynalanma yok).
@@ -762,12 +762,18 @@ function padGeom(pd, rc = 0) {
 }
 
 /** Kart kenarı alt desteği: duvar birleşiminde plan radyüsü rc (CNC), duvara gömme payı emb */
-function padSolid(pd, rc, emb) {
+function padSolid(pd, rc, emb, draftDeg = 0) {
   const { axis, dir, along, wall, U, r } = padGeom(pd, rc);
   const toW = (u, v) => { const p = [0, 0]; p[axis] = wall - dir * u; p[along] = v; return p; };
   const v0 = pd.min[along];
   const v1 = pd.max[along];
   const k = r * (1 - S2);
+  // Enjeksiyon: üç serbest yan yüz çekme yönünde açılı (üstte anma ölçüsü, tabana doğru büyür; duvar tarafı gömülü)
+  if (draftDeg > 0 && !(r > 0.05)) {
+    const g = (pd.max[2] - pd.min[2]) * tanD(draftDeg);
+    const poly = (e) => draw(toW(-emb, v0 - e)).lineTo(toW(U + e, v0 - e)).lineTo(toW(U + e, v1 + e)).lineTo(toW(-emb, v1 + e)).close();
+    return poly(g).sketchOnPlane('XY', pd.min[2]).loftWith(poly(0).sketchOnPlane('XY', pd.max[2]), { ruled: true });
+  }
   let pen;
   if (r > 0.05) {
     pen = draw(toW(-emb, v0 - r)).lineTo(toW(0, v0 - r)).threePointsArcTo(toW(r, v0), toW(k, v0 - r + r * S2))
@@ -777,6 +783,36 @@ function padSolid(pd, rc, emb) {
     pen = draw(toW(-emb, v0)).lineTo(toW(U, v0)).lineTo(toW(U, v1)).lineTo(toW(-emb, v1));
   }
   return pen.close().sketchOnPlane('XY', pd.min[2]).extrude(pd.max[2] - pd.min[2]);
+}
+
+/** Kart baskı dili (kapak, enjeksiyon): uçta (kart üstü) anma kutusu, kapak plakasına doğru çıkma açısıyla büyür */
+function presserSolid(pr, draftDeg) {
+  const g = (pr.max[2] - pr.min[2]) * tanD(draftDeg);
+  const rect = (e) => draw([pr.min[0] - e, pr.min[1] - e]).lineTo([pr.max[0] + e, pr.min[1] - e]).lineTo([pr.max[0] + e, pr.max[1] + e]).lineTo([pr.min[0] - e, pr.max[1] + e]).close();
+  return rect(0).sketchOnPlane('XY', pr.min[2]).loftWith(rect(g).sketchOnPlane('XY', pr.max[2]), { ruled: true });
+}
+
+/**
+ * Kapak dili uç yüzleri (enjeksiyon): dil boyunca uçlar çekme yönünde açılı. Dil katısı, kökte (cavTop) dil boyunda,
+ * uca doğru her uçta (cavTop − z)·tan(açı) kısalan yamuk prizmayla kesişir.
+ */
+function lipEndsDrafted(lip, bar, g, deg) {
+  const alongX = bar.max[0] - bar.min[0] >= bar.max[1] - bar.min[1];
+  const a = alongX ? 0 : 1;
+  const c = 1 - a;
+  const at = (z) => (g.cavTop - z) * tanD(deg);
+  const zT = bar.min[2] - 0.5;
+  const zR = g.cavTop + 1.5;
+  const a0 = bar.min[a];
+  const a1 = bar.max[a];
+  const q = [[a0 + at(zT), zT], [a1 - at(zT), zT], [a1 - at(zR), zR], [a0 + at(zR), zR]];
+  let pen = draw(q[0]);
+  for (const p of q.slice(1)) pen = pen.lineTo(p);
+  const dr = pen.close();
+  const c0 = bar.min[c] - 10;
+  const c1 = bar.max[c] + 10;
+  const prism = alongX ? dr.sketchOnPlane('XZ', [0, c1, 0]).extrude(c1 - c0) : dr.sketchOnPlane('YZ', [c0, 0, 0]).extrude(c1 - c0);
+  return lip.intersect(prism);
 }
 
 /** Kök radyüsü: yatay düzlem (malzeme üstte, z = Z) ile aşağı inen yüz çizgisi arasında; düzleme 10° kala biter */
@@ -867,6 +903,19 @@ function hexPocketDogbone(st, r) {
   const dr = pen.closeWithCustomCorner(r, 'dogbone');
   const n = dr.blueprint?.curves?.length;
   if (n !== 12) throw new Error(`köşe boşaltması altı köşenin hepsine sığmadı (${n ?? '?'} eğri)`);
+  return dr.sketchOnPlane('XY', p.z0).extrude(p.z1 - p.z0);
+}
+
+/** Köşe boşaltması işlenemeyen altıgen somun cebi: köşeler frezenin bıraktığı r yarıçapında yuvarlak (r < s/2) */
+function hexPocketRounded(st, r) {
+  const p = st.nutPocket;
+  const R = p.s / Math.sqrt(3);
+  const pt = (i) => [st.x + R * Math.cos((Math.PI / 3) * i), st.y + R * Math.sin((Math.PI / 3) * i)];
+  let pen = draw(pt(0));
+  for (let i = 1; i < 6; i++) pen = pen.lineTo(pt(i)).customCorner(r);
+  const dr = pen.closeWithCustomCorner(r);
+  const n = dr.blueprint?.curves?.length;
+  if (n !== 12) throw new Error(`köşe radyüsü altı köşenin hepsine sığmadı (${n ?? '?'} eğri)`);
   return dr.sketchOnPlane('XY', p.z0).extrude(p.z1 - p.z0);
 }
 
@@ -1078,6 +1127,7 @@ function buildBaseTreated(g, T, rep, st) {
     const plain = () => makeBox(pd.min, pd.max);
     const rcWant = B.process === 'cnc' ? B.concaveMinR : 0;
     const emb = 0.3 + injEmbed(pd.max[2]);
+    const padDraft = pd.edge && B.padDraftDeg > 0 && st.baseDraft ? B.padDraftDeg : 0;
     const treats = [];
     if (rcWant > 0 && pd.edge) {
       const ra = padGeom(pd, rcWant).r;
@@ -1087,7 +1137,9 @@ function buildBaseTreated(g, T, rep, st) {
         note: ra < rcWant - 1e-3 ? `destek genişliği nedeniyle ${ra > 0.05 ? `R${numTr(ra)} ile sınırlandı` : 'uygulanmadı'}${toolNote}` : '' });
     }
     if (emb > 0.3 + 1e-6) treats.push({ key: 'pad.embed', feature: 'kart desteği açılı duvara gömüldü', kind: 'info', size: emb, unit: 'mm', rule: 'INJ-DRAFT', note: 'duvar açısı kadar derine gömüldü' });
-    const m = treats.length && pd.edge ? tryMake(() => padSolid(pd, rcWant, emb)) : { shape: null, err: '' };
+    // Enjeksiyon: destek yan yüzleri cep duvarıyla aynı açıda (gövde INJ-DRAFT sınırıyla katı model sonrası doğrulanır)
+    if (padDraft > 0) treats.push({ key: 'pad.draft', feature: 'kart desteği yan yüzleri çıkma açısı', kind: 'draft', size: padDraft, rule: 'INJ-DRAFT', note: 'üstte anma ölçüsü, tabana doğru büyür' });
+    const m = treats.length && pd.edge ? tryMake(() => padSolid(pd, rcWant, emb, padDraft)) : { shape: null, err: '' };
     adds.push({ key: 'pad', feature: 'kart desteği', shape: m.shape, err: m.err, plain, treats });
   }
   // Köşe boss'ları: 2B dış hat, iki duvar birleşiminde içbükey radyüs; enjeksiyonda kesitler arası loft (açılı duvarı izler)
@@ -1217,17 +1269,30 @@ function buildBaseTreated(g, T, rep, st) {
     if (s.nutPocket) {
       const plain = () => nutPocketShape(s);
       if (s.nutPocket.shape === 'hex' && B.nutDogbone > 0) {
-        // Köşe boşaltması: r = min(takım yarıçapı, s/4 − 0,02); s/4'ten büyük takım altıgen köşeye giremez (treat.js)
+        // Köşe boşaltması: r = takım yarıçapı (en az NUT_RELIEF_MIN; büyük daire aynı frezeyle işlenir). r ≤ s/4 − 0,02 olmalı
+        // (treat.js). Freze bundan büyükse boşaltma işlenemez: cep köşeleri frezenin bıraktığı R = Ø/2 ile yuvarlak modellenir
+        // (tasarım denetimi somunun bu köşelere oturup oturmadığını sınar; CNC-NUT-POCKET-TOOL).
         const sAF = s.nutPocket.s;
-        const r = nutDogboneR(sAF, B.nutDogbone);
+        const rLim = nutDogboneR(sAF, Infinity);
+        const toolR = (B.toolD || 3) / 2;
         const toolMax = nutMaxTool(sAF);
-        const note = r < B.nutDogbone - 1e-3
-          ? `SW ${numTr(sAF)} altıgen cepte Ø${numTr(2 * B.nutDogbone)} freze köşeye girmez; R${numTr(r)} boşaltma modellendi, köşe boşaltması için Ø${numTr(toolMax)} mm veya daha küçük freze gerekir`
-          : '';
-        const m = r >= 0.3 ? tryMake(() => hexPocketDogbone(s, r))
-          : { shape: null, err: `köşe boşaltmasına yer yok; Ø${numTr(Math.max(0, toolMax))} mm veya daha küçük freze gerekir` };
-        cuts.push({ key: 'nut', feature: 'altıgen somun cebi', shape: m.shape, err: m.err, plain,
-          treats: [{ key: 'nut.dogbone', feature: 'somun cebi köşe boşaltması', kind: 'dogbone', size: B.nutDogbone, applied: r, rule: 'GEO-DOGBONE', note }] });
+        if (B.nutDogbone <= rLim + 1e-6 && B.nutDogbone >= NUT_RELIEF_MIN - 1e-6) {
+          const r = nutDogboneR(sAF, B.nutDogbone);
+          const note = B.nutDogbone > toolR + 1e-3
+            ? `Ø${numTr(2 * toolR)} freze; R${numTr(r)} modellenen en küçük köşe boşaltması, aynı frezeyle işlenir` : '';
+          const m = tryMake(() => hexPocketDogbone(s, r));
+          cuts.push({ key: 'nut', feature: 'altıgen somun cebi', shape: m.shape, err: m.err, plain,
+            treats: [{ key: 'nut.dogbone', feature: 'somun cebi köşe boşaltması', kind: 'dogbone', size: B.nutDogbone, applied: r, rule: 'GEO-DOGBONE', note }] });
+        } else {
+          const rc = Math.max(0, Math.min(toolR, sAF / 2 - 0.05));
+          const why = rLim < NUT_RELIEF_MIN
+            ? `SW ${numTr(sAF)} altıgen cepte köşe boşaltmasına yer yok (modellenen en küçük boşaltma R${numTr(NUT_RELIEF_MIN)})`
+            : `SW ${numTr(sAF)} altıgen cepte Ø${numTr(2 * toolR)} freze köşe boşaltması açamaz (en fazla Ø${numTr(toolMax)} mm)`;
+          const m = rc > 0.05 ? tryMake(() => hexPocketRounded(s, rc)) : { shape: null, err: 'köşe radyüsüne yer yok' };
+          cuts.push({ key: 'nut', feature: 'altıgen somun cebi', shape: m.shape, err: m.err, plain,
+            treats: [{ key: 'nut.corner', feature: 'somun cebi köşeleri (freze yarıçapında yuvarlak)', kind: 'fillet', size: rc, applied: rc, rule: 'GEO-DOGBONE',
+              note: `${why}; köşeler frezenin bıraktığı R${numTr(rc)} ile yuvarlak işlendi, somunun oturması ön incelemede sınandı` }] });
+        }
       } else plainTool('nut', 'somun cebi', plain);
     }
     if (s.bottomCountersink) {
@@ -1396,7 +1461,15 @@ function buildLidTreated(g, T, rep, st) {
   }
 
   const adds = [];
-  for (const pr of g.edgePressers || []) adds.push({ key: 'presser', feature: 'kart baskı dili', shape: null, plain: () => makeBox(pr.min, pr.max), treats: [] });
+  for (const pr of g.edgePressers || []) {
+    // Enjeksiyon kapağında kart baskı dili de kalıptan çıkmalı: uçta anma kutusu, plakaya doğru büyür (kapak INJ-DRAFT presser)
+    const pDeg = L.presserDraftDeg > 0 ? L.presserDraftDeg : 0;
+    if (pDeg > 0) {
+      const m = tryMake(() => presserSolid(pr, pDeg));
+      adds.push({ key: 'presser', feature: 'kart baskı dili', shape: m.shape, err: m.err, plain: () => makeBox(pr.min, pr.max),
+        treats: [{ key: 'presser.draft', feature: 'kart baskı dili yan yüzleri çıkma açısı', kind: 'draft', size: pDeg, rule: 'INJ-DRAFT', note: 'uçta anma ölçüsü, kapağa doğru büyür' }] });
+    } else adds.push({ key: 'presser', feature: 'kart baskı dili', shape: null, plain: () => makeBox(pr.min, pr.max), treats: [] });
+  }
   // Kapak dili: kesit profili (kök radyüsü, iki yüzde açı, uç pahı), gövde cebi açılıysa dışa kaydırılır
   const fit = T.lipFit ?? 0.2;
   const tB = st.pocketGrow ? tanD(st.baseDraft) : 0;
@@ -1441,8 +1514,13 @@ function buildLidTreated(g, T, rep, st) {
         note: c < L.lipTipChamfer - 1e-3 ? `dil ucu kalınlığı nedeniyle ${c > 0.02 ? `${numTr(c)} mm ile sınırlandı` : 'uygulanmadı'}` : '' });
     }
     if (L.lipDraftDeg > 0) treats.push({ key: 'lip.draft', feature: 'kapak dili çıkma açısı (iki uzun yüz)', kind: 'draft', size: L.lipDraftDeg, applied: ao, rule: 'INJ-DRAFT', note: draftNote });
+    // Dil uç yüzleri de çekme yönüne paralel: aynı en az açıyla (IM-24/IM-39) uçlara doğru kısalır
+    if (L.lipDraftDeg > 0) treats.push({ key: 'lip.end.draft', feature: 'kapak dili uç yüzleri çıkma açısı', kind: 'draft', size: L.lipDraftDeg, rule: 'INJ-DRAFT', note: 'kökte dil boyu, uca doğru her uçta kısalır' });
     if (shift > 1e-4) treats.push({ key: 'lip.shift', feature: 'kapak dili açılı cebe göre dışa kaydırıldı', kind: 'info', size: shift, unit: 'mm', rule: 'INJ-DRAFT' });
-    const m = treats.length ? tryMake(() => lipSolid(bar, g, { soRoot: shift, ao, ai, ri, ro, c, emb: 0.3 })) : { shape: null, err: '' };
+    const m = treats.length ? tryMake(() => {
+      const s = lipSolid(bar, g, { soRoot: shift, ao, ai, ri, ro, c, emb: 0.3 });
+      return L.lipDraftDeg > 0 ? lipEndsDrafted(s, bar, g, L.lipDraftDeg) : s;
+    }) : { shape: null, err: '' };
     adds.push({ key: 'lip', feature: 'kapak dili', shape: m.shape, err: m.err, plain, treats });
   }
   for (const t of g.lidTubes || []) {

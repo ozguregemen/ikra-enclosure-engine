@@ -40,6 +40,8 @@ const S = {
   ensinger: { title: 'Design for manufacturing for plastic machined parts, Ensinger', url: 'https://www.ensingerplastics.com/en-us/injection-molding/blog/design-for-manufacturing-for-plastic-machined-parts' },
   protolabsMill: { title: 'Design Guidelines: CNC Milling, Protolabs', url: 'https://www.protolabs.com/services/cnc-machining/cnc-milling/design-guidelines/' },
   fictivCnc: { title: 'Optimizing part design for CNC machining, Fictiv', url: 'https://www.fictiv.com/?p=20227' },
+  fictivGlossary: { title: 'DFM Feedback Glossary, Fictiv', url: 'https://www.fictiv.com/articles/dfm-action-steps' },
+  protolabsComplex: { title: 'Mastering complex features on machined parts, Protolabs', url: 'https://www.protolabs.com/resources/design-tips/mastering-complex-features-on-machined-parts/' },
   nasa: { title: 'JSC-67701 JSC Fabrication Tolerances and Practices (Basic DCN001), NASA', url: 'https://standards.nasa.gov/system/files/tmp/JSC-67701_JSC_Fabrication_Tolerances_and_Practices_Basic_DCN001_Final.pdf' },
   mcam: { title: "Machinist's Toolkit (EU metric), Mitsubishi Chemical Group", url: 'https://www.mcam.com/mam/41701/MCG-Machinist-Toolkit-A4-EU-metric.pdf' },
   boedekerDrill: { title: 'Plastic Drilling Machining Guidelines, Boedeker Plastics', url: 'https://www.boedeker.com/Technical-Resources/Plastic-Machining-Guidelines/Plastic-Drilling-Machining-Guidelines' },
@@ -138,7 +140,7 @@ export const RULES = {
 
   /* ---------- Gereksinimler (Gereksinimler aşaması; bulgu arayüzde, design-ui requirementFindings) ---------- */
   'REQ-TEMP': R('Çalışma sıcaklığı gereksinimi', 'surec', ALL, 'error',
-    'En yüksek çalışma sıcaklığı malzemenin sürekli kullanım sıcaklığının (UL 746B\'ye göre bağıl sıcaklık indeksi RTI ya da üretici veri sayfasındaki uzun süreli kullanım sıcaklığı) payla altında kalmalıdır. Bu sınırın üstünde plastik sünme ve çarpılma gösterir, geçmeler gevşer, vida bağlantıları ön yükünü kaybeder ve sızdırmazlık bozulur. Isıl şekil değiştirme sıcaklığı (HDT) yalnızca kısa süreli bir karşılaştırma ölçüsüdür; yük altında sürekli kullanım sınırı yerine geçmez. RTI yalnızca incelenen özellik (elektriksel, darbeli ya da darbesiz mekanik) için geçerlidir.',
+    'En yüksek çalışma sıcaklığı malzemenin sürekli kullanım sıcaklığını (UL 746B\'ye göre bağıl sıcaklık indeksi RTI ya da üretici veri sayfasındaki uzun süreli kullanım sıcaklığı) aşmamalıdır; denetim sınır değerin kendisiyle yapılır (eşitlik karşılanmış sayılır), kaynaklar sayısal bir güvenlik payı vermediği için sınıra yakın kullanımda pay bırakılması kullanıcıya kalır. Bu sınırın üstünde plastik sünme ve çarpılma gösterir, geçmeler gevşer, vida bağlantıları ön yükünü kaybeder ve sızdırmazlık bozulur. Isıl şekil değiştirme sıcaklığı (HDT) yalnızca kısa süreli bir karşılaştırma ölçüsüdür; yük altında sürekli kullanım sınırı yerine geçmez. RTI yalnızca incelenen özellik (elektriksel, darbeli ya da darbesiz mekanik) için geçerlidir.',
     [S.ulRti, S.ensingerTemp, S.materialTds], 'medium', 9),
 
   /* ---------- FDM ---------- */
@@ -169,22 +171,25 @@ export const RULES = {
 
   /* ---------- CNC ---------- */
   'CNC-CORNER-TOOL': R('İç köşe radyüsü ≥ 1,3 × takım yarıçapı', 'surec', ['cnc'], 'error',
-    'Freze iç köşede yarıçapından küçük radyüs açamaz; radyüs takım yarıçapına eşitse takım köşede durup tam temasla keser (titreşim, kötü yüzey). Takım yarıçapının ~1,3 katı önerilir.',
+    'Freze iç köşede yarıçapından küçük radyüs açamaz; radyüs takım yarıçapına eşitse takım köşede durup tam temasla keser (titreşim, kötü yüzey). Takım yarıçapının ~1,3 katı önerilir. Sınır seçilen frezeden türetilir (takım yarıçapı + kural dosyasındaki 0,1 mm pay; freze seçilmediyse kural dosyasındaki en küçük değer).',
     [S.xometryCorner, S.xometryCnc, S.ensinger], 'high', 20),
   'CNC-CORNER-DEPTH': R('Köşe radyüsü / cep derinliği oranı', 'surec', ['cnc'], 'info',
     'Derin cepte küçük radyüs uzun, ince takım ister; R ≥ derinlik/4 idealdir, derinlik/8\'e kadar mümkündür ama süre ve maliyet artar.',
     [S.xometryCnc, S.hubsCnc], 'high', 60),
-  'CNC-POCKET-DEPTH': R('Cep derinliği / takım çapı', 'surec', ['cnc'], 'warn',
-    'Parmak frezeler tipik olarak 3–4 × çap derinlikte keser; daha derin cep uzun takım, düşük ilerleme ve titreşim demektir.',
-    [S.hubsCnc, S.fictivCnc], 'high', 61),
+  'CNC-POCKET-DEPTH': R('Cep derinliği / takım çapı', 'surec', ['cnc'], 'error',
+    'Parmak frezeler tipik olarak 3–4 × çap derinlikte keser; daha derin cep uzun takım, düşük ilerleme ve titreşim demektir (uyarı). Uzatılmış takımla en fazla ~10 × çap işlenebilir; daha derin cep işlenemez (hata). Pratikteki en küçük parmak freze Ø1 mm\'dir ve bu frezeyle en fazla 9,52 mm derinlik işlenebilir. Derinlik, köşeleri bitiren freze çapıyla değerlendirilir: köşe radyüsü duvarın tüm yüksekliği boyunca aynı frezeyle açılır.',
+    [S.hubsCnc, S.fictivCnc, S.fictivGlossary, S.protolabsComplex], 'high', 61),
   'CNC-TAP-DEPTH': R('Kılavuzlu kör delik derinliği', 'baglanti', ['cnc'], 'error',
     'Kör delikte son tam dişin altında matkap ucu ve kılavuz girişi için dişsiz boy kalmalı: en az max(0,5·d; 5·P), en fazla 5·P + 1,5 mm.',
     [S.xometryCnc, S.nasa], 'medium', 40),
   'CNC-SETUPS': R('Bağlama (setup) sayısı', 'surec', ['cnc'], 'info',
     'Her ek işleme yönü yeni bir bağlama ister; 1–2 bağlama tercih edilir, yan duvar özellikleri maliyeti ve konum hatasını artırır.',
     [S.hubsCnc, S.fictivCnc], 'high', 90),
+  'CNC-CUTOUT-TOOL': R('Port açıklığı ölçüsü / freze çapı', 'port', ['cnc'], 'warn',
+    'Yan duvardaki pencere ve çentik parmak frezeyle (ikinci bağlamada ya da dördüncü eksende) işlenir: freze çapından dar bir açıklık o frezeyle açılamaz, köşeleri en az takım yarıçapı kadar yuvarlak kalır. Açıklık köşe radyüsü kavite köşeleri gibi ~1,3 × takım yarıçapıdır; dar açıklıklar ayrı ve daha küçük bir frezeyle işlenir (küçük özelliklerde en az Ø2,5 mm önerilir, Ø1 mm pratikteki en küçük frezedir).',
+    [S.hubsCnc, S.xometryCorner, S.protolabsComplex], 'high', 62),
   'CNC-NUT-POCKET-TOOL': R('Altıgen somun cebi köşe boşaltması için freze çapı', 'surec', ['cnc'], 'error',
-    'Döner takım iç köşelerde takım yarıçapı kadar radyüs bırakır (kaynaklar); keskin köşe gereken yerde köşe boşaltılır (dogbone). Sınır bu kaynaklardan türetilmiştir: her köşedeki boşaltma dairesi kenardan 2/√3·r yer, altıgenin kenarı s/√3 olduğundan komşu boşaltmalar ancak freze yarıçapı r ≤ s/4 − 0,02 mm (çap ≈ s/2) iken çakışmaz; katı modeldeki boşaltma da aynı sınırla kurulur. Freze bundan büyükse köşelerde R = Ø/2 kalır ve somunun yuvarlak köşelere oturup oturmadığı geometriyle sınanır (somun köşe ölçüsü e ile köşe yayı karşılaştırılır): girişim varsa hata, pay varsa bilgi verilir. Düzeltme: sınırı aşmayan en büyük standart freze ya da somun cebi yerine Helicoil.',
+    'Döner takım iç köşelerde takım yarıçapı kadar radyüs bırakır (kaynaklar); keskin köşe gereken yerde köşe boşaltılır (dogbone). Sınır bu kaynaklardan türetilmiştir: her köşedeki boşaltma dairesi kenardan 2/√3·r yer, altıgenin kenarı s/√3 olduğundan komşu boşaltmalar ancak freze yarıçapı r ≤ s/4 − 0,02 mm (çap ≈ s/2) iken çakışmaz; katı modeldeki boşaltma da aynı sınırla kurulur. Freze bundan büyükse köşelerde R = Ø/2 kalır ve somunun yuvarlak köşelere oturup oturmadığı geometriyle sınanır (somun köşe ölçüsü e ile köşe yayı karşılaştırılır): girişim varsa hata, cep kenarında 0,5 mm\'den kısa düz kısım kalıyorsa (tasarım tercihi) uyarı, pay varsa bilgi verilir. Freze cebin anahtar ağzından genişse cepte düz kenar kalmaz: cep yuvarlak delik olur, somun dönmeye karşı tutulmaz (hata). Düzeltme: sınırı aşmayan en büyük standart freze ya da somun cebi yerine Helicoil.',
     [S.xometryCorner, S.hubsCnc], 'medium', 32),
   'CNC-STOCK': R('Ham malzeme (stok) boyu', 'surec', ['cnc'], 'info',
     'Dışa taşan kulaklar ham blok boyunu ve kaldırılan malzemeyi büyütür; dış ölçü standart levha/blok boyunun ~3 mm altında tutulmalıdır.',

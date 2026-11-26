@@ -26,7 +26,8 @@ import { planMount } from './mount.js';
 import { planEdgeHold } from './edgehold.js';
 import { toleranceOf, lidGap, adjustScrewRow, pocketAf, compHole, tolAt } from './fits.js';
 import { runDesignLoop } from './dfm/loop.js';
-import { injectionDraft, lidTubeDraft, concaveMinR, cncToolDiameter, validToolDiameter, stdCutterAtMost, nutDogboneR, nutMaxTool } from './treat.js';
+import { injectionDraft, lidTubeDraft, concaveMinR, cncToolDiameter, validToolDiameter, stdCutterAtMost, nutDogboneR, nutMaxTool, NUT_RELIEF_MIN,
+  cncCornerLimits, cncCutoutR, cncDepthMachinable, stdCutterForDepth, CNC_DEPTH_RATIO_MAX, CNC_SMALL_TOOL, CNC_SMALL_TOOL_DEPTH } from './treat.js';
 
 // Isıyla gömülen insert: kör delik = insert boyu + 1 mm (CNC Kitchen)
 const INSERT_HOLE_EXTRA = 1.0;
@@ -48,6 +49,9 @@ const CARBON_FILLED = new Set(['pacf', 'petgcf']);
 // Enjeksiyon kapak dili en az çıkma açısı (IM-24/IM-39, Bonenberger; DuPont): dil çıkıntı gibi ≥ 2° (treat.js IM_LIP_DRAFT ile aynı)
 const LID_LIP_DRAFT = 2;
 // Takım önerileri treat.js STD_CUTTERS standart freze çaplarından (stdCutterAtMost) seçilir
+// Somun cebi köşeleri boşaltılamadığında (R = Ø/2) cep kenarlarında kalması gereken en kısa düz kısım, mm: somun yan
+// yüzü buna dayanarak dönmeye karşı tutulur. Kaynakta ölçü yok: 0,5 mm TASARIM TERCİHİDİR.
+const NUT_MIN_FLAT = 0.5;
 /** Freze seçimi düzeltmesi (yalnızca öneri; döngü uygulamaz): options.toolDiameter */
 const toolFix = (d) => ({ key: 'toolDiameter', value: d, label: `Ø${f(d)} mm freze seç`, auto: false });
 
@@ -56,10 +60,13 @@ const toolFix = (d) => ({ key: 'toolDiameter', value: d, label: `Ø${f(d)} mm fr
  * (eksi = girişim, somun oturmaz). Cep: anahtar ağzı sp, köşe yayının merkezi köşe ekseninde (sp/2 − R)/cos30°.
  * Somun: anahtar ağzı sn, köşeleri e (en küçük köşe ölçüsü) çemberiyle kesik; en dıştaki nokta V, e/2 çemberi ile yan
  * yüzün kesiştiği köşedir. Pay = R − |V − yay merkezi|.
+ * R ≥ sp/2 ise cepte düz kenar kalmaz (freze anahtar ağzından geniş: cep yuvarlak delik olur, somun dönmeye karşı
+ * tutulmaz): −Infinity döner.
  */
 export function hexCornerFit(sp, R, sn, e) {
   const c30 = Math.cos(Math.PI / 6);
-  const dc = Math.max(0, sp / 2 - R) / c30;
+  if (!(R < sp / 2 - 1e-9)) return -Infinity;
+  const dc = (sp / 2 - R) / c30;
   const a = sn / 2;
   const rho = Math.max(a, (Number.isFinite(e) && e > 0 ? e : 1.093 * sn) / 2);
   const psi = Math.PI / 6 - Math.acos(Math.min(1, a / rho));
@@ -99,8 +106,8 @@ export function paramHint(key, rules, analysis, defaults = null, toolDiameter = 
     }
     case 'cornerRadius': {
       if (rules.process !== 'cnc') return `kural: en az ${f(rules.corner_radius_min)}`;
-      const tool = cncToolDiameter(rules, toolDiameter);
-      return `takım Ø${f(tool)} → en az ${f(Math.max(rules.corner_radius_min, tool / 2))}, önerilen ${f(Math.max(rules.corner_radius_min, ceil005(1.3 * tool / 2)))}`;
+      const cl = cncCornerLimits(rules, toolDiameter);
+      return `takım Ø${f(cl.tool)} → en az ${f(cl.rMin)}, önerilen ${f(cl.rNeed)} (1,3 × takım yarıçapı)`;
     }
     default: return '';
   }
@@ -642,18 +649,30 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const portOverrides = options.portOverrides || new Map();
   // IP'de çentik conta kanalını keseceği için varsayılan her süreçte pencere
   const defaultStyle = seal ? 'window' : rules.process === 'injection' ? 'notch' : 'window';
-  const cutR = rules.process === 'cnc' ? toolD / 2 + 0.1 : 0.5;
+  // Açıklık köşe radyüsü: CNC'de 1,3 × takım yarıçapı (CNC-03, kavite köşesiyle aynı kural), diğer süreçlerde 0,5 mm
+  const cutR = rules.process === 'cnc' ? cncCutoutR(toolD) : 0.5;
+  // Köşe payı: yuvarlak köşe konnektör kesitinin köşesine binmesin diye açıklık her yanda e kadar büyütülür. Konnektör
+  // köşesi açıklık kenarlarından c (cutout_clearance) içeride; köşe yayının merkezinden √2·(r − c − e) uzakta. Köşede de
+  // c boşluk kalması için √2·(r − c − e) ≤ r − c → e = (r − c)·(1 − 1/√2). r ≤ cutR olduğundan cutR ile hesaplanan e yeter.
+  const cClr = Math.min(rules.cutout_clearance_xy, rules.cutout_clearance_z);
+  const cornerRelief = Math.max(0, (cutR - cClr) * (1 - Math.SQRT1_2));
   const minBridge = Math.max(rules.min_wall, 1.5);
-  const ports = (analysis.meshes ? detectPorts(analysis, cav, [floorTop, cavTop]) : []).map((pt) => {
+  // Kavite kenar başına kullanıcının PCB–duvar boşluğundan bu kadar uzaklaştı (GEN-CORNER-CLEARANCE, köşe vidası payı):
+  // o boşlukta duvardan geçecek konnektör duvara ulaşmasa da port sayılır (ports.js pulledIn), yitip gitmez.
+  const growAll = Math.max(0, clr - p.pcbClearance);
+  const portGrow = {
+    '-X': growAll + (cornerPad?.axis === 0 ? cornerPad.extra : 0), '+X': growAll + (cornerPad?.axis === 0 ? cornerPad.extra : 0),
+    '-Y': growAll + (cornerPad?.axis === 1 ? cornerPad.extra : 0), '+Y': growAll + (cornerPad?.axis === 1 ? cornerPad.extra : 0),
+  };
+  const ports = (analysis.meshes ? detectPorts(analysis, cav, [floorTop, cavTop], portGrow) : []).map((pt) => {
     const ov = portOverrides.get(pt.key) || {};
-    const enabled = ov.enabled ?? (pt.crossing || pt.connectorLike);
+    const enabled = ov.enabled ?? (pt.crossing || pt.pulledIn || pt.connectorLike);
     let style = ov.style || defaultStyle;
-    const a0 = pt.a0 - rules.cutout_clearance_xy;
-    const a1 = pt.a1 + rules.cutout_clearance_xy;
-    let zLo = pt.z0 - rules.cutout_clearance_z;
-    let zHi = pt.z1 + rules.cutout_clearance_z;
+    const cxy = rules.cutout_clearance_xy;
+    let zLo = pt.z0 - rules.cutout_clearance_z - cornerRelief;
+    let zHi = pt.z1 + rules.cutout_clearance_z + cornerRelief;
     let clippedBottom = false;
-    if (zLo < floorTop + 0.5) { zLo = floorTop + 0.5; clippedBottom = true; }
+    if (zLo < floorTop + 0.5) { zLo = floorTop + 0.5; clippedBottom = pt.z0 - rules.cutout_clearance_z < floorTop + 0.5 - 1e-6; }
     const bridge = cavTop - zHi;
     let autoNotch = false;
     if (seal && enabled) {
@@ -669,13 +688,23 @@ export function computeDesign(analysis, rules, params, options = {}) {
           rule: 'IP-PORT-BRIDGE', measured: num(Math.max(bridge, 0)), limit: num(need), op: '>=', unit: 'mm' });
       }
     } else if (style === 'window' && bridge < minBridge) { style = 'notch'; autoNotch = true; }
+    // Yan pay: köşede konnektörle c kalması için √((r − cxy − eA)² + (r − d)²) ≤ r − c (d: konnektör alt/üst yüzünden
+    // açıklık kenarına düşey mesafe). Alt kenar tabana dayanınca (d < c + e) yan pay büyür; çentikte üst köşe yoktur.
+    const sideRelief = (d) => (d >= cutR - 1e-9 ? 0
+      : Math.max(0, cutR - cxy - Math.sqrt(Math.max(0, (cutR - cClr) ** 2 - (cutR - Math.max(d, cClr)) ** 2))));
+    const eA = Math.max(0, clippedBottom ? 0 : sideRelief(pt.z0 - zLo), style === 'notch' ? 0 : sideRelief(zHi - pt.z1));
+    const a0 = pt.a0 - cxy - eA;
+    const a1 = pt.a1 + cxy + eA;
     const openHeight = (style === 'notch' ? cavTop : zHi) - zLo;
     const inner = pt.dir > 0 ? cav.max[pt.axis] : cav.min[pt.axis];
     const outerPlane = inner + pt.dir * wall;
     const recess = pt.dir > 0 ? outerPlane - pt.front : pt.front - outerPlane; // > 0: ön yüz duvarın içinde
     const cornerGap = Math.min(a0 - cav.min[pt.along], cav.max[pt.along] - a1);
-    const r = Math.max(0, Math.min(cutR, (a1 - a0) / 2 - 0.05, openHeight / 2 - 0.05));
-    return { ...pt, enabled, style, autoNotch, clippedBottom, a0, a1, zLo, zHi: style === 'notch' ? cavTop + 1 : zHi,
+    // Çentik üstten açıktır, yalnız alt köşeleri vardır: radyüs genişlik ve yükseklikle sınırlı; kesme aracı ağzın r + 0,5 mm
+    // üstüne kadar uzar ki aracın üst köşe yayları duvarda malzeme bırakmasın
+    const r = Math.max(0, Math.min(cutR, (a1 - a0) / 2 - 0.05, style === 'notch' ? openHeight - 0.05 : openHeight / 2 - 0.05));
+    // sec: konnektörün duvardaki kesiti (açıklık bundan boşluk ve köşe payı kadar büyük; test ve doğrulama için)
+    return { ...pt, sec: { a0: pt.a0, a1: pt.a1, z0: pt.z0, z1: pt.z1 }, enabled, style, autoNotch, clippedBottom, a0, a1, zLo, zHi: style === 'notch' ? cavTop + Math.max(1, r + 0.5) : zHi,
       openWidth: a1 - a0, openHeight, bridge, inner, outerPlane, recess, cornerGap, r };
   });
   const cutouts = ports.filter((pt) => pt.enabled).map((pt) => ({
@@ -831,31 +860,46 @@ export function computeDesign(analysis, rules, params, options = {}) {
             area: 0.866 * nz.s * nz.s - (Math.PI / 4) * s.clearance * s.clearance, nz };
           // CNC: döner takım altıgen cebin köşelerinde R = Ø/2 bırakır. Köşe boşaltması (dogbone) her köşede kenardan 2/√3·r
           // yer; altıgen kenarı s/√3 olduğundan komşu boşaltmalar ancak r ≤ s/4 − 0,02 iken çakışmaz (treat.js nutDogboneR /
-          // nutMaxTool: katı modeldeki boşaltma ile aynı sınır). Boşaltma sığmazsa somunun R köşeli cebe oturup oturmadığı
-          // geometriyle sınanır (hexCornerFit): girişim varsa hata, pay varsa bilgi. Öneri: nutMaxTool(s)'yi aşmayan en büyük
-          // standart freze (options.toolDiameter) ya da Helicoil.
+          // nutMaxTool: katı modeldeki boşaltma ile aynı sınır). Çok küçük frezede boşaltma modelleme en azı NUT_RELIEF_MIN
+          // (0,3 mm) ile modellenir (daha büyük daire de aynı frezeyle işlenir). Boşaltma sığmazsa: freze cebin anahtar ağzından
+          // genişse cepte düz kenar kalmaz (yuvarlak delik, somun dönmeye karşı tutulmaz) → hata; değilse somunun R köşeli
+          // cebe oturup oturmadığı geometriyle sınanır (hexCornerFit): girişim varsa hata, düz kenar çok kısaysa uyarı, pay
+          // varsa bilgi. Öneri: nutMaxTool(s)'yi aşmayan ve kavite derinliğini işleyebilen en büyük standart freze ya da Helicoil.
           if (toolD) {
             const rLim = nutDogboneR(pocketS, Infinity); // s/4 − 0,02
             const dLim = 2 * rLim;
-            const stdTool = stdCutterAtMost(nutMaxTool(pocketS));
+            const stdMax = stdCutterAtMost(nutMaxTool(pocketS));
+            const stdTool = stdMax && cncDepthMachinable(cavTop - floorTop, stdMax) ? stdMax : null;
             const tm = { measured: num(toolD), limit: num(dLim), op: '<=', unit: 'mm', cat: 'surec' };
             const limText = `komşu boşaltmalar çakışmasın diye freze yarıçapı en fazla s/4 − 0,02 = ${f(rLim)} mm, yani Ø${f(dLim)} mm`;
-            if (toolD / 2 > rLim + 1e-6) {
+            const pocketText = `${ntype.code} ${s.size} altıgen somun cebi (somun SW ${f(nz.s)}, cep anahtar ağzı ${f(pocketS)} mm)`;
+            const rRelief = Math.max(toolD / 2, NUT_RELIEF_MIN);
+            if (rRelief > rLim + 1e-6) {
               const eN = Number.isFinite(nz.e) ? nz.e : 1.093 * nz.s; // ISO 4032 e_min ≈ 1,09·s
-              const gap = hexCornerFit(pocketS, toolD / 2, nz.s, eN);
-              const head = `${ntype.code} ${s.size} altıgen somun cebi (SW ${f(pocketS)}): Ø${f(toolD)} frezeyle köşe boşaltması (dogbone) sığmaz (${limText} olmalı), köşelerde R${f(toolD / 2)} kalır`;
               const tFix = stdTool ? toolFix(stdTool) : null;
               const toolText = stdTool ? `Ø${f(stdTool)} mm ya da daha küçük frezeyle` : 'daha küçük frezeyle';
-              if (gap < -1e-4) {
-                const heli = { key: 'insertType', value: 'helicoil-fr', label: 'Helicoil seç' };
-                noteSpec('error', `${head}; somunun köşeleri (e ${f(eN)} mm) bu yuvarlak köşelere ${nf.format(Math.round(-gap * 1000) / 1000)} mm girişim yapar ve somun cebe oturmaz. Köşeler ${toolText} boşaltılmalı ya da somun cebi yerine Helicoil seçilmeli.`,
+              const heli = { key: 'insertType', value: 'helicoil-fr', label: 'Helicoil seç' };
+              const flat = (pocketS - toolD) / Math.sqrt(3); // köşeleri R = Ø/2 yuvarlak cebin düz kenar boyu
+              if (flat <= 1e-6) {
+                noteSpec('error', `${pocketText}: Ø${f(toolD)} freze cebin anahtar ağzından geniş; altıgen cep bu frezeyle işlenemez, açılsa da cep yuvarlak delik olur ve somun dönmeye karşı tutulmaz (vida sıkılamaz). Cep ${toolText} işlenmeli ya da somun cebi yerine Helicoil seçilmeli.`,
                   heli, 'CNC-NUT-POCKET-TOOL', { ...tm, fixes: tFix ? [heli, tFix] : [heli] });
               } else {
-                noteSpec('info', `${head}; somunun köşeleri (e ${f(eN)} mm) yuvarlak köşelere ${nf.format(Math.round(gap * 1000) / 1000)} mm payla sığar, somun oturur. Köşe boşaltması için ${toolText.replace(/yla$/, '')} gerekir.`,
-                  null, 'CNC-NUT-POCKET-TOOL', tm);
+                const gap = hexCornerFit(pocketS, toolD / 2, nz.s, eN);
+                const head = `${pocketText}: Ø${f(toolD)} frezeyle köşe boşaltması (dogbone) sığmaz (${limText} olmalı), köşelerde R${f(toolD / 2)} kalır`;
+                if (gap < -1e-4) {
+                  noteSpec('error', `${head}; somunun köşeleri (e ${f(eN)} mm) bu yuvarlak köşelere ${nf.format(Math.round(-gap * 1000) / 1000)} mm girişim yapar ve somun cebe oturmaz. Köşeler ${toolText} boşaltılmalı ya da somun cebi yerine Helicoil seçilmeli.`,
+                    heli, 'CNC-NUT-POCKET-TOOL', { ...tm, fixes: tFix ? [heli, tFix] : [heli] });
+                } else if (flat < NUT_MIN_FLAT - 1e-6) {
+                  noteSpec('warn', `${head}; somun yuvarlak köşelere ${nf.format(Math.round(gap * 1000) / 1000)} mm payla sığar ama cep kenarlarında yalnızca ${f(flat)} mm düz kısım kalır (en az ${f(NUT_MIN_FLAT)} mm): somun dönmeye karşı zayıf tutulur. Köşeler ${toolText} boşaltılmalı ya da Helicoil seçilmeli.`,
+                    heli, 'CNC-NUT-POCKET-TOOL', { ...tm, fixes: tFix ? [heli, tFix] : [heli] });
+                } else {
+                  noteSpec('info', `${head}; somunun köşeleri (e ${f(eN)} mm) yuvarlak köşelere ${nf.format(Math.round(gap * 1000) / 1000)} mm payla sığar, cep kenarlarında ${f(flat)} mm düz kısım kalır: somun oturur ve dönmeye karşı tutulur. Köşe boşaltması için ${toolText.replace(/yla$/, '')} gerekir.`,
+                    null, 'CNC-NUT-POCKET-TOOL', tm);
+                }
               }
             } else {
-              noteSpec('ok', `${ntype.code} ${s.size} altıgen somun cebi (SW ${f(pocketS)}): Ø${f(toolD)} freze köşeleri R${f(toolD / 2)} ile boşaltır (${limText}); somun köşelere oturur.`,
+              const minNote = rRelief > toolD / 2 + 1e-6 ? ` (Ø${f(toolD)} frezeyle; R${f(NUT_RELIEF_MIN)} modellenen en küçük boşaltma, aynı frezeyle işlenir)` : '';
+              noteSpec('ok', `${pocketText}: köşeler R${f(rRelief)} boşaltmayla işlenir${minNote || ` (Ø${f(toolD)} freze)`}; ${limText}; somun köşelere oturur.`,
                 null, 'CNC-NUT-POCKET-TOOL', tm);
             }
           }
@@ -1583,9 +1627,12 @@ export function computeDesign(analysis, rules, params, options = {}) {
     if (it.face === 'lid' && Number.isFinite(it.x) && it.E) lidItems.push({ box: { min: [it.x - it.E / 2, it.y - it.E / 2, cavTop - (it.pd?.inner || 5)], max: [it.x + it.E / 2, it.y + it.E / 2, cavTop] }, name: it.title });
     for (const q of it.positions || []) if (it.kind === 'lightpipe' && Number.isFinite(q.top)) lidItems.push({ box: { min: [q.x - 2, q.y - 2, q.top], max: [q.x + 2, q.y + 2, cavTop] }, name: 'ışık borusu' });
   }
+  // Köşe boss'u–duvar içbükey radyüsü (GEO-CORNER-CONCAVE) duvar boyunca kavite köşesinden bu kadar uzanır (kapak dili ucu
+  // lipEnd ile aynı bağıntı): kart kenarı tutucunun destek ve baskıları bu bölgeye konmaz
+  const cornerReach = cplan ? cplan.Rb + Math.sqrt(Math.max(0, (RbRoot + concaveR) ** 2 - (cplan.Rb - concaveR) ** 2)) : 0;
   const edge = planEdgeHold({
     mode: options.edgeHold, hasHoles: usedHoles.length > 0, b, cav, floorTop, cavTop, rIn, fit, clr, obstacles, standoffs, cornerBosses,
-    lidTubes, lidHoles, floorHoles: mount.floorHoles, lidItems, rules,
+    cornerReach, lidTubes, lidHoles, floorHoles: mount.floorHoles, lidItems, rules,
   });
 
   // --- DFM kontrolleri: her bulgu dfm/catalog.js'teki bir kurala bağlıdır (rule) ---
@@ -1680,28 +1727,51 @@ export function computeDesign(analysis, rules, params, options = {}) {
     }
   }
 
+  // Cep derinliği / freze çapı (CNC-POCKET-DEPTH): ≤ max_depth_ratio (kural dosyası, 4×D) uygun, üstü uyarı. 10×D üstü ya da
+  // Ø1 mm ve daha küçük frezeyle 9,52 mm'den derin cep işlenemez (treat.js cncDepthMachinable: CNC-06, CNC-05): hata. Hata
+  // düzeltmesi bu derinliği işleyebilen en küçük standart freze (yalnız öneri; döngü uygulamaz).
+  const depthCheck = (depthV, toolV, maxR, lead, warnTail, okText, meta = {}) => {
+    const ratio = depthV / toolV;
+    const m = { ...meta, measured: num(ratio), limit: maxR, op: '<=', unit: '×D' };
+    if (!cncDepthMachinable(depthV, toolV)) {
+      const sug = stdCutterForDepth(depthV);
+      const small = ratio <= CNC_DEPTH_RATIO_MAX + 1e-9; // oran uygun, sınır küçük frezenin derinliği (CNC-05)
+      const why = small ? `Ø${f(CNC_SMALL_TOOL)} mm ve daha küçük frezeyle en fazla ${f(CNC_SMALL_TOOL_DEPTH)} mm derinlik işlenebilir`
+        : `${f(CNC_DEPTH_RATIO_MAX)}×D'nin üstü uzatılmış takımla da işlenemez`;
+      add('error', `${lead} Ø${f(toolV)} takım için ${f(ratio)}×D: ${why}. ${sug ? `En az Ø${f(sug)} mm freze seçilmeli (öneri ≤ ${f(maxR)}×D)` : 'Daha büyük freze seçilmeli'} ya da parça yükseklikte bölünmeli.`,
+        sug && sug > toolV + 1e-9 ? toolFix(sug) : null, null, 'CNC-POCKET-DEPTH',
+        small ? { ...meta, measured: num(depthV), limit: CNC_SMALL_TOOL_DEPTH, op: '<=', unit: 'mm' } : { ...m, limit: CNC_DEPTH_RATIO_MAX });
+    } else if (ratio > maxR) {
+      add('warn', `${lead} Ø${f(toolV)} takım için ${f(ratio)}×D (öneri ≤ ${f(maxR)}×D). ${warnTail}`, null, null, 'CNC-POCKET-DEPTH', m);
+    } else {
+      add('ok', okText(ratio), null, null, 'CNC-POCKET-DEPTH', m);
+    }
+  };
   if (proc === 'cnc') {
     const tool = toolD;
-    const rTool = tool / 2;
-    // Tek kural: takım yarıçapının altı işlenemez (hata), 1,3 × takım yarıçapının altı takımı köşede tam temasa sokar (uyarı)
-    const rNeed = Math.max(rules.corner_radius_min, ceil005(1.3 * rTool));
-    const rMin = Math.max(rules.corner_radius_min, rTool);
-    // Seçenek: bu köşe radyüsüyle 1,3 × yarıçap kuralını sağlayan en büyük standart freze (köşe radyüsü kilitliyse işe yarar)
+    // Tek kural: takım yarıçapının altı işlenemez (hata), 1,3 × takım yarıçapının altı takımı köşede tam temasa sokar (uyarı).
+    // Sınırlar seçilen frezeden türetilir (treat.js cncCornerLimits; freze seçilmediyse kural dosyasının corner_radius_min tabanı).
+    const cl = cncCornerLimits(rules, options.toolDiameter);
+    const { rNeed, rMin } = cl;
+    const depth = cavTop - floorTop;
+    // Seçenek: bu köşe radyüsüyle 1,3 × yarıçap kuralını sağlayan en büyük standart freze (köşe radyüsü kilitliyse işe yarar);
+    // yalnız bulguyu gerçekten gideriyorsa ve cep derinliğini işleyebiliyorsa önerilir
     const tFit = stdCutterAtMost((2 * rIn) / 1.3);
-    const cornerAlt = (cf) => (tFit && tFit < tool - 1e-9 && rIn >= rules.corner_radius_min - 1e-6 ? { fixes: [cf, toolFix(tFit)] } : {});
+    const fitOk = tFit && tFit < tool - 1e-9 && rIn >= cncCornerLimits(rules, tFit).rNeed - 1e-6 && cncDepthMachinable(depth, tFit);
+    const cornerAlt = (cf) => (fitOk ? { fixes: [cf, toolFix(tFit)] } : {});
     const cMeta = { measured: num(rIn), limit: rNeed, op: '>=', unit: 'mm' };
+    const floorText = cl.user ? `Ø${f(tool)} yarıçapı + ${f(cl.pad)} mm` : `kural ${f(rules.corner_radius_min)} mm, Ø${f(tool)} yarıçapı ${f(cl.rTool)} mm`;
     if (rIn < rMin - 1e-6) {
       const cf = { key: 'cornerRadius', value: rNeed, label: `${f(rNeed)} mm uygula` };
-      add('error', `İç köşe radyüsü ${f(rIn)} mm, Ø${f(tool)} takımla işlenemez: en az ${f(rMin)} mm gerekir, ${f(rNeed)} mm (1,3 × takım yarıçapı) önerilir.`,
+      add('error', `İç köşe radyüsü ${f(rIn)} mm, Ø${f(tool)} takımla işlenemez: en az ${f(rMin)} mm (${floorText}) gerekir, ${f(rNeed)} mm (1,3 × takım yarıçapı) önerilir.`,
         cf, null, 'CNC-CORNER-TOOL', { ...cMeta, ...cornerAlt(cf) });
     } else if (rIn < rNeed - 1e-6) {
       const cf = { key: 'cornerRadius', value: rNeed, label: `${f(rNeed)} mm uygula` };
       add('warn', `İç köşe radyüsü ${f(rIn)} mm, Ø${f(tool)} takımın yarıçapına çok yakın: takım köşede tam temasla keser (titreşim, kötü yüzey). ${f(rNeed)} mm (1,3 × takım yarıçapı) önerilir.`,
         cf, null, 'CNC-CORNER-TOOL', { ...cMeta, ...cornerAlt(cf) });
     } else {
-      add('ok', `İç köşe radyüsü ${f(rIn)} mm ≥ 1,3 × Ø${f(tool)} takım yarıçapı (${f(rNeed)} mm).`, null, null, 'CNC-CORNER-TOOL', cMeta);
+      add('ok', `İç köşe radyüsü ${f(rIn)} mm ≥ ${f(rNeed)} mm (1,3 × Ø${f(tool)} takım yarıçapı = ${f(1.3 * cl.rTool)} mm${rNeed > ceil005(1.3 * cl.rTool) + 1e-6 ? `; en az ${f(rMin)} mm` : ''}).`, null, null, 'CNC-CORNER-TOOL', cMeta);
     }
-    const depth = cavTop - floorTop;
     // Radyüs/derinlik: R ≥ d/4 ideal, d/8'e kadar mümkün (Xometry) — yalnızca öneri, döngü uygulamaz
     const rIdeal = ceil005(depth / 4);
     const rPossible = ceil005(depth / 8);
@@ -1714,28 +1784,18 @@ export function computeDesign(analysis, rules, params, options = {}) {
     } else {
       add('ok', `İç köşe radyüsü ${f(rIn)} mm ≥ cep derinliği/4 (${f(rIdeal)} mm).`, null, null, 'CNC-CORNER-DEPTH', { measured: num(rIn), limit: rIdeal, op: '>=', unit: 'mm' });
     }
-    const ratio = depth / tool;
-    const dMeta = { measured: num(ratio), limit: rules.process_params.max_depth_ratio, op: '<=', unit: '×D' };
-    if (ratio > rules.process_params.max_depth_ratio) {
-      add('warn', `Cep derinliği ${f(depth)} mm, Ø${f(tool)} takım için ${f(ratio)}×D (öneri ≤ ${f(rules.process_params.max_depth_ratio)}×D). Daha büyük takım ve iç köşe radyüsü (ör. Ø6 için ≥ 3,9 mm) ya da gövdeyi yükseklikte ikiye bölmek gerekebilir.`,
-        null, null, 'CNC-POCKET-DEPTH', dMeta);
-    } else {
-      add('ok', `Cep derinliği ${f(depth)} mm, Ø${f(tool)} takım için uygun (${f(ratio)}×D).`, null, null, 'CNC-POCKET-DEPTH', dMeta);
-    }
+    depthCheck(depth, tool, rules.process_params.max_depth_ratio, `Cep derinliği ${f(depth)} mm,`,
+      'Daha büyük takım ve iç köşe radyüsü (ör. Ø6 için ≥ 3,9 mm) ya da gövdeyi yükseklikte ikiye bölmek gerekebilir.',
+      (ratio) => `Cep derinliği ${f(depth)} mm, Ø${f(tool)} takım için uygun (${f(ratio)}×D).`);
   }
-  if (lidOwn && lr.process === 'cnc') {
-    // Kapak plakadan işlenir: dil ve borular plaka yüzeyinden aşağı iner, çevreleri takım boyunca boşaltılır
-    if (proc !== 'cnc') add('info', `Kapak CNC (${lr.label}): dil uçları ve borular takım yarıçapına göre işlenir.`, null, null, 'LID-MIXED', { part: 'lid' });
+  if (lr.process === 'cnc') {
+    // Kapak plakadan işlenir: dil ve borular plaka yüzeyinden aşağı iner, çevreleri takım boyunca boşaltılır. Kapak gövdeyle
+    // aynı malzemede olsa da (CNC kapak) bu derinlik kapağın kendi işleme derinliğidir; bulgu kapak parçasıyla etiketlenir.
+    if (lidOwn && proc !== 'cnc') add('info', `Kapak CNC (${lr.label}): dil uçları ve borular takım yarıçapına göre işlenir.`, null, null, 'LID-MIXED', { part: 'lid' });
     if (lidFeatH > 0) {
-      const maxR = lr.process_params?.max_depth_ratio || 4;
-      const ratioL = lidFeatH / toolL;
-      const lMeta = lidMeta({ measured: num(ratioL), limit: maxR, op: '<=', unit: '×D' });
-      if (ratioL > maxR) {
-        add('warn', `Kapakta ${f(lidFeatH)} mm boyundaki dil/borular Ø${f(toolL)} takımla ${f(ratioL)}×D derinlikte işlenir (öneri ≤ ${f(maxR)}×D): uzun takım, titreşim ve çok malzeme kaldırma. Daha büyük takım ya da hazır metal aralayıcı önerilir.`,
-          null, null, 'CNC-POCKET-DEPTH', lMeta);
-      } else {
-        add('ok', `Kapaktaki dil/borular (${f(lidFeatH)} mm) Ø${f(toolL)} takımla ${f(ratioL)}×D derinlikte işlenir.`, null, null, 'CNC-POCKET-DEPTH', lMeta);
-      }
+      depthCheck(lidFeatH, toolL, lr.process_params?.max_depth_ratio || 4, `Kapakta ${f(lidFeatH)} mm boyundaki dil/borular`,
+        'Uzun takım, titreşim ve çok malzeme kaldırma: daha büyük takım ya da hazır metal aralayıcı önerilir.',
+        (ratio) => `Kapaktaki dil/borular (${f(lidFeatH)} mm) Ø${f(toolL)} takımla ${f(ratio)}×D derinlikte işlenir.`, { part: 'lid' });
     }
   }
 
@@ -1773,11 +1833,16 @@ export function computeDesign(analysis, rules, params, options = {}) {
     const lipLimit = lipH > 0 ? Math.max(LID_LIP_DRAFT, injectionDraft(lidT + lipH, lidT, lrules.draft_angle_min)) : null;
     // Borular: treat.js lidTubeDraft (katı modeldeki boru çıkma açısıyla aynı formül)
     const tubeLimit = tubeH > 0 ? lidTubeDraft(lidT, tubeH, lrules.draft_angle_min) : null;
+    // Kart baskı dilleri (kart kenarı tutucu) borular gibi plakadan aşağı iner: aynı formül, kendi boyuyla (treat.js presserDraftDeg)
+    const presserH = Math.max(0, ...edge.pressers.map((q) => cavTop - q.min[2]));
+    const presserLimit = presserH > 0 ? lidTubeDraft(lidT, presserH, lrules.draft_angle_min) : null;
     const parts = [`plaka yan yüzüne en az ${f(plateLimit)}°`];
-    if (lipLimit !== null) parts.push(`${f(lipH)} mm boyundaki dile en az ${f(lipLimit)}°`);
+    if (lipLimit !== null) parts.push(`${f(lipH)} mm boyundaki dile (uç yüzleri dahil) en az ${f(lipLimit)}°`);
     if (tubeLimit !== null) parts.push(`${f(tubeH)} mm boyundaki vida borularına en az ${f(tubeLimit)}°`);
-    add('info', `${label ? `Kapak (${label})` : 'Kapak'} kalıp çıkma açısı: ${parts.join(', ')} draft uygulanmalı; katı modelde uygulandığı oluşturma sonrası doğrulanır.`,
-      null, null, 'INJ-DRAFT', lidMeta({ limit: Math.max(plateLimit, lipLimit ?? 0, tubeLimit ?? 0), limits: { plate: plateLimit, lip: lipLimit, tube: tubeLimit }, op: '>=', unit: '°' }));
+    if (presserLimit !== null) parts.push(`${f(presserH)} mm boyundaki kart baskı dillerine en az ${f(presserLimit)}°`);
+    add('info', `${label ? `Kapak (${label})` : 'Kapak'} kalıp çıkma açısı: ${parts.join(', ')} draft uygulanmalı; katı modelde uygulandığı oluşturma sonrası doğrulanır.${tubeH > 0 ? ' Vida geçiş delikleri düz (açısız) maça pimiyle açılır.' : ''}`,
+      null, null, 'INJ-DRAFT', lidMeta({ limit: Math.max(plateLimit, lipLimit ?? 0, tubeLimit ?? 0, presserLimit ?? 0),
+        limits: { plate: plateLimit, lip: lipLimit, tube: tubeLimit, ...(presserLimit !== null ? { presser: presserLimit } : {}) }, op: '>=', unit: '°' }));
   };
   const nf4 = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 4 });
   if (proc === 'injection') {
@@ -1959,7 +2024,24 @@ export function computeDesign(analysis, rules, params, options = {}) {
     }
     if (pt.clippedBottom) add('warn', `${pt.name}: açıklık tabana kadar inemeyeceği için alt kısmı kırpıldı.`, null, focus, 'PORT-CLIPPED');
     if (pt.recess > 1.5) {
-      add('warn', `${pt.name}: ön yüzü dış yüzeyden ${f(pt.recess)} mm içeride; fiş gövdesi duvara takılabilir. Açıklık fiş ölçüsüne göre büyütülmeli ya da PCB–duvar boşluğu azaltılmalı.`, null, focus, 'PORT-RECESS',
+      // Konnektör kullanıcının PCB–duvar boşluğunda duvardan geçerdi; kavite iç köşe radyüsü (ya da köşe vidası payı) için
+      // büyütüldüğünden duvara ulaşmıyor: neden ve çözüm yolu (daha küçük köşe radyüsü / freze) metinde
+      const pulledWhy = pt.pulledIn
+        ? (growAll > 1e-6 ? ` Kavite ${f(rIn)} mm iç köşe radyüsü PCB köşelerine değmesin diye her yanda ${f(growAll)} mm büyütüldüğünden konnektör duvara ulaşmıyor; daha küçük iç köşe radyüsü${proc === 'cnc' ? ' (daha küçük freze)' : ''} seçilmeli ya da açıklık fiş ölçüsüne göre büyütülmeli.`
+          : ' Kavite köşe vidası boss\'ları için bu eksende uzatıldığından konnektör duvara ulaşmıyor; köşe payı ekseni değiştirilmeli ya da açıklık fiş ölçüsüne göre büyütülmeli.')
+        : ' Açıklık fiş ölçüsüne göre büyütülmeli ya da PCB–duvar boşluğu azaltılmalı.';
+      // CNC'de iç köşe radyüsü freze çapından geliyorsa: konnektörü duvara yeniden ulaştıran en büyük standart freze (öneri)
+      let recessFix = null;
+      if (pt.pulledIn && proc === 'cnc' && growAll > 1e-6 && rIn <= cncCornerLimits(rules, options.toolDiameter).rNeed + 1e-6) {
+        // Konnektörün anma düzleminden (duvarın growAll içi) taşan kısmı; ön yüz dış yüzeyden en çok 1,5 mm içeride kalsın diye
+        // kavite boşluğu en çok clrMax olabilir; GEN-CORNER-CLEARANCE bağıntısının tersiyle buna izin veren iç köşe radyüsü rMax
+        const over = pt.dir * (pt.front - (pt.inner - pt.dir * growAll));
+        const clrMax = p.pcbClearance + over - Math.max(0, wall - 1.5);
+        const rMax = (clrMax - CORNER_MIN_GAP / Math.SQRT2) / (1 - Math.SQRT1_2);
+        const cand = rMax > 0 ? stdCutterAtMost((2 * rMax) / 1.3) : null;
+        if (cand && cand < toolD - 1e-9 && cncCornerLimits(rules, cand).rNeed <= rMax + 1e-6 && cncDepthMachinable(cavTop - floorTop, cand)) recessFix = toolFix(cand);
+      }
+      add('warn', `${pt.name}: ön yüzü dış yüzeyden ${f(pt.recess)} mm içeride; fiş gövdesi duvara takılabilir.${pulledWhy}`, recessFix, focus, 'PORT-RECESS',
         { measured: num(pt.recess), limit: 1.5, op: '<=', unit: 'mm' });
     } else if (pt.recess < -0.05) {
       add('info', `${pt.name}: ön yüzü dış yüzeyden ${f(-pt.recess)} mm dışarı taşıyor.`, null, focus, 'PORT-RECESS', { measured: num(pt.recess), unit: 'mm' });
@@ -1985,9 +2067,24 @@ export function computeDesign(analysis, rules, params, options = {}) {
         add('ok', `${pt.name}: pencerenin üst kenarı ${f(pt.openWidth)} mm köprü (≤ 5 mm), temiz basılır.`, null, focus, 'FDM-BRIDGE', bMeta);
       }
     }
-    if (proc === 'cnc') sideMachining = true;
+    if (proc === 'cnc') {
+      sideMachining = true;
+      // Açıklık parmak frezeyle işlenir: frezeden dar açıklık (pencerede en ve boy, çentikte en) o frezeyle açılamaz;
+      // modelde köşe radyüsü açıklığa sığacak kadar küçültülür, bu da frezenin yarıçapının altında kalır
+      const minDim = pt.style === 'notch' ? pt.openWidth : Math.min(pt.openWidth, pt.openHeight);
+      const cMeta = { measured: num(minDim), limit: num(toolD), op: '>=', unit: 'mm' };
+      if (pt.r < toolD / 2 - 1e-6 || minDim < toolD - 1e-6) {
+        const sug = stdCutterAtMost((2 * pt.r) / 1.3);
+        add('warn', `${pt.name}: ${styleText(pt.style)} açıklık ${f(pt.openWidth)} × ${f(pt.openHeight)} mm, Ø${f(toolD)} freze için dar: bu açıklık o frezeyle açılamaz, köşeler en az R${f(toolD / 2)} kalır (modelde R${f(pt.r)}). ${sug ? `Açıklık en fazla Ø${f(sug)} mm ayrı bir frezeyle işlenmeli` : 'Açıklık Ø1 mm\'den küçük frezeye kalıyor; büyütülmeli'}${sug ? ' ya da açıklık büyütülmeli' : ''}.`,
+          null, focus, 'CNC-CUTOUT-TOOL', cMeta);
+      }
+    }
   }
-  if (sideMachining) add('info', `Yan duvar açıklıkları ikinci bağlama veya 4. eksen ister; köşe radyüsü takıma göre R${f(cutR)}.`, null, null, 'CNC-SETUPS');
+  if (sideMachining) {
+    const rs = ports.filter((pt) => pt.enabled).map((pt) => pt.r);
+    const rMinCut = Math.min(...rs);
+    add('info', `Yan duvar açıklıkları ikinci bağlama veya 4. eksen ister; açıklık köşe radyüsü R${f(cutR)} (1,3 × Ø${f(toolD)} takım yarıçapı)${rMinCut < cutR - 1e-6 ? `, dar açıklıklarda en küçük R${f(rMinCut)}` : ''}; kavite iç köşeleri R${f(rIn)}.`, null, null, 'CNC-SETUPS');
+  }
   if (proc === 'injection' && ports.some((pt) => pt.enabled && pt.style === 'notch')) {
     add('ok', 'Çentik tipi açıklıklar ana kalıp açılma yönünde: yan maça gerekmez.', null, null, 'INJ-SIDE-ACTION');
   }

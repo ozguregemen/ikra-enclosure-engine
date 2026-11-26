@@ -127,6 +127,24 @@ export function lidTubeDraft(lidT, tubeLen, ruleMin) {
 export const STD_CUTTERS = [1, 1.5, 2, 2.5, 3, 4, 5, 6];
 /** d mm'yi aşmayan en büyük standart freze çapı (yoksa null) */
 export const stdCutterAtMost = (d) => [...STD_CUTTERS].reverse().find((c) => c <= d + 1e-9) ?? null;
+
+/*
+ * Cep derinliği / freze çapı hata sınırı (CNC-POCKET-DEPTH). CNC-06 (Hubs; Fictiv DFM Feedback Glossary): parmak freze
+ * tipik olarak 3–4 × D keser (kural dosyası max_depth_ratio, uyarı), uzatılmış takımla en fazla 10 × D; üstü işlenemez (hata).
+ * CNC-05 (Protolabs, Mastering complex features): pratikteki en küçük parmak freze Ø1 mm, bu frezeyle en fazla 9,52 mm derinlik.
+ */
+export const CNC_DEPTH_RATIO_MAX = 10;
+export const CNC_SMALL_TOOL = 1;
+export const CNC_SMALL_TOOL_DEPTH = 9.52;
+/** depth mm derinlik toolD çaplı frezeyle işlenebilir mi (hata sınırı; uyarı sınırı kural dosyasında) */
+export function cncDepthMachinable(depth, toolD) {
+  if (!(toolD > 0) || !(depth >= 0)) return false;
+  if (depth / toolD > CNC_DEPTH_RATIO_MAX + 1e-9) return false;
+  if (toolD <= CNC_SMALL_TOOL + 1e-9 && depth > CNC_SMALL_TOOL_DEPTH + 1e-9) return false;
+  return true;
+}
+/** depth derinliği işleyebilen (hata sınırını aşmayan) en küçük standart freze (yoksa null) */
+export const stdCutterForDepth = (depth) => STD_CUTTERS.find((c) => cncDepthMachinable(depth, c)) ?? null;
 /** Kullanıcı freze çapı seçeneğinin geçerli aralığı (mm) */
 const TOOL_MIN = 0.5;
 const TOOL_MAX = 20;
@@ -147,6 +165,29 @@ export function validToolDiameter(v) {
 /** Cep/boss köşe yuvarlatma için: cep köşe radyüsünü geçmeyen (torus bozulmasın) radyüs */
 const capBelow = (v, limit) => Math.max(0, Math.min(v, limit - 0.05));
 const numTr = (v) => String(r2(v)).replace('.', ',');
+const ceil005 = (v) => Math.round(Math.ceil(v / 0.05 - 1e-6) * 0.05 * 100) / 100;
+
+/**
+ * CNC iç köşe radyüsü sınırları (design.js CNC-CORNER-TOOL ve parametre ipucu için tek kaynak).
+ * rMin: frezenin açabildiği en küçük radyüs = takım yarıçapı + kural dosyasının payı (CNC kural dosyalarında
+ * corner_radius_min = Ø3 yarıçapı 1,5 + 0,1 mm); altı hata. rNeed: 1,3 × takım yarıçapı (CNC-03), 0,05 mm'ye yukarı
+ * yuvarlı, hiçbir zaman rMin'den küçük değil; altı uyarı. Kullanıcı freze seçmediyse kural dosyasının corner_radius_min
+ * değeri taban olarak kalır (kural dosyası o frezeye göre yazılmıştır); seçtiyse sınır seçilen frezeden türetilir.
+ */
+export function cncCornerLimits(rules, toolDiameter = null) {
+  const tool = cncToolDiameter(rules, toolDiameter) || rules?.process_params?.tool_diameter || 3;
+  const ruleTool = Number(rules?.process_params?.tool_diameter) || 3;
+  const crm = Number(rules?.corner_radius_min) || 0;
+  const pad = Math.max(0, r2(crm - ruleTool / 2));
+  const user = validToolDiameter(toolDiameter) !== null;
+  const rTool = tool / 2;
+  const rMin = r2(user ? rTool + pad : Math.max(crm, rTool));
+  const rNeed = Math.max(rMin, ceil005(CNC_CORNER_FACTOR * rTool));
+  return { tool, rTool, rMin, rNeed, pad, user };
+}
+
+/** CNC'de yan duvar açıklığı (port penceresi/çentiği) köşe radyüsü: 1,3 × takım yarıçapı (CNC-03), 0,05 mm'ye yukarı yuvarlı */
+export const cncCutoutR = (toolD) => ceil005(CNC_CORNER_FACTOR * (toolD || 3) / 2);
 
 /**
  * Dikey iç köşelerde (köşe boss'u–duvar, kart desteği–duvar, kulak–duvar) istenen en küçük plan radyüsü:
@@ -168,6 +209,11 @@ export function concaveMinR(rules, wall, toolD = null) {
  * tasarım denetimi (en büyük takım çapı) aynı sınırı kullansın diye dışa açıktır.
  */
 const NUT_RELIEF_GAP = 0.02;
+/**
+ * Modellenen en küçük köşe boşaltması yarıçapı (mm): daha küçük boşaltma dairesi katı modelde güvenle kurulamaz. Takım
+ * yarıçapından büyük boşaltma dairesi aynı frezeyle işlenebildiği için küçük frezelerde boşaltma bu ölçüyle modellenir.
+ */
+export const NUT_RELIEF_MIN = 0.3;
 /** Modellenen köşe boşaltması yarıçapı: takım yarıçapı, cebe sığmıyorsa s/4 − 0,02 (mm) */
 export function nutDogboneR(s, toolR) {
   return Math.round(Math.min(toolR, s / 4 - NUT_RELIEF_GAP) * 1000) / 1000;
@@ -244,6 +290,9 @@ function partPolicy(process, rules, ctx) {
     holeEntry: { insert: 0, tapped: 0, selfTap: 0, clearance: 0 },
     concaveMinR: 0,
     nutDogbone: 0,
+    // Enjeksiyon: kart kenarı desteği (gövde) ve kart baskı dili (kapak) çekme yönüne paralel yüzlerinin açısı, °
+    padDraftDeg: 0,
+    presserDraftDeg: 0,
     cutoutBreak: 0,
     grooveBottomR: 0,
     grooveEdgeBreak: 0,
@@ -282,6 +331,7 @@ function partPolicy(process, rules, ctx) {
     P.pull = [0, 0, 1];
     P.draftDeg = injectionDraft(depth, wall, rules.draft_angle_min);
     P.bossDraftDeg = Math.max(IM_BOSS_DRAFT, rules.draft_angle_min || 0);
+    P.padDraftDeg = P.draftDeg; // kart desteği açılı cep duvarına bağlı: cep ile aynı açı (gövde INJ-DRAFT sınırı)
     const riWant = Math.max(IM_INNER_R_FACTOR * wall, IM_INNER_R_MIN);
     const ri = capBelow(riWant, rIn);
     P.floorFillet = ri >= 0.13 ? r2(ri) : 0;
@@ -315,7 +365,8 @@ function partPolicy(process, rules, ctx) {
     P.holeEntry = { insert: CNC_EDGE_BREAK, tapped: TAP_CSK_OVER_MAJOR, selfTap: SELF_TAP_RELIEF, clearance: CNC_EDGE_BREAK };
     P.concaveMinR = concaveMinR(rules, wall, tool);
     P.toolD = tool;
-    P.nutDogbone = r2(tool / 2);
+    // Köşe boşaltması takım yarıçapıyla; çok küçük frezede modelleme en azı (NUT_RELIEF_MIN) — büyük daire de aynı frezeyle işlenir
+    P.nutDogbone = r2(Math.max(tool / 2, NUT_RELIEF_MIN));
     P.cutoutBreak = CNC_EDGE_BREAK;
     P.src = {
       outerEdgeBreak: 'GEO-EDGE-BREAK', rimOuterBreak: 'GEO-EDGE-BREAK', rimLeadIn: 'GEO-LEADIN', lipTipChamfer: 'GEO-LEADIN', bossTipChamfer: 'GEO-BOSS',
@@ -375,10 +426,13 @@ export function treatmentFor(design, rules, lidRules = rules) {
     // Vida boruları plakadan boru boyu kadar aşağı iner: kalıp derinliği lidT + boru boyu (design.js kapak INJ-DRAFT
     // limits.tube ile aynı formül; katı model sonrası kapak INJ-DRAFT bu sınırla doğrulanır)
     if (tubeH > 0) lid.bossDraftDeg = lidTubeDraft(lidT, tubeH, lr.draft_angle_min);
+    // Kart baskı dilleri plakadan kartın üstüne iner: boru gibi kendi boyuyla (design.js kapak INJ-DRAFT limits.presser)
+    const presserH = Math.max(0, ...(g.edgePressers || []).map((q) => g.cavTop - q.min[2]));
+    if (presserH > 0) lid.presserDraftDeg = lidTubeDraft(lidT, presserH, lr.draft_angle_min);
   }
   // Gövdeye özgü olmayan alanlar kapakta kullanılmaz (ve tersi): rapor sade kalsın
-  base.lipTipChamfer = 0; base.lipRootFillet = 0; base.lipDraftDeg = 0; base.tubeRootFillet = 0; base.outerTopFillet = 0;
-  lid.rimLeadIn = 0; lid.floorFillet = 0; lid.outerBottomFillet = 0; lid.rimOuterBreak = 0; lid.nutDogbone = 0; lid.cutoutBreak = 0;
+  base.lipTipChamfer = 0; base.lipRootFillet = 0; base.lipDraftDeg = 0; base.tubeRootFillet = 0; base.outerTopFillet = 0; base.presserDraftDeg = 0;
+  lid.rimLeadIn = 0; lid.floorFillet = 0; lid.outerBottomFillet = 0; lid.rimOuterBreak = 0; lid.nutDogbone = 0; lid.cutoutBreak = 0; lid.padDraftDeg = 0;
   lid.limited = [];
   if (lid.process === 'fdm') lid.bossRootFillet = 0; // kapakta boss yok; boru kökü tubeRootFillet
 
@@ -404,7 +458,7 @@ export function treatmentFor(design, rules, lidRules = rules) {
   if (g.din) {
     clip = partPolicy(rules.process, rules, { ...ctxB, depth: 10 });
     clip.pull = null;
-    clip.draftDeg = 0; clip.bossDraftDeg = 0; // klips enjeksiyonda zaten yan maça ister (mount.js uyarısı): açı uygulanmaz
+    clip.draftDeg = 0; clip.bossDraftDeg = 0; clip.padDraftDeg = 0; clip.presserDraftDeg = 0; // klips enjeksiyonda zaten yan maça ister (mount.js uyarısı): açı uygulanmaz
     clip.floorFillet = 0; clip.rimLeadIn = 0; clip.rimOuterBreak = 0; clip.outerBottomFillet = 0; clip.lipTipChamfer = 0;
     clip.lipRootFillet = 0; clip.lipDraftDeg = 0; clip.tubeRootFillet = 0; clip.outerTopFillet = 0; clip.cutoutBreak = 0;
     clip.limited = [];

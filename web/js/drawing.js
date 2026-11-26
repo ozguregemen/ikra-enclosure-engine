@@ -275,9 +275,12 @@ function toleranceNotes(rules, d = null, part = 'base') {
     // Tasarımın geçerli freze çapı (kullanıcı seçimi ya da kural dosyası; eski tasarımda alan yoksa kural dosyası)
     const gTool = Number(part === 'lid' ? d?.geometry?.lidToolDiameter : d?.geometry?.toolDiameter);
     const tool = Number.isFinite(gTool) && gTool > 0 ? gTool : pp.tool_diameter || 3;
+    const rWin = Math.ceil((1.3 * tool) / 2 / 0.05 - 1e-6) * 0.05; // treat.js cncCutoutR ile aynı
     return [
       `Genel toleranslar ISO 2768-m; ${rules.label} için ${gen || '±0,1 mm'}. Keskin kenarları 0,3×45° kır.`,
-      `İç köşe radyüsleri Ø${d1(tool)} takıma göre R${d1(tool / 2 + 0.1)}.`,
+      part === 'lid'
+        ? `İç köşeler Ø${d1(tool)} takıma göre R${d2(rWin)} (1,3 × takım yarıçapı).`
+        : `İç köşeler Ø${d1(tool)} takıma göre: kavite R${d2(d?.params?.rIn ?? rWin)}, port açıklıkları R${d2(rWin)} (1,3 × takım yarıçapı; dar açıklıkta açıklığa sığan en büyük radyüs).`,
       ...(fitTxt ? [fitTxt] : []),
     ];
   }
@@ -437,7 +440,7 @@ function edgeNotes(d, part) {
         const ri = span('lip.root', P.lipRootFillet);
         const ro = span('lip.root.out', 0);
         const lt = span('lip.tip', P.lipTipChamfer);
-        n.push(`Kapak dili: ${rng(ld, d1)}° çıkma açısı${ri ? `, kök R${rng(ri)}${ro ? ` (dış yüzde R${rng(ro)})` : ''}` : ''}${lt ? `, uçta ${rng(lt)}×45° giriş pahı` : ''}.`);
+        n.push(`Kapak dili: ${rng(ld, d1)}° çıkma açısı (uç yüzleri dahil)${ri ? `, kök R${rng(ri)}${ro ? ` (dış yüzde R${rng(ro)})` : ''}` : ''}${lt ? `, uçta ${rng(lt)}×45° giriş pahı` : ''}.`);
       }
       const tr = span('tube.root', P.tubeRootFillet);
       const tt = span('tube.tip', P.bossTipChamfer);
@@ -590,7 +593,7 @@ function baseSheet(ctx) {
     ...toleranceNotes(rules, d),
     ...edgeNotes(d, 'base'),
     `Et kalınlığı ${d1(d.params.wall)} mm, taban ${d1(d.params.floor)} mm, iç köşe R${d1(d.params.rIn)}, dış köşe R${d1(d.params.rOut)}.`,
-    `Açıklık konumu duvar boyunca sıfır noktasından, Z gövde altından ölçülür; açıklıklar konnektör + ${d1(rules.cutout_clearance_xy)} mm boşlukla.`,
+    `Açıklık konumu duvar boyunca sıfır noktasından, Z gövde altından ölçülür; açıklıklar konnektör + ${d1(rules.cutout_clearance_xy)} mm boşlukla (yuvarlak köşelerde de bu boşluk kalacak kadar büyütülmüş).`,
   ];
   if (d.edgeHold?.active && d.edgeHold.pads) n.push(`Kart kenarı tutucu: ${d.edgeHold.pads} alt destek kartı kenarından ${d1(d.edgeHold.info?.overlap ?? 2)} mm içeri taşır; kapakta ${d.edgeHold.pressers} baskı dili kartı üstten sıkıştırır.`);
   if (d.mount?.info) n.push(`Montaj delikleri (M): ${d.mount.holes.length} × Ø${d2(d.mount.info.d)}, aralık ${d.mount.info.spacing.filter((v) => v > 0.05).map(d1).join(' × ')} mm${d.mount.footprint ? `; kulaklarla taban izi ${d1(d.mount.footprint.L)} × ${d1(d.mount.footprint.W)} mm` : ''}.`);
@@ -833,10 +836,21 @@ function wrapText(str, width, size, factor = 0.55) {
   return out.length ? out : [''];
 }
 
+/** Ölçü birimi eki: derece ve × / % ile başlayan birimler (×D) sayıya bitişik, diğerleri boşlukla */
+const unitSuffix = (unit) => (!unit ? '' : unit === '°' || /^[×%]/.test(unit) ? unit : ` ${unit}`);
+/** Sayı: arayüzle aynı biçim (eksi işareti U+2212) */
+const dm = (v) => d2(v).replace(/^-/, '−');
+/** Muafiyet tarihi (waivedAt ya da waived.date, ISO) gerekçenin yanına: " · 26.11.2026" */
+const waivedDate = (fd) => {
+  const raw = fd.waivedAt || fd.waived?.date;
+  const t = raw ? new Date(raw) : null;
+  return t && Number.isFinite(t.getTime()) ? ` · ${t.toLocaleDateString('tr-TR')}` : '';
+};
+
 function measureText(fd) {
-  const u = fd.unit ? (fd.unit === '°' ? '°' : ` ${fd.unit}`) : '';
-  const m = Number.isFinite(fd.measured) ? `${d2(fd.measured)}${u}` : null;
-  const l = Number.isFinite(fd.limit) ? `${OP_TR[fd.op] || ''} ${d2(fd.limit)}${u}`.trim() : null;
+  const u = unitSuffix(fd.unit);
+  const m = Number.isFinite(fd.measured) ? `${dm(fd.measured)}${u}` : null;
+  const l = Number.isFinite(fd.limit) ? `${OP_TR[fd.op] || ''} ${dm(fd.limit)}${u}`.trim() : null;
   if (m && l) return `${m}\ngerekli ${l}`;
   return m || (l ? `gerekli ${l}` : '—');
 }
@@ -844,8 +858,8 @@ function measureText(fd) {
 /** Otomatik düzeltmeyi tetikleyen bulgunun ölçüsü (loop.js changes[]: measured / limit / op / unit; yoksa boş) */
 function changeCause(c) {
   if (!Number.isFinite(c?.measured) || !Number.isFinite(c?.limit)) return '';
-  const u = c.unit ? (c.unit === '°' ? '°' : ` ${c.unit}`) : '';
-  return `\nNeden: ölçülen ${d2(c.measured)}${u}, gerekli ${`${OP_TR[c.op] || ''} ${d2(c.limit)}${u}`.trim()}.`;
+  const u = unitSuffix(c.unit);
+  return `\nNeden: ölçülen ${dm(c.measured)}${u}, gerekli ${`${OP_TR[c.op] || ''} ${dm(c.limit)}${u}`.trim()}.`;
 }
 
 /**
@@ -979,7 +993,7 @@ function layoutReview(ctx) {
       fill: LEVEL_FILL[isWaived ? 'waived' : fd.level], fillAt: 8, fillW: 15,
       cells: [String(i + 1), { text: isWaived ? `MUAF (${(LEVEL_TR[fd.level] || '').toLocaleLowerCase('tr')})` : LEVEL_TR[fd.level] || fd.level, bold: true },
         `${fd.rule || '—'}${refs.length ? ` [${refs.join(', ')}]` : ''}`, PART_TR[fd.part] || PART_TR.all,
-        { title: fd.title || '', text: `${fd.text || ''}${isWaived && (fd.reason || fd.waived?.reason) ? `\nMuafiyet gerekçesi: ${fd.reason || fd.waived.reason}` : ''}` }, measureText(fd)],
+        { title: fd.title || '', text: `${fd.text || ''}${isWaived && (fd.reason || fd.waived?.reason) ? `\nMuafiyet gerekçesi: ${fd.reason || fd.waived.reason}${waivedDate(fd)}` : ''}` }, measureText(fd)],
     };
   };
   section('AÇIK BULGULAR', fcols, open.map((fd, i) => fRow(fd, i, false)), 'Açık bulgu yok.');

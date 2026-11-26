@@ -53,9 +53,13 @@ export function sectionBeyond(mesh, axis, plane, dir) {
 /**
  * analysis: analyzeAssembly çıktısı (meshes ve meshBoxes dahil)
  * cav: { min:[x,y], max:[x,y] } iç cep sınırı; zRange: [alt, üst] duvarın yükseklik aralığı
+ * grow: { '-X': mm, ... } kavitenin kenar başına kullanıcının PCB–duvar boşluğundan uzaklaşma payı (iç köşe radyüsü için
+ *   GEN-CORNER-CLEARANCE, köşe vidası payı). O boşlukta duvardan geçecek bir gövde, duvar uzaklaştığı için artık duvara
+ *   ulaşmasa da port sayılır (pulledIn): açıklık, gövdenin anma boşluğundaki düzlemin ötesindeki kesitiyle açılır; ön yüzün
+ *   içeride kalması tasarım denetiminde (PORT-RECESS) raporlanır. Duvara dayalı sayılma sınırı da bu pay kadar büyür.
  * Dönüş: bileşen × kenar başına port adayları
  */
-export function detectPorts(analysis, cav, zRange) {
+export function detectPorts(analysis, cav, zRange, grow = null) {
   const sides = [
     { side: '+X', axis: 0, along: 1, plane: cav.max[0], dir: 1 },
     { side: '-X', axis: 0, along: 1, plane: cav.min[0], dir: -1 },
@@ -71,21 +75,25 @@ export function detectPorts(analysis, cav, zRange) {
       for (const s of sides) {
         const front = s.dir > 0 ? b.max[s.axis] : b.min[s.axis];
         const gap = s.dir > 0 ? s.plane - front : front - s.plane; // < 0: duvara giriyor
-        if (gap > NEAR_GAP) continue;
+        const g = Math.max(0, Number(grow?.[s.side]) || 0);
+        if (gap > NEAR_GAP + g) continue;
         const crossing = gap < 0;
+        // Anma boşluğunda duvardan geçerdi: kesit anma düzleminin (duvarın g kadar içi) ötesinden alınır
+        const pulled = !crossing && gap < g - 1e-9;
         const sec = crossing
           ? sectionBeyond(analysis.meshes[mi], s.axis, s.plane, s.dir)
-          : sectionBeyond(analysis.meshes[mi], s.axis, front - s.dir * NEAR_FACE_DEPTH, s.dir);
+          : pulled ? sectionBeyond(analysis.meshes[mi], s.axis, s.plane - s.dir * g, s.dir)
+            : sectionBeyond(analysis.meshes[mi], s.axis, front - s.dir * NEAR_FACE_DEPTH, s.dir);
         if (isEmpty(sec)) continue;
         const key = `${part.id}|${s.side}`;
         if (!map.has(key)) {
           map.set(key, {
             key, partId: part.id, name: part.name, side: s.side, axis: s.axis, along: s.along, dir: s.dir,
-            cross: null, near: null, connectorLike: isConnectorName(part.name),
+            cross: null, pulled: null, near: null, connectorLike: isConnectorName(part.name),
           });
         }
         const pt = map.get(key);
-        const slot = crossing ? 'cross' : 'near';
+        const slot = crossing ? 'cross' : pulled ? 'pulled' : 'near';
         if (!pt[slot]) pt[slot] = { front, a0: Infinity, a1: -Infinity, z0: Infinity, z1: -Infinity };
         const acc = pt[slot];
         acc.front = s.dir > 0 ? Math.max(acc.front, front) : Math.min(acc.front, front);
@@ -98,12 +106,12 @@ export function detectPorts(analysis, cav, zRange) {
       }
     }
   }
-  // Duvardan geçen gövde varsa açıklık yalnızca onlara göre; yoksa duvara dayalı ön yüze göre
+  // Duvardan geçen gövde varsa açıklık yalnızca onlara göre; yoksa anma boşluğunda geçecek gövdelere, yoksa duvara dayalı ön yüze göre
   return [...map.values()].map((p) => {
-    const r = p.cross || p.near;
+    const r = p.cross || p.pulled || p.near;
     return {
       key: p.key, partId: p.partId, name: p.name, side: p.side, axis: p.axis, along: p.along, dir: p.dir,
-      axisName: AX[p.axis], connectorLike: p.connectorLike, crossing: !!p.cross,
+      axisName: AX[p.axis], connectorLike: p.connectorLike, crossing: !!p.cross, pulledIn: !p.cross && !!p.pulled,
       front: r.front, a0: r.a0, a1: r.a1, z0: r.z0, z1: r.z1,
       width: r.a1 - r.a0, height: r.z1 - r.z0,
     };
