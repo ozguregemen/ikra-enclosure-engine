@@ -561,20 +561,20 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     q('#tb-search').value = '';
     render();
     if (!dialog.open) dialog.showModal();
-    q('.tb-item[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    q('.tb-item[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
   }
 
   function renderTree() {
     const screwItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-type="${t.id}" aria-selected="${draft.view === 'screw' && t.id === active().type}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-type="${t.id}" aria-current="${draft.view === 'screw' && t.id === active().type}" title="${esc(t.name)}">
         ${headIcon(t.head)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
       </button>`;
     const insertItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-insert="${t.id}" aria-selected="${draft.view === 'insert' && t.id === draft.insert.type}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-insert="${t.id}" aria-current="${draft.view === 'insert' && t.id === draft.insert.type}" title="${esc(t.name)}">
         ${insertIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
       </button>`;
     const washerItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-washer="${t.id}" aria-selected="${draft.view === 'washer' && t.id === draft.washerView}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-washer="${t.id}" aria-current="${draft.view === 'washer' && t.id === draft.washerView}" title="${esc(t.name)}">
         ${washerIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${active().washer === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
     // Arama: her kelime kod, ad, kısa ad ya da boyutlarda geçmeli (Türkçe karakterler katlanır: ı→i, ş→s…)
@@ -602,17 +602,17 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       return cats ? `<div class="tb-node"><span class="tb-caret" aria-hidden="true"></span><strong>${esc(L.standard)}</strong><span class="tb-count">${count} tip</span></div>${cats}` : '';
     };
     const nutItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-nut="${t.id}" aria-selected="${draft.view === 'nut' && t.id === draft.insert.nut}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-nut="${t.id}" aria-current="${draft.view === 'nut' && t.id === draft.insert.nut}" title="${esc(t.name)}">
         ${insertIcon(t.kind === 'square' ? 'squarenut' : 'nut')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'nut' && draft.insert.nut === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
     const standoffItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-standoff="${t.id}" aria-selected="${draft.view === 'standoff' && t.id === draft.insert.standoff}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-standoff="${t.id}" aria-current="${draft.view === 'standoff' && t.id === draft.insert.standoff}" title="${esc(t.name)}">
         ${insertIcon('standoff')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'standoff' && draft.insert.standoff === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
     const panelItem = (t) => {
       const count = draft.panel.filter((x) => x.type === t.id).length;
       return `
-      <button type="button" class="tb-item" role="treeitem" data-panel="${t.id}" aria-selected="${draft.view === 'panel' && draft.panelView?.type === t.id}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-panel="${t.id}" aria-current="${draft.view === 'panel' && draft.panelView?.type === t.id}" title="${esc(t.name)}">
         ${panelIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${count ? ` · ${count} eklendi` : ''}</span></span>
       </button>`;
     };
@@ -1076,7 +1076,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     // Ağaçta etkin burcu işaretle (Otomatik seçiliyken kuralın verdiği burç)
     if (effType) {
       const el = q(`[data-insert="${effType.id}"]`);
-      if (el) { el.setAttribute('aria-selected', 'true'); el.scrollIntoView({ block: 'nearest' }); }
+      if (el) { el.setAttribute('aria-current', 'true'); el.scrollIntoView({ block: 'nearest' }); }
     }
     // Çizim ve tanım
     const v = zs ? (zs.variants.find((x) => x.id === (draft.insert.variant !== 'auto' ? draft.insert.variant : st0?.insert?.id)) || zs.variants[zs.variants.length - 1]) : null;
