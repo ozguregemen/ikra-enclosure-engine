@@ -101,28 +101,29 @@
     <!-- Aşama çubuğu: Kart → Gereksinimler → Tasarım → İnceleme döngüsü → Katı model → Son inceleme → Çıktılar -->
     <nav class="rail" aria-label="Tasarım akışı">
       <div class="rail-list" id="rail" role="tablist" aria-orientation="vertical" aria-label="Tasarım aşamaları">
-        <button type="button" role="tab" class="stage" id="tab-kart" data-stage="kart" aria-controls="panel-kart" aria-selected="true" tabindex="0" disabled>
-          <span class="stage-ico" aria-hidden="true"><span class="stage-num">1</span></span><span class="stage-label">Kart</span><span class="visually-hidden stage-sr"></span>
+        <button type="button" role="tab" class="stage" id="tab-kart" aria-labelledby="tab-kart-l tab-kart-s" data-stage="kart" aria-controls="panel-kart" aria-selected="true" tabindex="0" disabled>
+          <span class="stage-ico" aria-hidden="true"><span class="stage-num">1</span></span><span class="stage-label" id="tab-kart-l">Kart</span><span class="visually-hidden stage-sr" id="tab-kart-s"></span>
         </button>
-        <button type="button" role="tab" class="stage" id="tab-req" data-stage="req" aria-controls="panel-req" aria-selected="false" tabindex="-1" disabled>
-          <span class="stage-ico" aria-hidden="true"><span class="stage-num">2</span></span><span class="stage-label">Gereksinimler</span><span class="visually-hidden stage-sr"></span>
+        <button type="button" role="tab" class="stage" id="tab-req" aria-labelledby="tab-req-l tab-req-s" data-stage="req" aria-controls="panel-req" aria-selected="false" tabindex="-1" disabled>
+          <span class="stage-ico" aria-hidden="true"><span class="stage-num">2</span></span><span class="stage-label" id="tab-req-l">Gereksinimler</span><span class="visually-hidden stage-sr" id="tab-req-s"></span>
         </button>
-        <button type="button" role="tab" class="stage" id="tab-design" data-stage="design" aria-controls="panel-design" aria-selected="false" tabindex="-1" disabled>
-          <span class="stage-ico" aria-hidden="true"><span class="stage-num">3</span></span><span class="stage-label">Tasarım</span><span class="visually-hidden stage-sr"></span>
+        <button type="button" role="tab" class="stage" id="tab-design" aria-labelledby="tab-design-l tab-design-s" data-stage="design" aria-controls="panel-design" aria-selected="false" tabindex="-1" disabled>
+          <span class="stage-ico" aria-hidden="true"><span class="stage-num">3</span></span><span class="stage-label" id="tab-design-l">Tasarım</span><span class="visually-hidden stage-sr" id="tab-design-s"></span>
         </button>
-        <button type="button" role="tab" class="stage" id="tab-loop" data-stage="loop" aria-controls="panel-loop" aria-selected="false" tabindex="-1" disabled>
-          <span class="stage-ico" aria-hidden="true"><span class="stage-num">4</span></span><span class="stage-label">İnceleme döngüsü</span><span class="visually-hidden stage-sr"></span>
+        <button type="button" role="tab" class="stage" id="tab-loop" aria-labelledby="tab-loop-l tab-loop-s" data-stage="loop" aria-controls="panel-loop" aria-selected="false" tabindex="-1" disabled>
+          <span class="stage-ico" aria-hidden="true"><span class="stage-num">4</span></span><span class="stage-label" id="tab-loop-l">İnceleme döngüsü</span><span class="visually-hidden stage-sr" id="tab-loop-s"></span>
         </button>
-        <button type="button" role="tab" class="stage" id="tab-solid" data-stage="solid" aria-controls="panel-solid" aria-selected="false" tabindex="-1" disabled>
-          <span class="stage-ico" aria-hidden="true"><span class="stage-num">5</span></span><span class="stage-label">Katı model</span><span class="visually-hidden stage-sr"></span>
+        <button type="button" role="tab" class="stage" id="tab-solid" aria-labelledby="tab-solid-l tab-solid-s" data-stage="solid" aria-controls="panel-solid" aria-selected="false" tabindex="-1" disabled>
+          <span class="stage-ico" aria-hidden="true"><span class="stage-num">5</span></span><span class="stage-label" id="tab-solid-l">Katı model</span><span class="visually-hidden stage-sr" id="tab-solid-s"></span>
         </button>
-        <button type="button" role="tab" class="stage" id="tab-final" data-stage="final" aria-controls="panel-final" aria-selected="false" tabindex="-1" disabled>
-          <span class="stage-ico" aria-hidden="true"><span class="stage-num">6</span></span><span class="stage-label">Son inceleme</span><span class="visually-hidden stage-sr"></span>
+        <button type="button" role="tab" class="stage" id="tab-final" aria-labelledby="tab-final-l tab-final-s" data-stage="final" aria-controls="panel-final" aria-selected="false" tabindex="-1" disabled>
+          <span class="stage-ico" aria-hidden="true"><span class="stage-num">6</span></span><span class="stage-label" id="tab-final-l">Son inceleme</span><span class="visually-hidden stage-sr" id="tab-final-s"></span>
         </button>
-        <button type="button" role="tab" class="stage" id="tab-output" data-stage="output" aria-controls="panel-output" aria-selected="false" tabindex="-1" disabled>
-          <span class="stage-ico" aria-hidden="true"><span class="stage-num">7</span></span><span class="stage-label">Çıktılar</span><span class="visually-hidden stage-sr"></span>
+        <button type="button" role="tab" class="stage" id="tab-output" aria-labelledby="tab-output-l tab-output-s" data-stage="output" aria-controls="panel-output" aria-selected="false" tabindex="-1" disabled>
+          <span class="stage-ico" aria-hidden="true"><span class="stage-num">7</span></span><span class="stage-label" id="tab-output-l">Çıktılar</span><span class="visually-hidden stage-sr" id="tab-output-s"></span>
         </button>
       </div>
+      <p class="rail-caption" id="rail-caption" aria-hidden="true"></p>
     </nav>
 
     <section class="side" id="side" aria-label="Aşama ayrıntıları" tabindex="-1">
@@ -132,11 +133,11 @@
         <p class="start-lead">Kartın STEP montajı yüklenir. Muhafaza kaynaklı DFM kurallarına göre tasarlanır, incelenir, güvenli düzeltmeler otomatik uygulanır; katı model ve son inceleme ancak bundan sonra sunulur.</p>
         <button type="button" class="dropzone" id="dropzone">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
-          <span class="dz-main">STEP dosyası seçin ya da buraya bırakın</span>
+          <span class="dz-main">STEP dosyası seçilir ya da buraya bırakılır</span>
           <span class="dz-sub">.step / .stp (KiCad, Altium, SolidWorks çıktısı) ya da .ikra.json proje</span>
         </button>
         <div class="sample-pick">
-          <h3 class="sub-title">Örnek kartla deneyin</h3>
+          <h3 class="sub-title">Örnek kartla denenebilir</h3>
           <div class="sample-grid" id="sample-grid"></div>
         </div>
         <h3 class="sub-title">Tasarım akışı</h3>
@@ -462,8 +463,8 @@
 
       <div class="empty-state" id="empty-hint">
         <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 6 40 15v18L24 42 8 33V15z"/><path d="M8 15l16 9 16-9M24 24v18"/></svg>
-        <h2>PCB STEP dosyasını buraya bırakın</h2>
-        <p class="muted">ya da soldaki alandan dosya seçin veya bir örnek kart açın.</p>
+        <h2>PCB STEP dosyası buraya bırakılabilir</h2>
+        <p class="muted">ya da soldaki alandan dosya seçilir veya bir örnek kart açılır.</p>
       </div>
 
       <div class="alert hidden" id="alert" role="alert">
@@ -476,7 +477,7 @@
       </div>
 
       <div class="drop-overlay hidden" id="drop-overlay">
-        <div>STEP ya da proje dosyasını bırakın</div>
+        <div>STEP ya da proje dosyası bırakılabilir</div>
       </div>
     </main>
 
@@ -489,7 +490,7 @@
         </button>
       </div>
       <div class="review-body" id="review-body">
-        <p class="review-empty muted">Kart yüklendiğinde tasarım kendiliğinden üretilir ve kaynaklı DFM kurallarıyla incelenir. Bulgular, otomatik düzeltmeler ve kararınızı bekleyen konular burada listelenir.</p>
+        <p class="review-empty muted">Kart yüklendiğinde tasarım kendiliğinden üretilir ve kaynaklı DFM kurallarıyla incelenir. Bulgular, otomatik düzeltmeler ve kullanıcı kararı bekleyen konular burada listelenir.</p>
       </div>
     </aside>
   </div>
@@ -593,10 +594,10 @@
     <div class="help-body">
       <section>
         <h3 class="sub-title">Tasarım akışı</h3>
-        <p>Sol çubuktaki yedi aşama sırayla işler. <b>Kart</b> aşamasında STEP analiz edilir; <b>Gereksinimler</b> aşamasında süreç, malzeme, IP seviyesi ve kutunun sabitlenmesi seçilir.
+        <p>Sol çubuktaki yedi aşama sırayla işler. <b>Kart</b> aşamasında STEP analiz edilir; <b>Gereksinimler</b> aşamasında süreç, malzeme, IP seviyesi ve kutunun sabitlenmesi seçilir. En yüksek çalışma sıcaklığı girilirse seçili malzemenin sürekli kullanım sıcaklığıyla karşılaştırılır; yetmiyorsa incelemede hata olarak listelenir ve bu süreçte uygun malzeme önerilir.
           <b>Tasarım</b> ölçüleri kural setinden üretir. Her değişiklikten sonra <b>İnceleme döngüsü</b> çalışır, ardından yarım saniye içinde <b>Katı model</b> yeniden oluşturulur ve
           <b>Son inceleme</b> katı modelde gerçekten uygulanan kenar işlemlerini ve kalıp açısını doğrular. <b>Çıktılar</b> ancak model güncel olduğunda indirilebilir.</p>
-        <p>Her aşamanın simgesi durumunu gösterir: <span class="lvl-inline ok">✓ tamam</span>, <span class="lvl-inline warn">! uyarı var</span>, <span class="lvl-inline error">× hata var</span>; numara henüz çalışmamış aşamayı gösterir.</p>
+        <p>Her aşamanın simgesi durumunu gösterir: <span class="lvl-inline ok">✓ tamam</span>, <span class="lvl-inline warn">! uyarı var</span>, <span class="lvl-inline error">× hata var</span>; numara henüz çalışmamış aşamayı gösterir. Dar ekranda aşama adları çubuğun altında, seçili aşama için yazılır.</p>
       </section>
       <section>
         <h3 class="sub-title">İnceleme döngüsü ne yapar?</h3>
@@ -612,7 +613,7 @@
       </section>
       <section>
         <h3 class="sub-title">Otomatik ve Kilitli değerler</h3>
-        <p><b>Otomatik</b> parametreyi kural seti ve inceleme döngüsü belirler. Alana değer yazılınca parametre <b>Kilitli</b> olur; döngü onu değiştirmez, ilgili bulgu kullanıcı kararı olarak kalır.
+        <p><b>Otomatik</b> parametreyi kural seti ve inceleme döngüsü belirler. Alana farklı bir değer yazılınca parametre <b>Kilitli</b> olur (Esc yazmayı iptal eder, kilitlemez); döngü onu değiştirmez, ilgili bulgu kullanıcı kararı olarak kalır.
           Kilit simgesiyle değer yeniden otomatiğe döndürülebilir. Süreç ya da malzeme değişince kilitli değerler korunur. Bir otomatik düzeltmenin “Geri al” düğmesi parametreyi önceki değerinde kilitler.</p>
       </section>
       <section>
@@ -654,7 +655,7 @@
           <tr><td><kbd>Sağ tık</kbd> + sürükle</td><td>Kaydır</td></tr>
           <tr><td>Tekerlek</td><td>Yakınlaştır / uzaklaştır</td></tr>
           <tr><td>Yön küpü</td><td>Tıklanınca yüz, kenar ya da köşe yönüne bakılır; sürüklenince serbest döner</td></tr>
-          <tr><td colspan="2" class="muted small">Aşağıdaki tek tuşlar yalnızca 3B görünüm odaktayken çalışır (görünüme tıklayın ya da Tab ile gelin); yazı alanlarında hiçbir zaman çalışmaz.</td></tr>
+          <tr><td colspan="2" class="muted small">Aşağıdaki tek tuşlar yalnızca 3B görünüm odaktayken çalışır (görünüme tıklanır ya da Tab ile gelinir); yazı alanlarında hiçbir zaman çalışmaz.</td></tr>
           <tr><td><kbd>H</kbd></td><td>Ana (izometrik) görünüm</td></tr>
           <tr><td><kbd>F</kbd></td><td>Modeli ekrana sığdır</td></tr>
           <tr><td><kbd>1</kbd>…<kbd>6</kbd></td><td>Ön, arka, sol, sağ, üst, alt</td></tr>

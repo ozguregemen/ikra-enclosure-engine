@@ -155,6 +155,7 @@ function selectStage(id, { focus = false } = {}) {
     t.tabIndex = on ? 0 : -1;
   }
   for (const s of STAGES) $(`#panel-${s}`).classList.toggle('hidden', s !== id);
+  renderRailCaption();
   $('#side').scrollTop = 0;
   if (window.matchMedia('(max-width: 767px)').matches && focus) $('#side').scrollIntoView({ block: 'start' });
   if (focus) $(`#panel-${id}`).focus({ preventScroll: true });
@@ -171,6 +172,17 @@ function setStageStatus(id, status, sr = '') {
   }[status];
   t.querySelector('.stage-ico').innerHTML = glyph || `<span class="stage-num">${n}</span>`;
   t.querySelector('.stage-sr').textContent = sr ? `, ${sr}` : '';
+  if (t.getAttribute('aria-selected') === 'true') renderRailCaption();
+}
+/** Dar ekran: aşama adları görsel olarak gizli; seçili aşamanın sırası, adı ve durumu rayın altında yazılır */
+function renderRailCaption() {
+  const cap = $('#rail-caption');
+  const t = stageTabs().find((x) => x.getAttribute('aria-selected') === 'true');
+  if (!cap || !t) return;
+  const n = STAGES.indexOf(t.dataset.stage) + 1;
+  const label = t.querySelector('.stage-label')?.textContent || '';
+  const sr = (t.querySelector('.stage-sr')?.textContent || '').replace(/^,\s*/, '');
+  cap.innerHTML = `<span class="muted">Aşama ${n}/${STAGES.length} · </span><b>${esc(label)}</b>${sr ? `<span class="muted"> · ${esc(sr)}</span>` : ''}`;
 }
 $('#rail').addEventListener('click', (e) => {
   const t = e.target.closest('[role="tab"]');
@@ -198,17 +210,30 @@ document.addEventListener('click', (e) => {
 /* ---------- İnceleme paneli: geniş ekranda sabit, < 1200 px çekmece ---------- */
 
 const review = $('#review');
+const narrowMq = window.matchMedia('(max-width: 767px)');
+// < 768 px çekmece tüm ekranı kaplar: açıkken arkadaki bölgeler etkisizleştirilir (odak görünmeyen öğeye kaçmaz)
+const BEHIND_DRAWER = ['.skip-link', '.appbar', '#workspace > .rail', '#side', '#viewer-wrap', '#statusbar'];
+function syncDrawerModal() {
+  const modal = review.classList.contains('open') && narrowMq.matches;
+  if (modal) { review.setAttribute('role', 'dialog'); review.setAttribute('aria-modal', 'true'); } else { review.removeAttribute('role'); review.removeAttribute('aria-modal'); }
+  for (const sel of BEHIND_DRAWER) {
+    document.querySelectorAll(sel).forEach((el) => { el.inert = modal; });
+  }
+}
 function openReview({ focus = true } = {}) {
   if (!ui.isDrawer()) { if (focus) $('#review-title').focus(); return; }
   review.classList.add('open');
   $('#review-toggle').setAttribute('aria-expanded', 'true');
+  syncDrawerModal();
   if (focus) setTimeout(() => $('#review-title').focus(), 30);
 }
 function closeReview({ returnFocus = false } = {}) {
   review.classList.remove('open');
   $('#review-toggle').setAttribute('aria-expanded', 'false');
+  syncDrawerModal();
   if (returnFocus) $('#review-toggle').focus();
 }
+narrowMq.addEventListener('change', syncDrawerModal);
 $('#review-toggle').addEventListener('click', () => (review.classList.contains('open') ? closeReview() : openReview()));
 $('#review-close').addEventListener('click', () => closeReview({ returnFocus: true }));
 review.addEventListener('keydown', (e) => {
