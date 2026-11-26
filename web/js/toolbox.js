@@ -6,8 +6,9 @@
  */
 import {
   libraryTypes, screwTable, driveText, designation, isTapping, resolveScrewMaterial, resolveWasherMaterial, washerSizeFor, torqueLimitText,
+  resolveRecess, combiWasher,
 } from './design.js';
-import { headProfile, headTop, driveOutline, driveSection } from './screw-shapes.js';
+import { headProfile, headTop, driveOutline, driveSection, recessM } from './screw-shapes.js';
 import { panelData, panelTitle, holeText, FACE_LABEL } from './panel.js';
 import { preferredHas } from './bom.js';
 
@@ -16,6 +17,18 @@ const n = (v) => NUM.format(v);
 const sizeLabel = (size) => size.replace('.', ',');
 /** Arama için katlama: küçük harf, ı→i, aksanlar atılır (ş→s, ç→c…) */
 const fold = (s) => String(s ?? '').toLocaleLowerCase('tr').replace(/ı/g, 'i').normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+/**
+ * Toolbox araması: sorgunun (metin ya da katlanmış kelime listesi) her kelimesi kod, ad, kısa ad, kimlik, tür, boyut,
+ * eski DIN numarası ("DIN 965", "DIN965", "965") ya da geri çekilmiş standardın yerine geleninde geçmeli.
+ */
+export function toolboxHit(t, query) {
+  const tokens = Array.isArray(query) ? query : fold(query).split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+  const hay = fold([t.code, t.name, t.short, t.id, t.kind, t.din, t.din ? t.din.replace(/\s+/g, '') : '', t.withdrawn,
+    ...(t.sizes ? Object.keys(t.sizes) : [])].join(' '));
+  return tokens.every((k) => hay.includes(k));
+}
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -30,30 +43,56 @@ const DRIVE_LABEL = {
 
 /* ---------- Küçük baş simgesi (ağaç ve bağlantı kartı) ---------- */
 
+/** Simge anahtarı: baş biçimi; bombeli havşa ve kombi (pullu) vida ayrı simge alır */
+const iconKey = (t) => (typeof t === 'string' ? t : t?.raised ? 'raised' : t?.combi ? 'combi' : t?.head);
+
+/** head: baş biçimi ('pan', 'countersunk'…) ya da Toolbox tipi (bombeli havşa / kombi vida ayrıca tanınır) */
 export function headIcon(head) {
+  const key = iconKey(head);
   const body = {
     pan: '<path d="M4 11h20v-1.6c0-3-3.2-5.4-10-5.4S4 6.4 4 9.4z"/>',
     cheese: '<path d="M6.5 11h15V5.2c0-.9-.7-1.6-1.6-1.6h-11.8c-.9 0-1.6.7-1.6 1.6z"/>',
     socket: '<path d="M6 11h16V4.6L21 3.6H7L6 4.6z"/>',
     button: '<path d="M4 11h20v-.8C24 7 19.6 5 14 5S4 7 4 10.2z"/>',
     countersunk: '<path d="M3 3.6h22L17.5 11h-7z"/>',
-  }[head] || '';
+    // Bombeli havşa: havşa konisi + üstte basık bombe
+    raised: '<path d="M3 5.4h22L17.5 11h-7z"/><path d="M3.4 5.4C6.4 1.6 21.6 1.6 24.6 5.4z"/>',
+    // Kombi vida: bombe baş + altında kaybolmaz düz pul
+    combi: '<path d="M5 9h18v-1.4c0-2.6-2.8-4.6-9-4.6S5 5 5 7.6z"/><path d="M2.5 9.6h23v1.8h-23z"/>',
+  }[key] || '';
   return `<svg class="head-icon" viewBox="0 0 28 26" aria-hidden="true">${body}` +
     '<path d="M10.5 11h7v11.4l-1 1.2h-5l-1-1.2z"/>' +
     '<path class="hi-thread" d="M10.5 15h7M10.5 18h7M10.5 21h7"/></svg>';
 }
 
+/** Tipin seçilebilir yıldız izleri (H Phillips, Z Pozidriv); izi olmayan tiplerde boş */
+export const recessesOf = (t) => (t?.recess ? (t.recesses || [t.recess]) : []);
+const RECESS_LABEL = { H: 'Phillips (H)', Z: 'Pozidriv (Z)' };
+
+/** Özellik tablosu satırları: eski DIN karşılığı ve geri çekilmiş standart (not ayrı paragrafta) */
+function dinRows(t) {
+  const rows = [];
+  if (t.withdrawn) rows.push(['Durum', `Geri çekilmiş standart; yerine ${t.withdrawn}`]);
+  if (t.din) rows.push(['Eşdeğer', `${t.din}${t.din_note ? '' : ' (M2–M6 ölçüleri aynı)'}`]);
+  else if (t.din_note) rows.push(['Eşdeğer DIN', 'yok']);
+  return rows;
+}
+const dinNote = (t) => (t.din_note ? `<p class="muted small">${t.din ? `${esc(t.din)} → ${esc(t.code)}: ` : ''}${esc(t.din_note)}</p>` : '');
+
 /* ---------- Ölçülü vida önizleme çizimi (yan görünüş + üstten) ---------- */
 
 /**
- * type: toolbox tipi, sz: boyut kaydı { dk, dk_actual?, k, P, drive, A?, m? }, size: boyut adı, d: anma çapı,
- * L: boy (havşada başı kapsar). Teknik resim alışkanlığı: diş dibi ince sürekli çizgi, tahrik izi gizli çizgi,
+ * type: toolbox tipi, sz: boyut kaydı { dk, dk_actual?, k, f?, v?, P, drive, A?, m?, mZ? }, size: boyut adı, d: anma çapı,
+ * L: boy (havşada başı kapsar, bombeli havşada bombe hariç), washer: baş altı / kombi pulu, recess: yıldız izi (H/Z).
+ * Teknik resim alışkanlığı: diş dibi ince sürekli çizgi, tahrik izi gizli çizgi,
  * eksen noktalı çizgi, ölçü çizgileri ok uçlu. Model koordinatı: y yukarı, 0 = oturma yüzü (havşada üst yüz), uç −L.
  */
-export function screwFigure(type, sz, size, d, L, washer = null) {
+export function screwFigure(type, sz, size, d, L, washer = null, recess = null) {
   const VW = 320;
   const VH = 270;
-  const shape = { head: type.head, dk: sz.dk, dkActual: sz.dk_actual, k: sz.k, d, driveKind: type.drive_kind, drive: sz.drive, A: sz.A, m: sz.m };
+  const shape = { head: type.head, dk: sz.dk, dkActual: sz.dk_actual, k: sz.k, d, driveKind: type.drive_kind, drive: sz.drive, A: sz.A, m: recessM(sz, recess),
+    f: type.raised ? sz.f || 0 : 0, v: sz.v || 0, recess };
+  const raise = shape.f;
   const sunk = type.head === 'countersunk';
   const k = sz.k;
   const P = sz.P || 0.5;
@@ -115,7 +154,9 @@ export function screwFigure(type, sz, size, d, L, washer = null) {
   };
   const widestY = sunk ? Y(0) : type.head === 'socket' || type.head === 'cheese' ? Y(k / 2) : Y(0.12 * k);
   dimH(X(-r), X(r), Y(maxTop) - 14, `Ø${n(dkShown)}`, [widestY, widestY]);
-  dimV(Y(maxTop), Y(sunk ? -k : 0), X(r) + 16, `k ${n(k)}`, [X(sunk ? r : 0.6 * r), X(sunk ? d / 2 : r)], 'right');
+  dimV(Y(sunk ? 0 : maxTop), Y(sunk ? -k : 0), X(r) + 16, `k ${n(k)}`, [X(sunk ? r : 0.6 * r), X(sunk ? d / 2 : r)], 'right');
+  // Bombeli havşa: bombe yüksekliği f oturma düzleminin üstünde, boy ölçüsüyle zincir (boya dahil değil)
+  if (raise > 0) dimV(Y(raise), Y(0), X(-Math.max(r, wD / 2)) - 18, `f ${n(raise)}`, [X(0), X(-r)], 'left');
   dimV(Y(0), Y(-L), X(-Math.max(r, wD / 2)) - 18, `L ${n(L)}`, [X(-r), X(-d / 2)], 'left');
   dimH(X(-d / 2), X(d / 2), Y(-L) + 16, sizeLabel(size), [Y(-L + c), Y(-L + c)]);
 
@@ -129,7 +170,7 @@ export function screwFigure(type, sz, size, d, L, washer = null) {
     out.push(`<polygon class="tf-recess" points="${poly.map(([x, y]) => `${(tcx + x * s2).toFixed(2)},${(tcy - y * s2).toFixed(2)}`).join(' ')}"/>`);
   }
   out.push(`<text class="tf-cap" x="${tcx}" y="${tcy + r * s2 + 16}" text-anchor="middle">Üstten</text>`);
-  out.push(`<text class="tf-cap" x="${tcx}" y="${tcy + r * s2 + 30}" text-anchor="middle">${esc(driveText(type, sz))}</text>`);
+  out.push(`<text class="tf-cap" x="${tcx}" y="${tcy + r * s2 + 30}" text-anchor="middle">${esc(driveText(type, sz, recess))}</text>`);
   out.push('<text class="tf-cap" x="8" y="14">Yan görünüş</text>');
 
   return `<svg class="tb-figure-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="${esc(type.code)} vida ölçü çizimi">${out.join('')}</svg>`;
@@ -537,10 +578,13 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
 
   function normalize(spec) {
     const t = typeById(spec.type);
+    // Yıldız izi: yeni tipte izinli değilse tipin varsayılanına döner (izi olmayan tipte alan yok)
+    const recess = resolveRecess(t, spec.recess);
     const out = {
       type: t.id, size: spec.size, length: spec.length,
       material: spec.material && (spec.material === 'auto' || (t.materials || []).includes(spec.material)) ? spec.material : 'auto',
       washer: spec.washer || 'none', washerMaterial: spec.washerMaterial || 'match', headSeat: spec.headSeat || 'surface',
+      ...(recess ? { recess } : {}),
     };
     if (out.size !== 'auto' && !t.sizes[out.size]) out.size = 'auto';
     return out;
@@ -565,22 +609,25 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
   }
 
   function renderTree() {
+    // Arama: her kelime kod, ad, kısa ad, boyut ya da eski DIN numarasında geçmeli (Türkçe karakterler katlanır: ı→i, ş→s…)
+    const tokens = fold(search).split(/\s+/).filter(Boolean);
+    // Eski DIN karşılığı: ipucunda her zaman, adda yalnızca arama DIN numarasına uyunca (ör. "965" → ISO 7046-1 · DIN 965)
+    const dinTitle = (t) => (t.din ? ` · Eşdeğer: ${t.din}` : '') + (t.withdrawn ? ` · geri çekilmiş, yerine ${t.withdrawn}` : '');
+    const dinHit = (t) => !!t.din && tokens.some((k) => /\d/.test(k) && fold(`${t.din} ${t.din.replace(/\s+/g, '')}`).includes(k));
+    const dinTag = (t) => (dinHit(t) ? ` · ${esc(t.din)}` : '');
     const screwItem = (t) => `
-      <button type="button" class="tb-item" data-type="${t.id}" aria-current="${draft.view === 'screw' && t.id === active().type}" title="${esc(t.name)}">
-        ${headIcon(t.head)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
+      <button type="button" class="tb-item" data-type="${t.id}" aria-current="${draft.view === 'screw' && t.id === active().type}" title="${esc(t.name + dinTitle(t))}">
+        ${headIcon(t)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${dinTag(t)}</span></span>
       </button>`;
     const insertItem = (t) => `
       <button type="button" class="tb-item" data-insert="${t.id}" aria-current="${draft.view === 'insert' && t.id === draft.insert.type}" title="${esc(t.name)}">
         ${insertIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
       </button>`;
     const washerItem = (t) => `
-      <button type="button" class="tb-item" data-washer="${t.id}" aria-current="${draft.view === 'washer' && t.id === draft.washerView}" title="${esc(t.name)}">
-        ${washerIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${active().washer === t.id ? ' · seçili' : ''}</span></span>
+      <button type="button" class="tb-item" data-washer="${t.id}" aria-current="${draft.view === 'washer' && t.id === draft.washerView}" title="${esc(t.name + dinTitle(t))}">
+        ${washerIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${dinTag(t)}${active().washer === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
-    // Arama: her kelime kod, ad, kısa ad ya da boyutlarda geçmeli (Türkçe karakterler katlanır: ı→i, ş→s…)
-    const tokens = fold(search).split(/\s+/).filter(Boolean);
-    const hit = (t) => !tokens.length || ((hay) => tokens.every((k) => hay.includes(k)))(
-      fold([t.code, t.name, t.short, t.id, t.kind, ...(t.sizes ? Object.keys(t.sizes) : [])].join(' ')));
+    const hit = (t) => toolboxHit(t, tokens);
     const withStar = (t, html) => (isPref(t.code) ? html.replace('</span><span class="tb-name">', `${STAR}</span><span class="tb-name">`) : html);
     const lib = (L, itemFor, count) => {
       const cats = L.categories.map((cat) => {
@@ -602,8 +649,8 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       return cats ? `<div class="tb-node"><span class="tb-caret" aria-hidden="true"></span><strong>${esc(L.standard)}</strong><span class="tb-count">${count} tip</span></div>${cats}` : '';
     };
     const nutItem = (t) => `
-      <button type="button" class="tb-item" data-nut="${t.id}" aria-current="${draft.view === 'nut' && t.id === draft.insert.nut}" title="${esc(t.name)}">
-        ${insertIcon(t.kind === 'square' ? 'squarenut' : 'nut')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'nut' && draft.insert.nut === t.id ? ' · seçili' : ''}</span></span>
+      <button type="button" class="tb-item" data-nut="${t.id}" aria-current="${draft.view === 'nut' && t.id === draft.insert.nut}" title="${esc(t.name + dinTitle(t))}">
+        ${insertIcon(t.kind === 'square' ? 'squarenut' : 'nut')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${dinTag(t)}${draft.insert.type === 'nut' && draft.insert.nut === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
     const standoffItem = (t) => `
       <button type="button" class="tb-item" data-standoff="${t.id}" aria-current="${draft.view === 'standoff' && t.id === draft.insert.standoff}" title="${esc(t.name)}">
@@ -619,7 +666,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     const html = lib(screwLib, (cat) => (cat.id === 'washers' ? washerItem : cat.id === 'nuts' ? nutItem : screwItem), types.length + washerTypes.length + nutTypes.length) +
       (insertLib ? lib(insertLib, (cat) => (cat.id === 'standoffs' ? standoffItem : insertItem), insertTypes.length + standoffTypes.length) : '') +
       (panelLib ? lib(panelLib, () => panelItem, panelTypes.length) : '');
-    q('#tb-tree-items').innerHTML = html || `<p class="tb-empty small muted">"${esc(search)}" için sonuç yok. Kod (7045), ad (imbus, rakor) ya da boyut (M5) ile aranabilir.</p>`;
+    q('#tb-tree-items').innerHTML = html || `<p class="tb-empty small muted">"${esc(search)}" için sonuç yok. Kod (7045), eski DIN numarası (965, DIN 7981), ad (imbus, rakor) ya da boyut (M5) ile aranabilir.</p>`;
   }
 
   /* ---------- Panel elemanları ---------- */
@@ -736,6 +783,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     const typeChips = nutTypes.map((t) => `<button type="button" class="chip" data-nut="${t.id}" aria-checked="${draft.insert.type === 'nut' && draft.insert.nut === t.id}"${t.sizes[size] ? '' : ` disabled title="${size} yok"`}>${esc(t.code)}</button>`).join('');
     const rows = [
       ['Standart', `${nt.code} · ${nt.name}`],
+      ...dinRows(nt),
       ['Boyut', `${shown}${z ? '' : ` (vida boyutu ${size} bu seride yok)`}`],
       ['Anahtar ağzı s', `${n(zz.s)} mm`], ['Köşeler e', `Ø${n(zz.e)}`], [nt.locking ? 'Toplam yükseklik h' : 'Yükseklik m', `${n(zz.m)} mm`],
       ['Cep', nt.kind === 'square' ? `yandan yuva ${n(zz.s + 2 * fit)} × ${n(zz.m + 0.2)} mm, kavite tarafına açık` : `tabandan altıgen cep SW ${n(zz.s + 2 * fit)}; derinlik vida boyuna göre (uç somundan 1,5·P taşar)`],
@@ -747,6 +795,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       <section class="tb-group">
         <h4>Özellikler</h4>
         <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
+        ${dinNote(nt)}
         <button type="button" class="link-btn" data-view="screw">← Vida seçimine dön</button>
       </section>
       ${torqueSection(ev)}
@@ -848,23 +897,31 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
 
     const mat = resolveScrewMaterial(t, S.material, materials);
     const sunkHead = t.head === 'countersunk';
-    const wt = !sunkHead && S.washer !== 'none' ? washerById(S.washer) : null;
-    const wz = wt ? wt.sizes[washerSizeFor(effSize)] : null;
-    q('#tb-figure').innerHTML = screwFigure(t, sz, effSize, screw ? screw.d : parseFloat(effSize.replace(/^[A-Z]+/, '')), figL, wz);
-    q('#tb-designation').textContent = designation(t, effSize, figL) + (mat ? ` - ${mat.tag}` : '');
+    // Kombi vida (ISO 10644): pul vidaya takılıdır, ayrı pul seçilemez; çizim, ölçü ve tasarım takılı pulu kullanır
+    const cw = combiWasher(t, effSize);
+    const wt = !sunkHead && !cw && S.washer !== 'none' ? washerById(S.washer) : null;
+    const wz = cw ? cw.z : wt ? wt.sizes[washerSizeFor(effSize)] : null;
+    const rec = resolveRecess(t, S.recess);
+    const raise = t.raised ? sz.f || 0 : 0;
+    q('#tb-figure').innerHTML = screwFigure(t, sz, effSize, screw ? screw.d : parseFloat(effSize.replace(/^[A-Z]+/, '')), figL, wz, rec);
+    q('#tb-designation').textContent = designation(t, effSize, figL, rec) + (mat ? ` - ${mat.tag}` : '');
     const matChips = (t.materials || []).map((id) => {
       const m = matById(id);
       if (!m) return '';
       const on = S.material === 'auto' ? id === t.materials[0] : S.material === id;
       return `<button type="button" class="chip" data-mat="${id}" aria-checked="${on}" title="${esc(m.label)}">${esc(m.tag)}</button>`;
     }).join('');
+    // Yıldız izi: tip H ve Z'ye izin veriyorsa seçilir (uç no. iki izde aynı; iz çapı m tabloya göre)
+    const recs = recessesOf(t);
+    const recChips = recs.length > 1 ? recs.map((r) => `<button type="button" class="chip" data-recess="${r}" aria-checked="${rec === r}" title="${esc(driveText(t, sz, r))}">${esc(RECESS_LABEL[r] || r)}</button>`).join('') : '';
+    const noWasher = sunkHead || !!cw;
     const wChips = [`<button type="button" class="chip" data-wsel="none" aria-checked="${S.washer === 'none'}">Yok</button>`]
       .concat(washerTypes.map((w) => {
         const has = !!w.sizes[washerSizeFor(effSize)];
-        const dis = sunkHead || !has;
-        return `<button type="button" class="chip" data-wsel="${w.id}" aria-checked="${S.washer === w.id}"${dis ? ` disabled title="${sunkHead ? 'Havşa başta pul kullanılmaz' : `${washerSizeFor(effSize)} boyutu yok`}"` : ''}>${esc(w.code)}</button>`;
+        const dis = noWasher || !has;
+        return `<button type="button" class="chip" data-wsel="${w.id}" aria-checked="${S.washer === w.id}"${dis ? ` disabled title="${sunkHead ? 'Havşa başta pul kullanılmaz' : cw ? 'Kombi vidada pul vidaya takılıdır' : `${washerSizeFor(effSize)} boyutu yok`}"` : ''}>${esc(w.code)}</button>`;
       })).join('');
-    const wMat = wt ? resolveWasherMaterial(wt, S.washerMaterial, mat, materials) : null;
+    const wMat = wt ? resolveWasherMaterial(wt, S.washerMaterial, mat, materials) : cw ? resolveWasherMaterial(cw.type, 'match', mat, materials) : null;
 
     const sizeChips = [`<button type="button" class="chip" data-size="auto" aria-checked="${S.size === 'auto'}">Otomatik <span class="chip-sub">${esc(autoSize)}</span></button>`]
       .concat(sizes.map((size) => `<button type="button" class="chip ${fits(size) ? '' : 'bad'}" data-size="${esc(size)}" aria-checked="${S.size === size}"` +
@@ -892,15 +949,21 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       : st0 ? `${METHOD_LABEL[ev.sel.fasteningMethod] || ''}${st0.insert ? ` · ${st0.insert.kind === 'helicoil' ? 'Helicoil ' + st0.insert.id : st0.insert.id}` : ''} · delik Ø${n(st0.holeD)}`
         : METHOD_LABEL[method];
     const sunk = t.head === 'countersunk';
+    const driveLabel = t.drive_kind === 'cross' ? (rec === 'Z' ? 'Yıldız (Pozidriv, Z)' : 'Yıldız (Phillips, H)') : DRIVE_LABEL[t.drive_kind] || '';
     const rows = [
       ['Standart', `${t.code} · ${t.name}`],
-      ['Tahrik', `${DRIVE_LABEL[t.drive_kind] || ''} · ${driveText(t, sz)}`],
-      ['Baş', `Ø${n(sz.dk_actual || sz.dk)} × ${n(sz.k)} mm${sunk ? ` · 90° havşa${sz.dk_actual ? ` (teorik Ø${n(sz.dk)})` : ''}` : ''}`],
+      ...dinRows(t),
+      ['Tahrik', `${driveLabel} · ${driveText(t, sz, rec)}`],
+      ['Baş', `Ø${n(sz.dk_actual || sz.dk)} × ${n(sz.k)} mm${sunk ? ` · 90° ${raise ? 'bombeli havşa' : 'havşa'}${sz.dk_actual ? ` (teorik Ø${n(sz.dk)})` : ''}` : ''}${sz.v ? ` · silindir ${n(sz.v)} + bombe R${n(sz.rf)}` : ''}`],
+      ...(raise ? [['Bombe', `f ${n(raise)} mm${sz.rf ? ` (R ≈ ${n(sz.rf)})` : ''}; yüzeyden çıkar`]] : []),
+      ...(cw ? [['Takılı pul', `${cw.type.code} tip ${cw.z.form}: Ø${n(cw.z.d1)}/Ø${n(cw.z.d2)} × ${n(cw.z.s)} mm${wMat ? ` · ${wMat.tag}` : ''} (kaybolmaz)`]] : []),
       ['Diş', tapping ? `${effSize} sac vidası dişi, adım ${n(sz.P)} (ISO 1478)` : `${effSize} × ${n(sz.P)} (kaba)`],
       ['Kapak deliği', screw ? `Ø${n(screw.clearance)}${sunk ? ` + havşa Ø${n(sz.dk + 0.3)}` : ''}` : '–'],
       ['Gövde tarafı', bodySide],
-      ['Boy ölçüsü', t.length_includes_head ? 'başı da kapsar (havşa üst yüzünden)' : 'baş altından uca'],
+      ['Boy ölçüsü', t.length_includes_head ? (raise ? 'başı da kapsar (havşa üst düzleminden; bombe dahil değil)' : 'başı da kapsar (havşa üst yüzünden)')
+        : cw ? 'baş altından uca (pul dahil değil)' : 'baş altından uca'],
     ];
+    const alt = t.withdrawn ? types.find((x) => x.code === t.withdrawn) : null;
     const groupRow = draft.cornerMode ? `<section class="tb-group">
         <h4>Vida grubu</h4>
         <div class="chips">
@@ -915,7 +978,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
           <button type="button" class="chip" data-seat="surface" aria-checked="${(S.headSeat || 'surface') === 'surface'}">Yüzeyde</button>
           <button type="button" class="chip" data-seat="counterbore" aria-checked="${S.headSeat === 'counterbore'}"${sunk ? ' disabled title="Havşa başta havşa açılır"' : ''}>Gömme (oyuk)</button>
         </div>
-        <p class="muted small">${sunk ? 'Havşa başlı vida kapakla aynı hizada biter.'
+        <p class="muted small">${sunk ? (raise ? `Havşa kenarı kapakla aynı hizada, bombe ${n(raise)} mm yukarıda kalır.` : 'Havşa başlı vida kapakla aynı hizada biter.')
           : S.headSeat === 'counterbore' ? `Kapakta Ø${n(Math.max((sz.dk_actual || sz.dk) + 1, wz ? wz.d2 + 0.6 : 0))} oyuk, derinlik ${n(sz.k + (wz ? wz.s : 0) + 0.3)} mm; gerekirse kapak altına yastık eklenir.${corner ? '' : ' Yalnızca kapak vidalarına uygulanır.'}`
             : 'Baş kapak yüzeyinin üstünde kalır.'}</p>
       </section>`;
@@ -937,19 +1000,27 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
         <div class="chips">${matChips}</div>
         ${mat ? `<p class="muted small">${esc(mat.label)}${mat.magnetic ? ' · manyetik' : ' · manyetik değil'}${mat.conductive ? '' : ' · yalıtkan'}</p>` : ''}
       </section>
+      ${recChips ? `<section class="tb-group">
+        <h4>Yıldız izi</h4>
+        <div class="chips">${recChips}</div>
+        <p class="muted small">${rec === 'Z' ? 'Pozidriv izi PZ uçla sıkılır; PH uç kayar ve izi bozar.' : 'Phillips izi PH uçla sıkılır.'} Uç no. iki izde aynıdır (${esc(driveText(t, sz, rec))}).</p>
+      </section>` : ''}
       <section class="tb-group">
         <h4>Baş altı pulu</h4>
         <div class="chips">${wChips}</div>
         ${wt && wz ? `<p class="muted small">${esc(wt.name)} ${esc(washerSizeFor(effSize))}: Ø${n(wz.d1)}/Ø${n(wz.d2)} × ${n(wz.s)} mm${wMat ? ` · ${esc(wMat.tag)}` : ''}
           ${wt.materials.includes('pa66') ? ` · <button type="button" class="link-btn" data-wmat="${S.washerMaterial === 'pa66' ? 'match' : 'pa66'}">${S.washerMaterial === 'pa66' ? 'vidaya uygun malzeme' : 'PA66 yalıtım pulu yap'}</button>` : ''}
           · <button type="button" class="link-btn" data-washer="${wt.id}">ayrıntı →</button></p>`
-          : sunkHead ? '<p class="muted small">Havşa başlı vidada baş altı pulu kullanılmaz.</p>' : ''}
+          : cw ? `<p class="muted small">Kombi vidada ${esc(cw.type.code)} tip ${esc(cw.z.form)} düz pul vidaya takılıdır (Ø${n(cw.z.d2)} × ${n(cw.z.s)} mm${wMat ? `, ${esc(wMat.tag)}` : ''}); ayrıca pul seçilmez.</p>`
+            : sunkHead ? '<p class="muted small">Havşa başlı vidada baş altı pulu kullanılmaz.</p>' : ''}
       </section>
       ${seatRow}
       ${torqueSection(ev)}
       <section class="tb-group">
         <h4>Özellikler</h4>
         <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
+        ${dinNote(t)}
+        ${alt ? `<p class="small"><span class="t-warn">Geri çekilmiş standart:</span> yeni tasarımda ${esc(alt.code)} önerilir; stok parçalar çoğu kez hâlâ ${esc(t.code)} ölçüsündedir. <button type="button" class="link-btn" data-tswitch="${alt.id}">${esc(alt.code)} seç →</button></p>` : ''}
         ${!tapping ? '<button type="button" class="link-btn" data-view="insert">Gövde tarafını (burç) seç →</button>' : ''}
       </section>
       ${fitSection(ev)}`;
@@ -969,8 +1040,10 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     q('#tb-designation').textContent = `${w.code} - ${shownSize.replace(/^M/, '')}${mat ? ' - ' + mat.tag : ''}`;
     const inUse = S.washer === w.id;
     const sunk = t.head === 'countersunk';
+    const combi = !!t.combi; // kombi vidada pul vidaya takılıdır
     const rows = [
       ['Standart', `${w.code} · ${w.name}`],
+      ...dinRows(w),
       ['Boyut', `${shownSize}${w.sizes[size] ? '' : ` (vida boyutu ${size} bu seride yok)`}`],
       ['İç çap d1', `Ø${n(z.d1)}`], ['Dış çap d2', `Ø${n(z.d2)}`], ['Kalınlık s', `${n(z.s)} mm`],
       ...(z.teeth ? [['Diş sayısı', `${z.teeth}`]] : []),
@@ -987,10 +1060,11 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       <section class="tb-group">
         <h4>Kullanım</h4>
         <div class="chips">
-          <button type="button" class="chip" data-wsel="${w.id}" aria-checked="${inUse}"${sunk || !w.sizes[size] ? ' disabled' : ''}>Bu pulu kullan</button>
+          <button type="button" class="chip" data-wsel="${w.id}" aria-checked="${inUse}"${sunk || combi || !w.sizes[size] ? ' disabled' : ''}>Bu pulu kullan</button>
           <button type="button" class="chip" data-wsel="none" aria-checked="${S.washer === 'none'}">Pul yok</button>
         </div>
-        ${sunk ? '<p class="small"><span class="t-warn">Havşa başlı vida seçili:</span> baş altı pulu kullanılmaz.</p>' : ''}
+        ${sunk ? '<p class="small"><span class="t-warn">Havşa başlı vida seçili:</span> baş altı pulu kullanılmaz.</p>'
+          : combi ? `<p class="small"><span class="t-warn">Kombi vida seçili:</span> ${esc(t.code)} vidasında düz pul vidaya takılıdır; ayrıca pul kullanılmaz.</p>` : ''}
       </section>
       ${w.materials.includes('pa66') ? `<section class="tb-group">
         <h4>Malzeme</h4>
@@ -1003,6 +1077,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
         <h4>Özellikler</h4>
         <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
         <p class="muted small">${esc(notes[w.kind] || '')}</p>
+        ${dinNote(w)}
         <button type="button" class="link-btn" data-view="screw">← Vida seçimine dön</button>
       </section>
       ${torqueSection(ev)}`;
@@ -1198,6 +1273,17 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     if (grp) { draft.group = grp.dataset.groupSel; render(); return; }
     const seat = e.target.closest('[data-seat]');
     if (seat && !seat.disabled) { active().headSeat = seat.dataset.seat; render(); return; }
+    // Yıldız izi (H / Z) ve geri çekilmiş standarttan yerine gelen tipe geçiş
+    const recEl = e.target.closest('[data-recess]');
+    if (recEl) { active().recess = recEl.dataset.recess; render(); return; }
+    const tsw = e.target.closest('[data-tswitch]');
+    if (tsw) {
+      if (draft.group === 'corner') draft.corner = normalize({ ...draft.corner, type: tsw.dataset.tswitch });
+      else draft.screw = normalize({ ...draft.screw, type: tsw.dataset.tswitch });
+      render();
+      q('.tb-item[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     const chip = e.target.closest('[data-size],[data-len],[data-itype],[data-variant],[data-mat],[data-wsel],[data-nut],[data-sotype],[data-somat],[data-solen]');
     if (!chip || chip.disabled) return;
     if (chip.dataset.size) { active().size = chip.dataset.size; active().length = 'auto'; }

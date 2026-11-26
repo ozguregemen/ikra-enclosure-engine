@@ -526,7 +526,7 @@
     </div>
     <div class="tb-body">
       <nav class="tb-tree" id="tb-tree" aria-label="Kütüphane">
-        <input type="search" class="tb-search" id="tb-search" placeholder="Ara: 7045, imbus, M5, rakor…" aria-label="Toolbox'ta ara" autocomplete="off">
+        <input type="search" class="tb-search" id="tb-search" placeholder="Ara: 7045, DIN 965, imbus, M5, rakor…" aria-label="Toolbox'ta ara (ISO kodu, eski DIN numarası, ad ya da boyut)" autocomplete="off">
         <div class="tb-tree-items" id="tb-tree-items"></div>
       </nav>
       <section class="tb-preview" aria-label="Önizleme">
@@ -616,6 +616,13 @@
         <p><b>Otomatik</b> parametreyi kural seti ve inceleme döngüsü belirler. Alana farklı bir değer yazılınca parametre <b>Kilitli</b> olur (Esc yazmayı iptal eder, kilitlemez); döngü onu değiştirmez, ilgili bulgu kullanıcı kararı olarak kalır.
           Kilit simgesiyle değer yeniden otomatiğe döndürülebilir. Süreç ya da malzeme değişince kilitli değerler korunur. Bir otomatik düzeltmenin “Geri al” düğmesi parametreyi önceki değerinde kilitler.</p>
         <p>CNC'de <b>Freze takım çapı</b> alanı kavite köşelerini ve cepleri bitiren parmak frezenin çapını alır (0,5–12 mm). Boş bırakılırsa kural dosyasındaki değer (yer tutucuda yazan) kullanılır; yazılan değer kilitlenir. İç köşe radyüsü (en az takım yarıçapı + 0,1 mm, önerilen 1,3 × takım yarıçapı), port açıklığı köşeleri ve somun cebi köşe boşaltması buna göre hesaplanır; cep derinliği oranı da (CNC-POCKET-DEPTH: ≤ 4 × Ø önerilir; 10 × Ø'den derin cep ve Ø1 mm ya da daha küçük frezeyle 9,52 mm'den derin cep işlenemez) aynı çapla denetlenir. Bu yüzden çok küçük bir freze yazılırsa derinlik uyarısı ya da hatası çıkar; frezeden dar port açıklıkları ayrı bir freze ister (CNC-CUTOUT-TOOL). Gövde ve kapak ikisi de CNC ise aynı freze iki parçayı işler: önerilen çap iki parçanın en derin işlemesini karşılar, iç köşe radyüsü yeni frezeye yetmiyorsa öneri radyüsü de değiştirir.</p>
+      </section>
+      <section>
+        <h3 class="sub-title">Toolbox</h3>
+        <p>Toolbox (<kbd>T</kbd>) standart bağlantı elemanlarını listeler: vidalar (yıldız, düz, imbus, torx, sac vidası), pullar, somunlar, dişli burçlar, aralayıcılar, panel elemanları. Seçilen tip, boyut ya da boy bu kartta hesaplanır; her boyun tutunması renkle gösterilir.
+          Arama kutusuna ISO kodu (<span class="mono">7045</span>), eski DIN numarası (<span class="mono">965</span>, <span class="mono">DIN 7981</span>), ad (<span class="mono">imbus</span>) ya da boyut (<span class="mono">M5</span>) yazılabilir; Türkçe karakterler aranırken ayırt edilmez. Ayrıntı panelinde eski DIN karşılığı (“Eşdeğer: DIN 965”) M2–M6 ölçü farklarıyla birlikte yazılır.</p>
+        <p>Yıldız başlı vidalarda iz seçilir: <b>Phillips (H)</b> ya da <b>Pozidriv (Z)</b>. Uç no. iki izde aynıdır (PH1 / PZ1); seçim tanıma (<span class="mono">ISO 7045 - M3 × 12 - Z</span>), malzeme listesine, teknik resme, 3B modele yansır ve proje dosyasına yazılır. İzi seçilmemiş eski projeler H ile açılır.
+          <b>Bombeli havşa</b> başlarda (ISO 7047, ISO 7051) havşa kenarı yüzeyle aynı hizada kalır, bombe f kadar (0,5–1,4 mm) yukarı çıkar; boy bombeyi kapsamaz. <b>Kombi vidada</b> (ISO 10644) düz pul vidaya takılıdır: oturma yüzeyi, sıkma torku, boy hesabı pulla yapılır, ayrıca seçilen pul yok sayılır. DIN 7985 geri çekilmiş standarttır; yerine ISO 7045 önerilir.</p>
       </section>
       <section>
         <h3 class="sub-title">Bulgu düzeyleri ve kararlar</h3>

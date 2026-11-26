@@ -14,7 +14,7 @@
  * "Güncel" karşılaştırması geometrinin parmak iziyle yapılır (muafiyet, süzgeç gibi geometri dışı değişiklikler
  * yeniden oluşturma tetiklemez).
  */
-import { defaultParams, paramHint, pickScrew, screwTable, libraryTypes, LID_MODES, PARAM_FIELDS, rfZoneParts, isRfLossy, isRfConductive } from './design.js';
+import { defaultParams, paramHint, pickScrew, screwTable, libraryTypes, resolveRecess, LID_MODES, PARAM_FIELDS, rfZoneParts, isRfLossy, isRfConductive } from './design.js';
 import { buildSheets, exportPdf } from './drawing.js';
 import { createToolbox, headIcon, insertIcon, panelIcon } from './toolbox.js';
 import { FACE_LABEL, holeText } from './panel.js';
@@ -291,13 +291,18 @@ export function createDesignUI({ viewer, ui }) {
     return m ? state.rulesCache.get(m.file) || null : null;
   };
 
-  /** Vida seçimini doğrula: tipte olmayan boyut/malzeme 'auto' olur */
+  /**
+   * Vida seçimini doğrula: tipte olmayan boyut/malzeme 'auto' olur; yıldız izi (H/Z) tipte izinli değilse tipin
+   * varsayılanı (eski proje dosyalarında alan yoktur → H). İzi olmayan tiplerde alan yazılmaz.
+   */
   function normalizeSpec(spec) {
     if (!spec) return null;
     const t = toolboxTypes().find((x) => x.id === spec.type);
+    const recess = t ? resolveRecess(t, spec.recess) : spec.recess || null;
     const next = {
       type: spec.type, size: spec.size, length: spec.length, material: spec.material || 'auto',
       washer: spec.washer || 'none', washerMaterial: spec.washerMaterial || 'match', headSeat: spec.headSeat || 'surface',
+      ...(recess ? { recess } : {}),
     };
     if (t && next.material !== 'auto' && !(t.materials || []).includes(next.material)) next.material = 'auto';
     if (t && next.size !== 'auto' && !t.sizes[next.size]) next.size = 'auto';
@@ -396,7 +401,7 @@ export function createDesignUI({ viewer, ui }) {
     const cs = (d?.screws || []).filter((s) => s.role === 'corner');
     const sc = cs[0];
     const t = toolboxTypes().find((x) => x.id === (sc?.type || state.cornerSpec?.type || state.screwSpec.type));
-    if (t) $('#corner-pick-icon').innerHTML = headIcon(t.head);
+    if (t) $('#corner-pick-icon').innerHTML = headIcon(t);
     $('#corner-pick-title').textContent = sc
       ? `${sc.code ? sc.code + ' · ' : ''}${sc.size} × ${String(sc.length ?? '?').replace('.', ',')}${sc.material ? ' ' + sc.material.tag : ''}`
       : 'Köşe vidası';
@@ -438,7 +443,7 @@ export function createDesignUI({ viewer, ui }) {
   function renderScrewPick(d = state.design) {
     const t = toolboxTypes().find((x) => x.id === state.screwSpec.type);
     if (!t) return;
-    $('#screw-pick-icon').innerHTML = headIcon(t.head);
+    $('#screw-pick-icon').innerHTML = headIcon(t);
     const groups = new Map();
     for (const s of (d?.screws || []).filter((x) => x.role !== 'corner')) {
       const key = `${s.size}×${s.length === null || s.length === undefined ? '?' : String(s.length).replace('.', ',')}`;
@@ -448,7 +453,9 @@ export function createDesignUI({ viewer, ui }) {
     const mat = d?.screwMaterial?.tag;
     $('#screw-pick-title').textContent = (list.length ? `${t.code} · ${list.join(', ').replace(/×/g, ' × ')}` : t.code) + (mat ? ` ${mat}` : '');
     const parts = [t.short];
-    if (d?.washer) parts.push(`${d.washer.code} pul${d.washer.material ? ' ' + d.washer.material : ''}`);
+    // Yıldız izi seçilebilen tiplerde etkin iz (Phillips H / Pozidriv Z)
+    if ((t.recesses || []).length > 1) parts.push(resolveRecess(t, state.screwSpec.recess) === 'Z' ? 'Pozidriv (Z)' : 'Phillips (H)');
+    if (d?.washer) parts.push(`${d.washer.code} pul${d.washer.captive ? ' (takılı)' : ''}${d.washer.material ? ' ' + d.washer.material : ''}`);
     const tq = d?.torque?.lid || d?.torque?.pcb;
     if (tq) parts.push(`${String(tq.T).replace('.', ',')} N·m`);
     const auto = [state.screwSpec.size === 'auto' ? 'boyut' : null, state.screwSpec.length === 'auto' ? 'boy' : null].filter(Boolean);
@@ -2626,6 +2633,7 @@ export function createDesignUI({ viewer, ui }) {
     const screws = d.screws.map((s) => ({
       x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
       head: s.head, headDActual: s.head_d_actual, driveKind: s.driveKind, drive: s.driveVal, driveA: s.driveA, driveM: s.driveM,
+      headF: s.head_f || 0, headV: s.head_v || 0, recess: s.recess || null,
       size: s.size, P: s.P, tapping: s.tapping, seat: s.seat || 0, washer: s.washer, finish: s.material?.finish || 'stainless',
       z: s.zSeat ?? (s.lid ? d.geometry.zTop : state.analysis.board.top),
     }));

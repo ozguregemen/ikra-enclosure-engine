@@ -309,10 +309,17 @@ export class Viewer {
           // Alttan vida: üst vidayla aynı tip; ters çevrilip taban altına oturur
           const top = screws.find((s) => Math.abs(s.x - b.x) < 1e-6 && Math.abs(s.y - b.y) < 1e-6) || screws[0];
           if (top) {
+            // Kombi vidada (ISO 10644) takılı pul alt vidada da vardır: vida pulun altına oturur
+            const cw = top.washer?.captive ? top.washer : null;
             const bs = buildScrew({ ...top, length: b.bottom.length, seat: 0, washer: null }, mats);
             bs.rotation.x = Math.PI;
-            bs.position.set(b.x, b.y, b.zBase);
+            bs.position.set(b.x, b.y, b.zBase - (cw ? cw.s : 0));
             this.enclosure.base.add(bs);
+            if (cw) {
+              const w = buildWasher(cw, mats);
+              w.position.set(b.x, b.y, b.zBase - cw.s);
+              this.enclosure.base.add(w);
+            }
           }
         } else if (b.bottom?.kind === 'nut') {
           const n = buildNut({ shape: 'hex', s: b.bottom.s, m: b.bottom.m, dIn: b.dIn, P: b.P, material: b.bottom.material }, mats);

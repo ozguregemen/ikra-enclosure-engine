@@ -27,10 +27,17 @@ function screwPrims(s, z, down = true) {
   if (s.head === 'countersunk') {
     // Baş z−k … z (yukarıda geniş), gövde z−L … z−k; ters vidada simetrik
     const headBase = down ? z - k : z;
-    return [
+    const prims = [
       down ? { k: 'cone', p: [s.x, s.y, headBase], h: k, r0: s.d / 2, r1: dk / 2 } : { k: 'cone', p: [s.x, s.y, headBase], h: k, r0: dk / 2, r1: s.d / 2 },
       { k: 'cyl', p: add3(p0, dir, k), dir, h: Math.max(L - k, 0.1), r: s.d / 2 },
     ];
+    // Bombeli havşa (ISO 7047 / ISO 7051): oturma düzleminin dışında f yüksekliğinde bombe (kesik koniyle yaklaşık)
+    const f = s.head_f || 0;
+    if (f > 0) {
+      prims.push(down ? { k: 'cone', p: [s.x, s.y, z], h: f, r0: dk / 2, r1: 0.6 * (dk / 2) }
+        : { k: 'cone', p: [s.x, s.y, z - f], h: f, r0: 0.6 * (dk / 2), r1: dk / 2 });
+    }
+    return prims;
   }
   return [
     { k: 'cyl', p: p0, dir: down ? UP : DOWN, h: k, r: dk / 2 },
@@ -54,7 +61,7 @@ export function assemblyItems(d, boardTop) {
     items.push({ name: `${s.code ? s.code + ' ' : ''}${s.size}x${fmt(s.length)} #${++n}`, part, color: finishColor(s.material?.finish), prims: screwPrims(s, seat, true) });
     if (s.washer) {
       const w = s.washer;
-      items.push({ name: `${w.code} ${w.size} #${n}`, part, color: finishColor(w.material?.finish),
+      items.push({ name: `${w.code}${w.form ? ' ' + w.form : ''} ${w.size} #${n}`, part, color: finishColor(w.material?.finish),
         prims: [{ k: 'cyl', p: [s.x, s.y, seat - (s.seat || w.s)], dir: UP, h: w.s, r: w.d2 / 2, rIn: w.d1 / 2 }] });
     }
   }
@@ -94,7 +101,11 @@ export function assemblyItems(d, boardTop) {
       items.push({ name: `Aralayıcı ${b.dIn ? 'M' + fmt(b.dIn) : ''}x${fmt(b.L)} #${m}`, part: 'base', color, prims });
       if (b.bottom?.kind === 'screw' && b.bottom.length) {
         const top = (d.screws || []).find((s) => Math.abs(s.x - st.x) < 1e-6 && Math.abs(s.y - st.y) < 1e-6) || d.screws?.[0];
-        if (top) items.push({ name: `Alt vida ${top.size}x${fmt(b.bottom.length)} #${m}`, part: 'base', color: finishColor(top.material?.finish), prims: screwPrims({ ...top, length: b.bottom.length }, b.zBase, false) });
+        // Kombi vidada (ISO 10644) takılı pul alt vidada da vardır: vida pulun altına oturur
+        const cw = top?.washer?.captive ? top.washer : null;
+        if (top) items.push({ name: `Alt vida ${top.size}x${fmt(b.bottom.length)} #${m}`, part: 'base', color: finishColor(top.material?.finish), prims: screwPrims({ ...top, length: b.bottom.length }, b.zBase - (cw ? cw.s : 0), false) });
+        if (cw) items.push({ name: `${cw.code} ${cw.form || ''} ${cw.size} alt #${m}`.replace(/\s+/g, ' '), part: 'base', color: finishColor(cw.material?.finish),
+          prims: [{ k: 'cyl', p: [st.x, st.y, b.zBase - cw.s], dir: UP, h: cw.s, r: cw.d2 / 2, rIn: cw.d1 / 2 }] });
       } else if (b.bottom?.kind === 'nut') {
         items.push({ name: `${b.bottom.code} somun #${m}`, part: 'base', color: finishColor(b.bottom.material?.finish),
           prims: [{ k: 'hex', p: [st.x, st.y, b.zBase], dir: DOWN, h: b.bottom.m, af: b.bottom.s, rIn: b.dIn / 2 }] });

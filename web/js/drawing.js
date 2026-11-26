@@ -695,7 +695,9 @@ function lidSheet(ctx) {
     'Delik koordinatları gövde ile aynı sıfır noktasına göredir.',
   ];
   const sunk = d.lidTubes.some((t) => t.countersink);
-  if (sunk) n.push('Havşalar 90°; vida başı kapak üst yüzüyle aynı hizada kalır.');
+  // Bombeli havşa başı (ISO 7047 / ISO 7051): havşa kenarı kapakla aynı hizada, bombe f kadar yukarıda
+  const domeF = Math.max(0, ...(d.screws || []).filter((s) => s.lid).map((s) => s.head_f || 0));
+  if (sunk || domeF > 0) n.push(domeF > 0 ? `Havşalar 90°; vida başının havşa kenarı kapak üst yüzüyle aynı hizada, bombesi ${d2(domeF)} mm yukarıda kalır.` : 'Havşalar 90°; vida başı kapak üst yüzüyle aynı hizada kalır.');
   if (d.sealing) {
     n.push(`Kapağın alt yüzü conta yüzeyidir: düz ve çiziksiz olmalı. ${sunk ? 'Havşalara sıvı sızdırmazlık.' : 'Vida başlarına sızdırmazlık pulu.'}`);
   }

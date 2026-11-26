@@ -194,10 +194,37 @@ function recessGeometry(outline, depth, bottomScale, cone) {
   return g;
 }
 
+/** Dışbükey küçük çentik (Pozidriv imi): düşey duvarlar ve düz taban */
+function markGeometry(poly, depth) {
+  const top = area(poly) < 0 ? [...poly].reverse() : poly;
+  const n = top.length;
+  const v = [];
+  for (let i = 0; i < n; i++) {
+    const p = top[i];
+    const q = top[(i + 1) % n];
+    v.push(p[0], p[1], 0, p[0], p[1], -depth, q[0], q[1], -depth, p[0], p[1], 0, q[0], q[1], -depth, q[0], q[1], 0);
+  }
+  for (let i = 1; i < n - 1; i++) v.push(top[0][0], top[0][1], -depth, top[i + 1][0], top[i + 1][1], -depth, top[i][0], top[i][1], -depth);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
 /* ---------- Vida ---------- */
 
+/** Profilde (dış kenardan merkeze inen tepe kısmı) r yarıçapındaki yükseklik */
+function profileHeightAt(prof, r) {
+  for (let i = prof.length - 2; i >= 0; i--) {
+    const [x0, y0] = prof[i];
+    const [x1, y1] = prof[i + 1];
+    if (x0 >= r && x1 <= r && x0 > x1) return y0 + ((y1 - y0) * (x0 - r)) / (x0 - x1);
+  }
+  return prof[prof.length - 1][1];
+}
+
 /**
- * s: { head, headD, headDActual, headH, d, length, P, tapping, driveKind, drive, driveA, driveM }
+ * s: { head, headD, headDActual, headH, headF?, headV?, d, length, P, tapping, driveKind, drive, driveA, driveM, recess? }
  * Dönen grup oturma yüzü z=0 olacak şekilde; çağıran (x, y, z) konumuna taşır.
  */
 export function buildScrew(s, mats) {
@@ -205,14 +232,27 @@ export function buildScrew(s, mats) {
   const group = new THREE.Group();
   const k = s.headH;
   const sunk = s.head === 'countersunk';
-  const shape = { head: s.head, dk: s.headD, dkActual: s.headDActual, k, d: s.d, driveKind: s.driveKind, drive: s.drive, A: s.driveA, m: s.driveM };
+  const shape = { head: s.head, dk: s.headD, dkActual: s.headDActual, k, d: s.d, driveKind: s.driveKind, drive: s.drive, A: s.driveA, m: s.driveM,
+    f: s.headF || 0, v: s.headV || 0, recess: s.recess || null };
 
   // Baş: profilin dış kısmı (merkez diski hariç) + tahrik izi delikli üst yüz
   const prof = headProfile(shape);
-  const outer = prof.slice(1, -1);
+  let outer = prof.slice(1, -1);
   outer.unshift([s.d / 2 * 0.98, prof[0][1]]);
-  const flatR = outer[outer.length - 1][0];
-  const topZ = headTop(shape);
+  let flatR = outer[outer.length - 1][0];
+  let topZ = headTop(shape);
+  const rawOutlines = driveOutline(shape);
+  if (shape.f > 0 || shape.v > 0) {
+    // Bombeli tepe (ISO 7047/7051 bombeli havşa, DIN 7985): iz bombeye düz oyulur; profil izin sığdığı yarıçapta kesilir
+    const rim = outer.reduce((m, [x]) => Math.max(m, x), 0);
+    const need = rawOutlines.length ? Math.max(...rawOutlines.flat().map(([x, y]) => Math.hypot(x, y))) / 0.9 : 0.5 * rim;
+    const rCut = Math.min(need, 0.85 * rim);
+    const yCut = profileHeightAt(prof, rCut);
+    const lastIn = outer.findIndex((p, i) => i > 1 && p[0] < rCut);
+    outer = (lastIn > 0 ? outer.slice(0, lastIn) : outer).concat([[rCut, yCut]]);
+    flatR = rCut;
+    topZ = yCut;
+  }
   if (s.head === 'socket') {
     // ISO 4762 başı: yan yüzde düz tırtıl (≈0,5 mm adım), alt halka ve üst pah döndürme profili
     const r = s.headD / 2;
@@ -229,17 +269,29 @@ export function buildScrew(s, mats) {
     group.add(new THREE.Mesh(lathe(outer, 48), fm.body));
   }
 
-  let outline = (driveOutline(shape)[0] || []).map(([x, y]) => [x, y]);
+  let outline = (rawOutlines[0] || []).map(([x, y]) => [x, y]);
+  // Pozidriv imi (ince çentikler): yıldızla aynı ölçekte, sığ oyuk
+  let marks = rawOutlines.slice(1);
   if (outline.length) {
     const maxR = Math.max(...outline.map(([x, y]) => Math.hypot(x, y)));
-    if (maxR > 0.9 * flatR) outline = outline.map(([x, y]) => [(x * 0.9 * flatR) / maxR, (y * 0.9 * flatR) / maxR]);
+    if (maxR > 0.9 * flatR) {
+      const sc = (0.9 * flatR) / maxR;
+      outline = outline.map(([x, y]) => [x * sc, y * sc]);
+      marks = marks.map((p) => p.map(([x, y]) => [x * sc, y * sc]));
+    }
   }
   const face = new THREE.Shape();
   face.absarc(0, 0, flatR, 0, TAU, false);
   if (outline.length) face.holes.push(new THREE.Path(outline.map(([x, y]) => new THREE.Vector2(x, y))));
+  for (const p of marks) face.holes.push(new THREE.Path(p.map(([x, y]) => new THREE.Vector2(x, y))));
   const faceGeom = new THREE.ShapeGeometry(face, 48);
   faceGeom.translate(0, 0, topZ);
   group.add(new THREE.Mesh(faceGeom, fm.body));
+  for (const p of marks) {
+    const mg = markGeometry(p, Math.min(0.12 * k, 0.25));
+    mg.translate(0, 0, topZ);
+    group.add(new THREE.Mesh(mg, fm.recess));
+  }
 
   if (outline.length) {
     const kind = s.driveKind;
