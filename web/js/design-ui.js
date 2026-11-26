@@ -24,7 +24,7 @@ import { FIT_CLASSES, toleranceOf } from './fits.js';
 import { MOUNT_TYPES, MOUNT_SIZES } from './mount.js';
 import { runDesignLoop, baseParams, AUTO_KEYS } from './dfm/loop.js';
 import { reviewBuild, summarize, toFinding } from './dfm/review.js';
-import { ruleInfo } from './dfm/catalog.js';
+import { ruleInfo, SOURCES } from './dfm/catalog.js';
 import { treatmentFor } from './treat.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -120,6 +120,8 @@ const KIND_LABEL = {
   leadin: 'giriş pahı', boolean: 'Boole işlemi', build: 'parça', info: 'bilgi',
 };
 const DEFAULT_MATERIAL = { fdm: 'petg' }; // FDM'de varsayılan PETG (PLA ısıda şekil değiştirir)
+// Sıcaklık gereksinimi kuralı: katalog kaydı motor tarafında eklenene kadar başlık/gerekçe yerelde (requirementFindings)
+const REQ_TEMP_RULE = 'REQ-TEMP';
 
 /* Düzey simgeleri: biçim + metin, renk tek başına anlam taşımaz */
 const ICON_PATHS = {
@@ -134,7 +136,8 @@ const ICON_PATHS = {
 const lvlIcon = (lvl) => `<svg class="lvl-ico ${lvl}" viewBox="0 0 20 20" aria-hidden="true">${ICON_PATHS[lvl] || ICON_PATHS.info}</svg>`;
 const LOCK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
 const UNLOCK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>';
-const VERB_END = /(uygula|yap|seç|ekle|aç|kapat|al|geç|kaldır|çıkar|kullan|değiştir|büyüt|artır|ver|getir|çevir|taşı|azalt|düşür|koy)$/i;
+// Düğme etiketinin son sözcüğü (bütün sözcük) bir eylemse etiket olduğu gibi kullanılır; değilse "Uygula: …" öneki alır
+const VERB_END = /^(uygula|yap|seç|ekle|aç|kapat|al|geç|kaldır|çıkar|kullan|kullanma|değiştir|büyüt|artır|ver|getir|çevir|taşı|azalt|düşür|koy)$/i;
 
 /**
  * ui: main.js'in bildirim ve gezinme yardımcıları
@@ -496,7 +499,8 @@ export function createDesignUI({ viewer, ui }) {
     if (Number.isFinite(r.max_service_temp_c) && r.max_service_temp_c < tmax) {
       msg.className = 'field-msg warn';
       msg.textContent = `${r.label} sürekli kullanımda ≈ ${r.max_service_temp_c} °C: istenen ${tmax} °C için yetersiz. ` +
-        (fits.length ? `Bu süreçte uygun: ${fits.map((x) => `${x.m.label} (≈ ${x.r.max_service_temp_c} °C)`).join(', ')}.` : 'Bu süreçte uygun malzeme yok; başka süreç seçilmeli.');
+        (fits.length ? `Bu süreçte uygun: ${fits.map((x) => `${x.m.label} (≈ ${x.r.max_service_temp_c} °C)`).join(', ')}.` : 'Bu süreçte uygun malzeme yok; başka süreç seçilmeli.') +
+        ' Tasarım incelemesinde hata olarak listelenir.';
     } else {
       msg.className = 'field-msg';
       msg.textContent = `${r.label} (≈ ${r.max_service_temp_c ?? '?'} °C) bu gereksinimi karşılıyor; sıcaklıkta sünme ve uzun süreli yaşlanma ayrıca doğrulanmalı.`;
@@ -550,6 +554,7 @@ export function createDesignUI({ viewer, ui }) {
     const had = state.rules && state.analysis;
     state.lidSel = sel;
     try { await loadLidRules(); } catch (err) { ui.alert(err.message); return; }
+    if (state.req.tempMax && state.lidSel) await ensureProcessRules(state.lidSel.process).catch(() => null);
     if (!state.lidSel) state.tolEdit = 'body';
     if (had) refreshAutoParams();
     renderSelectors();
@@ -732,7 +737,9 @@ export function createDesignUI({ viewer, ui }) {
     const v = validateParam(input);
     if (v === null) return;
     const k = input.dataset.key;
-    if (state.locks.has(k) && Math.abs(state.params[k] - v) < 1e-9) return;
+    // Değer değişmediyse hiçbir şey yapılmaz: otomatik alan yalnızca farklı bir değer yazılınca (ya da kilit düğmesiyle) kilitlenir
+    // (otomatik değer alanda iki ondalığa yuvarlı görünür; görünen değer aynen onaylanırsa da değişiklik sayılmaz)
+    if (Math.abs(state.params[k] - v) < 1e-9 || (!state.locks.has(k) && inputText(v) === inputText(state.params[k]))) return;
     state.params[k] = v;
     state.locks.add(k); // yazılan değer kilitlenir: döngü değiştirmez
     state.actionLabel = `${PARAM_LABEL[k]} ${fx(v)} mm`;
@@ -764,6 +771,9 @@ export function createDesignUI({ viewer, ui }) {
       if (validateParam(input) !== null) state.commitTimer = setTimeout(() => commitParam(input), COMMIT_MS);
     }
     if (e.key === 'Escape') {
+      // Yazmaktan vazgeçildi: bekleyen uygulama iptal edilir, alan son uygulanan değere döner (kilit değişmez)
+      clearTimeout(state.commitTimer);
+      state.commitTimer = null;
       input.value = inputText(state.params[input.dataset.key]);
       validateParam(input);
     }
@@ -806,6 +816,19 @@ export function createDesignUI({ viewer, ui }) {
     if (key === 'standoffType') { setToolboxSpec(state.screwSpec, { ...state.insertSpec, type: 'standoff', standoff: value }); return true; }
     if (key === 'washer') { setScrewSpec({ ...state.screwSpec, washer: value }); return true; }
     if (key === 'screwMaterial') { setScrewSpec({ ...state.screwSpec, material: value }); return true; }
+    if (key === 'material') {
+      const proc = state.index.processes.find((p) => p.id === state.process);
+      if (!proc?.materials.some((m) => m.id === value)) return false;
+      if (value === state.material) return true;
+      state.material = value;
+      return applyRules('Malzeme').then(() => true);
+    }
+    if (key === 'lidMaterial') {
+      if (!state.lidSel) return false;
+      const proc = state.index.processes.find((p) => p.id === state.lidSel.process);
+      if (!proc?.materials.some((m) => m.id === value)) return false;
+      return setLidSel({ ...state.lidSel, material: value }).then(() => true);
+    }
     if (key === 'lidMode') { state.lidMode = value; renderFastening(); refreshAutoParams(); update(); return true; }
     if (key === 'cornerAxis') { state.cornerAxis = value; refreshAutoParams(); update(); return true; }
     if (key === 'panelAdd') {
@@ -1030,7 +1053,7 @@ export function createDesignUI({ viewer, ui }) {
     const anyOv = Object.keys(ov).length > 0;
     $('#tol-reset').classList.toggle('hidden', !anyOv);
     $('#tol-note').textContent = (base.source ? `Kaynak: ${base.source}. ` : '') +
-      'Kendi yazıcınız ya da atölyeniz için ölçülen değer yazılır; bu tarayıcıda malzemeye özel saklanır. Boş = malzeme değeri.';
+      'Kullanılan yazıcı ya da atölye için ölçülen değer yazılır; bu tarayıcıda malzemeye özel saklanır. Boş = malzeme değeri.';
     $('#sum-tol').textContent = `kapak ${FIT_CLASSES.find((c) => c.id === state.fits.lid).label.toLocaleLowerCase('tr')} · delik ${{ press: 'ince', normal: 'orta', loose: 'kaba' }[state.fits.screw]}${anyOv ? ' · düzeltilmiş' : ''}`;
     if (!tol || !d.outer) { $('#tol-result').innerHTML = ''; return; }
     const st0 = d.standoffs?.[0];
@@ -1345,6 +1368,52 @@ export function createDesignUI({ viewer, ui }) {
     state.post = post;
   }
 
+  /**
+   * Gereksinim kontrolleri (Gereksinimler aşaması): en yüksek çalışma sıcaklığı seçili gövde ve kapak malzemesinin
+   * sürekli kullanım sıcaklığıyla karşılaştırılır. Karşılanmıyorsa hata bulgusu (karar, muafiyet, kapı ve raporda görünür).
+   */
+  function requirementFindings() {
+    const tmax = state.req?.tempMax;
+    if (!Number.isFinite(tmax) || !state.rules) return [];
+    const info = ruleInfo(REQ_TEMP_RULE);
+    const out = [];
+    const check = (R, processId, part, fixKey) => {
+      if (!R || !Number.isFinite(R.max_service_temp_c)) return;
+      const who = part === 'lid' ? 'Kapak malzemesi' : part === 'base' ? 'Gövde malzemesi' : 'Muhafaza malzemesi';
+      const base = { rule: REQ_TEMP_RULE, cat: 'surec', part, measured: R.max_service_temp_c, limit: tmax, op: '>=', unit: '°C' };
+      if (R.max_service_temp_c >= tmax) {
+        out.push(toFinding({ ...base, level: 'ok', text: `${who} ${R.label} sürekli kullanımda ≈ ${R.max_service_temp_c} °C dayanır; istenen en yüksek çalışma sıcaklığı ${tmax} °C karşılanıyor.` }));
+        return;
+      }
+      const proc = state.index.processes.find((p) => p.id === processId);
+      const fits = (proc?.materials || []).map((m) => ({ m, r: rulesOf(processId, m.id) }))
+        .filter((x) => x.r && Number.isFinite(x.r.max_service_temp_c) && x.r.max_service_temp_c >= tmax)
+        .sort((a, b) => a.r.max_service_temp_c - b.r.max_service_temp_c);
+      const list = fits.slice(0, 4).map((x) => `${x.m.label} (≈ ${x.r.max_service_temp_c} °C)`).join(', ');
+      out.push(toFinding({
+        ...base, level: 'error',
+        text: `${who} ${R.label} sürekli kullanımda ≈ ${R.max_service_temp_c} °C dayanır; istenen en yüksek çalışma sıcaklığı ${tmax} °C. ` +
+          (fits.length ? `Bu süreçte uygun malzemeler: ${list}.` : 'Bu süreçte uygun malzeme yok; başka üretim yöntemi seçilmeli.'),
+        fix: fits.length ? { key: fixKey, value: fits[0].m.id, label: `Malzeme: ${fits[0].m.label} seç`, auto: false } : null,
+      }));
+    };
+    const lidDiff = !!(state.lidSel && state.lidRules);
+    check(state.rules, state.process, lidDiff ? 'base' : 'all', 'material');
+    if (lidDiff) check(state.lidRules, state.lidSel.process, 'lid', 'lidMaterial');
+    for (const fd of out) {
+      if (!info) {
+        // Katalogda henüz yoksa başlık, gerekçe ve kaynak yerel olarak verilir (katalog kaydı motor tarafında eklenmeli)
+        fd.title = 'Çalışma sıcaklığı gereksinimi';
+        fd.why = 'Sürekli kullanım sıcaklığının üstünde plastik sünme ve çarpılma gösterir; geçmeler gevşer, vida bağlantıları ön yükünü kaybeder ve sızdırmazlık bozulur. Malzeme, en yüksek çalışma sıcaklığını payla karşılamalıdır.';
+        fd.source = SOURCES.materialTds ? [SOURCES.materialTds] : [];
+        fd.conf = 'medium';
+      }
+      const w = state.waivers[fd.id];
+      if (w && fd.level !== 'ok') fd.waived = { reason: String(w.reason || ''), date: w.date || null };
+    }
+    return out;
+  }
+
   function composeReview() {
     const loop = state.loop;
     if (!loop) return null;
@@ -1352,7 +1421,7 @@ export function createDesignUI({ viewer, ui }) {
     const post = state.post;
     // Katı modelde doğrulanan kural ön incelemedeki "uygulanmalı" notunun yerini alır
     const superseded = new Set((post || []).map((fd) => fd.rule).filter((r) => r === 'INJ-DRAFT'));
-    const findings = [...pre.filter((fd) => !superseded.has(fd.rule)), ...(post || [])];
+    const findings = [...requirementFindings(), ...pre.filter((fd) => !superseded.has(fd.rule)), ...(post || [])];
     const sum = summarize(findings);
     return {
       phase: post ? 'post' : 'pre', status: sum.status, counts: sum.counts, findings, post: post || [],
@@ -1460,6 +1529,9 @@ export function createDesignUI({ viewer, ui }) {
   }
 
   const fixLabel = (fd) => {
+    // Sayısal parametre düzeltmesi: hangi değerin hangi parametreye yazılacağı etikette açıkça yazılır
+    const fv = Number(fd.fix?.value);
+    if (fd.fix && AUTO_KEYS.includes(fd.fix.key) && PARAM_LABEL[fd.fix.key] && Number.isFinite(fv)) return `Uygula: ${PARAM_LABEL[fd.fix.key]} ${fx(fv)} mm`;
     const l = String(fd.fix?.label || 'Düzeltmeyi uygula').trim();
     const last = l.split(/\s+/).pop().toLocaleLowerCase('tr');
     return VERB_END.test(last) ? l : `Uygula: ${l}`;
@@ -1505,11 +1577,21 @@ export function createDesignUI({ viewer, ui }) {
     return parts.length ? parts.join(' · ') : 'bulgu yok';
   };
 
+  /** Kural etiketi: geçen satırda yalnızca kimlik (katalog başlığı sorunu anlattığından "geçti" metniyle çelişmesin) */
+  const ruleTag = (fd) => (fd.rule ? `<span class="rule-id">${esc(fd.rule)}${fd.level !== 'ok' && fd.title ? ` · ${esc(fd.title)}` : ''}</span>` : '');
+
   function changeRow(c, i) {
     const info = ruleInfo(c.rule);
     const lbl = PARAM_LABEL[c.key] || c.key;
+    const key = `chg:${c.rule}:${c.key}:${c.iter}`;
+    const trig = c.level ? `${(LEVEL_LABEL[c.level] || c.level).toLocaleLowerCase('tr')} düzeyindeki bulgu nedeniyle` : '';
+    const src = info?.source || [];
+    const why = info?.why || '';
     return `<li class="chg"><span class="chg-main">${esc(lbl)} <span class="chg-val">${fx(c.from)} → ${fx(c.to)} mm</span></span>
-      <span class="chg-sub"><span class="rule-id">${esc(c.rule || '')}</span> ${esc(c.title || info?.title || '')} · tur ${c.iter + 1}</span>
+      <span class="chg-sub"><span class="rule-id">${esc(c.rule || '')}</span> ${esc(c.title || info?.title || '')} · tur ${c.iter + 1}${trig ? ` · ${esc(trig)}` : ''}</span>
+      ${why || src.length ? `<details class="fc-why chg-why" data-open-key="${esc(key)}"${state.openSecs.has(key) ? ' open' : ''}><summary>Neden?<span class="vh"> ${esc(lbl)} ${fx(c.from)} → ${fx(c.to)} mm</span></summary>
+        ${why ? `<p>${esc(why)}</p>` : ''}
+        ${src.length ? `<ul class="fc-src">${src.map((s) => `<li>${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}<span class="vh"> (yeni sekmede açılır)</span></a>` : esc(s.title)}</li>`).join('')}</ul>` : ''}</details>` : ''}
       <button type="button" class="btn sm" data-act="revert" data-ci="${i}" aria-label="Geri al: ${esc(lbl)} ${fx(c.from)} mm değerinde kilitlenir">Geri al</button></li>`;
   }
   function rejectedRow(c) {
@@ -1554,7 +1636,8 @@ export function createDesignUI({ viewer, ui }) {
       const other = list.filter((fd) => !CAT_ORDER.includes(fd.cat || 'genel'));
       if (other.length) byCat.push(['genel', other]);
       return `<section class="fgroup" aria-label="${LEVEL_PLURAL[l]}"><h3>${lvlIcon(l)} ${LEVEL_PLURAL[l]} <span class="count-badge ${l === 'info' ? '' : l}">${list.length}</span></h3>` +
-        byCat.map(([c, xs]) => `<h4>${esc(CAT_LABEL[c] || c)}</h4>${xs.map(findingCard).join('')}`).join('') + '</section>';
+        // Kategori adı başlık değil grup etiketidir: başlık düzeyi bulgu başlıklarında (h4) kalır
+        byCat.map(([c, xs], ci) => `<div class="fcat" role="group" aria-labelledby="fcat-${l}-${ci}"><p class="fcat-title" id="fcat-${l}-${ci}">${esc(CAT_LABEL[c] || c)}</p>${xs.map(findingCard).join('')}</div>`).join('') + '</section>';
     }).join('');
 
     const chips = [['all', 'Tümü', open.length], ['error', 'Hata', lvlCount('error')], ['warn', 'Uyarı', lvlCount('warn')], ['info', 'Bilgi', lvlCount('info')]]
@@ -1576,7 +1659,7 @@ export function createDesignUI({ viewer, ui }) {
       ${groups || `<p class="empty-list">${open.length ? 'Süzgece uyan bulgu yok.' : 'Açık bulgu yok: tüm kontroller geçti ya da muaf tutuldu.'}</p>`}
       ${waived.length ? sec('sec:waived', `${lvlIcon('waived')} Muaf tutulanlar`, waived.length, waived.map(findingCard).join('')) : ''}
       ${sec('sec:passed', `${lvlIcon('ok')} ${passed.length} kontrol geçti`, passed.length, passed.length
-        ? `<ul class="passed">${passed.map((fd) => `<li>${lvlIcon('ok')}<span>${esc(fd.text)}${fd.autoFixed ? ' <span class="auto-chip">otomatik düzeltildi</span>' : ''}</span><span class="rule-id">${esc(fd.rule || '')} · ${esc(fd.title || '')}</span></li>`).join('')}</ul>`
+        ? `<ul class="passed">${passed.map((fd) => `<li>${lvlIcon('ok')}<span>${esc(fd.text)}${fd.autoFixed ? ' <span class="auto-chip">otomatik düzeltildi</span>' : ''}</span><span class="rule-id">${esc(fd.rule || '')}</span></li>`).join('')}</ul>`
         : '<p class="empty-list">Henüz geçen kontrol yok.</p>')}`;
     rerender(body, html);
   }
@@ -1617,20 +1700,28 @@ export function createDesignUI({ viewer, ui }) {
     }, 30);
   }
 
-  function fixFinding(fd) {
+  async function fixFinding(fd) {
     const before = numericFixText(fd);
     state.actionLabel = `Düzeltme: ${fd.title}`;
-    if (!applyFix(fd.fix.key, fd.fix.value)) { ui.toast('Bu öneri otomatik uygulanamıyor; ilgili ayar elle değiştirilmeli.'); return; }
+    // Malzeme değişikliği gibi düzeltmeler kural dosyasını yükler (eşzamansız): bildirim geçmiş kaydından sonra
+    const ok = await Promise.resolve(applyFix(fd.fix.key, fd.fix.value)).catch((err) => { console.error(err); return false; });
+    if (!ok) { ui.toast('Bu öneri otomatik uygulanamıyor; ilgili ayar elle değiştirilmeli.'); return; }
     toastUndo(`Düzeltme uygulandı: ${fd.title}${before ? ` — ${before}` : ''}.`);
     keepFocus(`#review-body [data-fid="${CSS.escape(fd.id)}"] [data-act]`);
   }
   const numericFixText = (fd) => {
+    if (fd.fix && (fd.fix.key === 'material' || fd.fix.key === 'lidMaterial')) {
+      const pid = fd.fix.key === 'lidMaterial' ? state.lidSel?.process : state.process;
+      const m = state.index.processes.find((p) => p.id === pid)?.materials.find((x) => x.id === fd.fix.value);
+      return `${fd.fix.key === 'lidMaterial' ? 'kapak malzemesi' : 'malzeme'} ${m?.label || fd.fix.value} seçildi`;
+    }
     if (!fd.fix || !AUTO_KEYS.includes(fd.fix.key) || !Number.isFinite(Number(fd.fix.value))) return fd.fix?.label || '';
     return `${PARAM_LABEL[fd.fix.key]} ${fx(state.params[fd.fix.key])} → ${fx(Number(fd.fix.value))} mm (kilitlendi)`;
   };
 
   function showFinding(fd) {
     const ok = viewer.focus({ partId: fd.focus && Number.isFinite(fd.focus.partId) ? fd.focus.partId : null, part: fd.part });
+    syncDock(); // gizli parça gösterilmek için açıldıysa görünüm düğmeleri de güncellenir
     if (!ok) { ui.toast('Bu bulgu için 3B görünümde gösterilecek bir konum yok.'); return; }
     if (ui.isDrawer()) { ui.closeReview(); $('#viewer').focus({ preventScroll: true }); $('#viewer-wrap').scrollIntoView({ block: 'nearest' }); }
     ui.announce(`${fd.title}: 3B görünümde vurgulandı.`);
@@ -1713,6 +1804,9 @@ export function createDesignUI({ viewer, ui }) {
       const list = fs.filter((fd) => (fd.cat || 'genel') === cat);
       const w = worstOf(list);
       card.dataset.status = w || '';
+      // Durum yalnızca renkle değil, biçimle de gösterilir (sekizgen ×, üçgen !, daire ✓)
+      const dot = card.querySelector('.card-dot');
+      if (dot && dot.dataset.lvl !== (w || '')) { dot.dataset.lvl = w || ''; dot.innerHTML = w ? lvlIcon(w) : ''; }
       const summary = card.querySelector('summary');
       let sr = summary.querySelector('.card-sr');
       if (!sr) { sr = document.createElement('span'); sr.className = 'vh card-sr'; summary.appendChild(sr); }
@@ -1943,7 +2037,7 @@ export function createDesignUI({ viewer, ui }) {
     el.innerHTML = `<div class="verdict ${r.status}">${lvlIcon(STATUS_ICON[r.status])}<div class="v-title">${STATUS_LABEL[r.status]}</div>
         <div class="v-counts">Birleşik sonuç (ön + son inceleme): ${countsText(r.counts)}</div></div>
       <h3 class="sub-title">Katı model kontrolleri (${post.length})</h3>
-      <ul class="passed">${post.map((fd) => `<li>${lvlIcon(fd.waived ? 'waived' : fd.level)}<span>${esc(fd.text)}</span><span class="rule-id">${esc(fd.rule || '')} · ${esc(fd.title || '')}</span></li>`).join('') || '<li><span class="empty-list">Kontrol yok.</span></li>'}</ul>
+      <ul class="passed">${post.map((fd) => `<li>${lvlIcon(fd.waived ? 'waived' : fd.level)}<span>${esc(fd.text)}</span>${ruleTag(fd)}</li>`).join('') || '<li><span class="empty-list">Kontrol yok.</span></li>'}</ul>
       ${open.length ? '<div class="row"><button type="button" class="btn sm" data-open-review>Açık bulguları incele</button></div>' : ''}
       <h3 class="sub-title">Kenar işlemleri</h3>`;
     $('#treat-final').innerHTML = treatTableHtml(state.result?.treatReport);
@@ -1991,18 +2085,21 @@ export function createDesignUI({ viewer, ui }) {
   async function gated(run) {
     const g = gateState();
     if (!g.ok) { ui.toast(g.title); return; }
-    if (g.confirm) {
-      const errs = openErrors();
-      const ans = await ui.confirm({
-        title: `Tasarımda ${errs.length} hata var; yine de indirmek istiyor musunuz?`,
-        html: `<p>Açık hatalar düzeltilmeden ya da muaf tutulmadan üretilen dosyalar üretilemeyebilir ya da montajda çakışabilir.</p>
-          <ul class="confirm-list">${errs.map((fd) => `<li><b>${esc(fd.title)}</b> <span class="rule-id">${esc(fd.rule || '')}</span><br>${esc(fd.text)}</li>`).join('')}</ul>`,
-        buttons: [{ id: 'cancel', label: 'Vazgeç' }, { id: 'review', label: 'Hataları göster' }, { id: 'go', label: 'Yine de indir', primary: true, danger: true }],
-      });
-      if (ans === 'review') { state.filter.level = 'error'; renderReview(); ui.openReview({ focus: true }); return; }
-      if (ans !== 'go') return;
-    }
+    if (g.confirm && !(await confirmOpenErrors())) return;
     run();
+  }
+  /** Açık (muaf tutulmamış) hata varsa listelenir ve indirme onayı istenir; onaylanırsa ya da hata yoksa true */
+  async function confirmOpenErrors() {
+    const errs = openErrors();
+    if (!errs.length) return true;
+    const ans = await ui.confirm({
+      title: `Tasarımda ${errs.length} hata var; yine de indirmek istiyor musunuz?`,
+      html: `<p>Açık hatalar düzeltilmeden ya da muaf tutulmadan üretilen dosyalar üretilemeyebilir ya da montajda çakışabilir.</p>
+        <ul class="confirm-list">${errs.map((fd) => `<li><b>${esc(fd.title)}</b> <span class="rule-id">${esc(fd.rule || '')}</span><br>${esc(fd.text)}</li>`).join('')}</ul>`,
+      buttons: [{ id: 'cancel', label: 'Vazgeç' }, { id: 'review', label: 'Hataları göster' }, { id: 'go', label: 'Yine de indir', primary: true, danger: true }],
+    });
+    if (ans === 'review') { state.filter.level = 'error'; renderReview(); ui.openReview({ focus: true }); return false; }
+    return ans === 'go';
   }
 
   function renderStats() {
@@ -2049,6 +2146,10 @@ export function createDesignUI({ viewer, ui }) {
       state.inFlight = null;
       state.drawingId = null;
       state.asmId = null;
+      // Bekleyen teknik resim / montaj isteklerinin ilerleme metni ve "Hazırlanıyor…" etiketleri geri alınır
+      ui.progress(null);
+      $('#drawing-btn .dl-name').textContent = 'Teknik resim ve DFM raporu';
+      $('#dl-step-asm .dl-name').textContent = 'Montaj (bağlantı elemanlarıyla)';
       if (job) state.buildFail = { key: job.key, message: 'CAD çekirdeği yüklenemedi' };
       state.buildError = 'CAD çekirdeği yüklenemedi';
       ui.alert('CAD çekirdeği yüklenemedi. İnternet bağlantısı kontrol edilip yeniden denenmeli (çekirdek jsDelivr CDN üzerinden gelir).', {
@@ -2189,9 +2290,11 @@ export function createDesignUI({ viewer, ui }) {
       : `<span class="t-ok">★ Tüm ${parts.length} kalem tercihli listede; stok kodları BOM CSV'de.</span>`;
   }
 
-  $('#dl-bom').addEventListener('click', () => {
+  $('#dl-bom').addEventListener('click', async () => {
     const d = state.design;
     if (!d?.parts?.length) return;
+    // BOM parametrik tasarımdan gelir (katı model gerekmez); açık hata varsa yine önce onay istenir
+    if (!(await confirmOpenErrors())) return;
     download(new TextEncoder().encode(bomCsv(d.parts, state.preferred, projectInfo())), `${fileStem()}_ikra_bom.csv`, 'text/csv');
   });
   $('#pref-template').addEventListener('click', () => {
@@ -2382,6 +2485,15 @@ export function createDesignUI({ viewer, ui }) {
 
   /* ---------- 3B görünüm anahtarları ---------- */
 
+  /** Görünüm düğmelerini görüntüleyicinin gerçek durumuyla eşitle (ör. "Göster" gizli gövdeyi açtığında) */
+  function syncDock() {
+    const o = viewer.encOpts || {};
+    document.querySelectorAll('[data-enc]').forEach((btn) => {
+      const on = !!o[btn.dataset.enc];
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+  }
   document.querySelectorAll('[data-enc]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const on = !btn.classList.contains('on');
@@ -2629,10 +2741,17 @@ export function createDesignUI({ viewer, ui }) {
     await loadRules();
     state.lidSel = s.lidMaterial && s.lidMaterial.process && s.lidMaterial.material ? { ...s.lidMaterial } : null;
     try { await loadLidRules(); } catch { state.lidSel = null; state.lidRules = null; if (project) warnings.push('Projedeki kapak malzemesi bu sürümde yok; kapak gövdeyle aynı malzemeden.'); }
-    if (s.lidToleranceOverride && state.lidRules && Object.keys(s.lidToleranceOverride).length) {
-      state.tolOverrides = { ...state.tolOverrides, [state.lidRules.id]: { ...s.lidToleranceOverride } };
-      saveTolOverrides(state.tolOverrides);
-    }
+    // Tolerans düzeltmeleri: proje dosyası yalnızca ekler (tarayıcıdaki ölçülmüş değerler korunur);
+    // geri alma/yineleme anlık görüntüsü ise düzeltmeyi birebir geri yükler (boşsa siler)
+    const setTol = (id, ov) => {
+      const has = !!(ov && typeof ov === 'object' && Object.keys(ov).length);
+      if (project && !has) return;
+      const next = { ...state.tolOverrides };
+      if (has) next[id] = { ...ov }; else delete next[id];
+      state.tolOverrides = next;
+      saveTolOverrides(next);
+    };
+    if (state.lidRules) setTol(state.lidRules.id, s.lidToleranceOverride);
     const holes = (state.analysis.holes || []).map((h, i) => (h.mount ? i : -1)).filter((i) => i >= 0);
     state.selectedHoles = new Set((s.selectedHoles || []).filter((i) => holes.includes(i)));
     if (project && (s.selectedHoles || []).length !== state.selectedHoles.size) warnings.push('Bazı montaj delikleri bu kartta bulunamadı.');
@@ -2652,10 +2771,8 @@ export function createDesignUI({ viewer, ui }) {
     state.encloseOverrides = new Map(Array.isArray(s.encloseOverrides) ? s.encloseOverrides : []);
     state.req = { tempMax: Number.isFinite(s.requirements?.tempMax) ? s.requirements.tempMax : null };
     if (state.req.tempMax) await ensureProcessRules(state.process).catch(() => null);
-    if (s.toleranceOverride && Object.keys(s.toleranceOverride).length) {
-      state.tolOverrides = { ...state.tolOverrides, [state.rules.id]: { ...s.toleranceOverride } };
-      saveTolOverrides(state.tolOverrides);
-    }
+    if (state.req.tempMax && state.lidSel) await ensureProcessRules(state.lidSel.process).catch(() => null);
+    setTol(state.rules.id, s.toleranceOverride);
     // Parametreler: kilitli değerler kayıttaki gibi, kilitsizler tasarım döngüsünden (eksik alan kural varsayılanından)
     state.waivers = s.waivers && typeof s.waivers === 'object' && !Array.isArray(s.waivers) ? { ...s.waivers } : {};
     const def = currentDefaults();
