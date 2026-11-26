@@ -619,7 +619,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     const html = lib(screwLib, (cat) => (cat.id === 'washers' ? washerItem : cat.id === 'nuts' ? nutItem : screwItem), types.length + washerTypes.length + nutTypes.length) +
       (insertLib ? lib(insertLib, (cat) => (cat.id === 'standoffs' ? standoffItem : insertItem), insertTypes.length + standoffTypes.length) : '') +
       (panelLib ? lib(panelLib, () => panelItem, panelTypes.length) : '');
-    q('#tb-tree-items').innerHTML = html || `<p class="tb-empty small muted">"${esc(search)}" için sonuç yok. Kod (7045), ad (imbus, rakor) ya da boyut (M5) deneyin.</p>`;
+    q('#tb-tree-items').innerHTML = html || `<p class="tb-empty small muted">"${esc(search)}" için sonuç yok. Kod (7045), ad (imbus, rakor) ya da boyut (M5) ile aranabilir.</p>`;
   }
 
   /* ---------- Panel elemanları ---------- */
@@ -790,7 +790,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       <section class="tb-group">
         <h4>Özellikler</h4>
         <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
-        <p class="muted small">Ölçüler üretici serisidir (M3 SW 5,5 Würth WA-SSTII; erkek diş 6 mm Würth/Ettinger); tedarikçinizle doğrulayın.</p>
+        <p class="muted small">Ölçüler üretici serisidir (M3 SW 5,5 Würth WA-SSTII; erkek diş 6 mm Würth/Ettinger); tedarikçiyle doğrulanmalı.</p>
         <button type="button" class="link-btn" data-view="screw">← Vida seçimine dön</button>
       </section>
       ${torqueSection(ev)}
@@ -810,7 +810,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
         <p class="small">Sınırlayan: <span class="t-accent">${esc(torqueLimitText(t.limit))}</span></p>
         <table class="tb-table tq-table">${t.limits.map(row).join('')}</table>
         ${other}
-        <p class="muted small">VDI 2230 yaklaşımı; plastik gövdede ilk parçada deneyle doğrulayın.</p>
+        <p class="muted small">VDI 2230 yaklaşımı; plastik gövdede ilk parçada deneyle doğrulanmalı.</p>
       </section>`;
   }
 

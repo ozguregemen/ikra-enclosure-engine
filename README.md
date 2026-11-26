@@ -6,8 +6,8 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
 ## Tasarım akışı: tasarla → incele → düzelt → sun
 
-Muhafaza doğrudan çizilip gösterilmez. Her tasarım kaynaklı bir DFM kural setinden geçer, bir inceleme
-kod bloğu tarafından değerlendirilir, güvenli düzeltmeler küçük bir döngüde otomatik uygulanır ve ancak bundan sonra
+Muhafaza doğrudan çizilip gösterilmez. Her tasarım kaynaklı bir DFM kural setinden geçer, kural tabanlı
+inceleme modülü tarafından değerlendirilir, güvenli düzeltmeler küçük bir döngüde otomatik uygulanır ve ancak bundan sonra
 katı model olarak sunulur. Algoritmanın ayrıntısı [docs/TASARIM-ALGORITMASI.md](docs/TASARIM-ALGORITMASI.md),
 kuralların dayandığı kaynaklar [docs/KAYNAKLAR.md](docs/KAYNAKLAR.md) belgesindedir.
 
@@ -16,7 +16,7 @@ Sol aşama çubuğu akışı yedi adımda gösterir; her aşamanın simgesi duru
 | Aşama | Ne olur |
 |---|---|
 | 1 Kart | STEP analiz edilir: PCB, bileşen yükseklikleri, montaj delikleri, kenardaki konnektörler |
-| 2 Gereksinimler | Üretim yöntemi ve malzeme (FDM'de varsayılan PETG), isteğe bağlı en yüksek çalışma sıcaklığı, kapak malzemesi, IP seviyesi, kutunun sabitlenmesi |
+| 2 Gereksinimler | Üretim yöntemi ve malzeme (FDM'de varsayılan PETG), isteğe bağlı en yüksek çalışma sıcaklığı (malzemenin sürekli kullanım sıcaklığı yetmezse inceleme hatası, uygun malzeme önerisiyle), kapak malzemesi, IP seviyesi, kutunun sabitlenmesi |
 | 3 Tasarım (otomatik) | Ölçüler kural setinden üretilir: kartın tutulması, kapak bağlantısı, port açıklıkları, panel elemanları; ayrıntılarda parametreler ve toleranslar |
 | 4 İnceleme döngüsü | Kaynaklı kural kataloğuyla inceleme; yalnızca değeri artıran güvenli sayısal düzeltmeler uygulanıp yeniden incelenir; turlar, düzeltmeler, reddedilen denemeler ve durma nedeni zaman çizelgesinde |
 | 5 Katı model | OpenCascade ile gövde, kapak ve (varsa) DIN klipsi; kenar işlemleri ve kalıp çıkma açısı dahil; düzenlemeden yarım saniye sonra kendiliğinden yeniden oluşturulur |
@@ -234,7 +234,7 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
   standart seriden; vida başı PCB altına sığmazsa PCB altı yükseklik artar
 - Kilit dili genişliği malzemenin yaklaşık izin verilen geçme uzamasına göre (ε ≈ 1,5·t·δ/L², 1,6–2,5 mm); aşılırsa
   uyarı, alüminyumda ticari yaylı klips önerisi; düşük HDT'li malzemede pano sıcaklığı uyarısı. İzin değerleri başlangıç
-  değeridir (test baskısıyla doğrulayın)
+  değeridir (test baskısıyla doğrulanmalı)
 - Klips STL'si ayrı indirilir (üst yüzü tablaya, kancalar yukarı, desteksiz), STEP'te ve montaj STEP'inde ayrı gövde;
   3B görünümde ve montaj paftasında patlatılmış olarak altta; kütle ve BOM'da (klips, vidalar, insertler) yer alır
 - Kontroller: IP'de sızdırmazlık pulu, ayakla birlikte kullanım, tabandan çıkan vida başı, rayda kapladığı yer (18 mm modül)
