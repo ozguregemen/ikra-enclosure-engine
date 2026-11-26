@@ -1,5 +1,5 @@
 {
-  "aciklama": "Toolbox · ISO cıvata ve vidalar (mm). dk: baş çapı en büyük; havşa başlarda dk teorik (keskin kenar) çaptır ve havşa bununla açılır, dk_actual gerçek baş çapıdır. k: baş yüksekliği en büyük. P: diş adımı. drive: yıldızda uç no. (PH), düz başta yarık genişliği n, imbusta anahtar ölçüsü s, torx'ta T no.; A: torx uç ölçüsü, m: yıldız iz çapı. Boylar yaygın katalog boylarıdır, tedarikçiyle doğrulayın. M5 ve M6 baş ölçüleri fasten.it DIN EN ISO tablolarından (ISO 7380-1 dahil); fasten.it havşa başlarda yalnız gerçek dk verdiği için M5/M6 havşalarda teorik dk (10,4 / 12,6; ISO 10642: 11,2 / 13,44) ISO 2009 tablosundandır. Metrik (M) tiplerde geçiş deliği, kılavuz ve insert ölçüleri fasteners.json'dan gelir; sac vidalarında (ST) d, PCB deliği, geçiş deliği ve plastik için ön delik (pilot, ≈0,87·d başlangıç değeri, malzemeye göre deneyle doğrulayın) burada tanımlıdır.",
+  "aciklama": "Toolbox · ISO cıvata ve vidalar (mm). dk: baş çapı en büyük; havşa başlarda dk teorik (keskin kenar) çaptır ve havşa bununla açılır, dk_actual gerçek baş çapıdır. k: baş yüksekliği en büyük. P: diş adımı. drive: yıldızda uç no. (PH), düz başta yarık genişliği n, imbusta anahtar ölçüsü s, torx'ta T no.; A: torx uç ölçüsü, m: yıldız iz çapı. Boylar yaygın katalog boylarıdır, tedarikçiyle doğrulayın. M5 ve M6 baş ölçüleri fasten.it DIN EN ISO tablolarından (ISO 7380-1 dahil); fasten.it havşa başlarda yalnız gerçek dk verdiği için M5/M6 havşalarda teorik dk (10,4 / 12,6; ISO 10642: 11,2 / 13,44) ISO 2009 tablosundandır. Metrik (M) tiplerde geçiş deliği, kılavuz ve insert ölçüleri fasteners.json'dan gelir; sac vidalarında (ST) d, PCB deliği, geçiş deliği ve plastik için ön delik (pilot, ≈0,87·d başlangıç değeri, malzemeye göre deneyle doğrulayın) burada tanımlıdır. Yıldız izi: recess varsayılan iz (H Phillips), recesses izinli izler (H ve Z Pozidriv; ISO 7045/7046-1/7047/7048/7049/7050/7051, DIN 7985 başlıkları ve tabloları), mZ Pozidriv iz çapı (m Phillips içindir; uç no. iki izde aynıdır). Bombeli havşa (raised: ISO 7047, ISO 7051): havşa kısmı ISO 7046-1/7050 ile aynıdır, f bombe yüksekliği (≈), rf bombe yarıçapı (≈); boy havşa üst düzleminden (dk teorik) uca ölçülür, bombe boya dahil değildir ve yüzeyden f kadar çıkar (ISO 7047:1994 Şekil 1, ISO 7051:2011). DIN 7985: v silindir yüksekliği, rf bombe yarıçapı, k_nom anma yüksekliği; k en büyük değerdir (Westfield, boltport); withdrawn yerine gelen standarttır (DIN Media: DIN 7985:1990-08 geri çekilmiş, yerine DIN EN ISO 7045). Kombi vida (combi: ISO 10644 vida sembolü, S3 = ISO 7045 başı): washer vidaya takılı düz pulun tipi (ISO 10673 N), d1, d2, s ölçüleridir; pul dahil boy baş altından ölçülür (ISO 10644:2009, ISO 10673:1998). M2 kombi vida boyları kaynakta bulunamadığı için tanımlanmadı. din: eski DIN karşılığı, din_note: M2–M6 ölçü farkı (not yoksa ölçüler aynı); Würth DINO bölüm 3 ve fasten.it DIN/ISO tabloları. ISO 7047 ve ISO 7048 tabloları ISO 7047:1994 ve ISO 7048:1998 örnek sayfalarından (2011 baskıları küçük revizyon), ISO 7051 ISO 7051:2011 örnek sayfasından; fasten.it 2011 tablolarıyla karşılaştırıldı.",
   "standard": "ISO",
   "categories": [
     {
@@ -8,30 +8,81 @@
       "groups": [
         {
           "id": "cross",
-          "label": "Yıldız başlı (Phillips)",
+          "label": "Yıldız başlı (Phillips / Pozidriv)",
           "types": [
             {
               "id": "iso7045", "code": "ISO 7045", "materials": ["a2-70", "st48zn", "a4-80", "brass", "pa66"], "name": "Yıldız başlı bombe vida", "short": "Yıldız bombe baş",
-              "head": "pan", "drive_kind": "cross", "recess": "H", "thread": "M", "length_includes_head": false,
+              "head": "pan", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "length_includes_head": false,
+              "din": "DIN 7985", "din_note": "M2, M4 ve M6 başları aynı. M2,5 k 2→2,1; M3 dk 6→5,6; M5 dk 10→9,5, k 3,8→3,7 (DIN → ISO). Uç no. aynı, iz çapı m az farklı. DIN başı yuvarlak silindir biçimindedir; stok parçalar çoğu kez DIN 7985 ölçüsünde teslim edilir.",
               "sizes": {
-                "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 0, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
-                "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 1, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
-                "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive": 1, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
-                "M4": { "dk": 8.0, "k": 3.1, "P": 0.7, "drive": 2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
-                "M5": { "dk": 10, "k": 3.8, "P": 0.8, "drive": 2, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
-                "M6": { "dk": 12, "k": 4.6, "P": 1.0, "drive": 3, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 60] }
+                "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 0, "mZ": 2.1, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 1, "mZ": 2.6, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive": 1, "mZ": 2.8, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 8.0, "k": 3.1, "P": 0.7, "drive": 2, "mZ": 4.3, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
+                "M5": { "dk": 10, "k": 3.8, "P": 0.8, "drive": 2, "mZ": 4.7, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
+                "M6": { "dk": 12, "k": 4.6, "P": 1.0, "drive": 3, "mZ": 6.7, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 60] }
               }
             },
             {
               "id": "iso7046", "code": "ISO 7046-1", "materials": ["a2-70", "st48zn", "a4-80", "brass"], "alt": "iso7045", "name": "Yıldız havşa başlı vida", "short": "Yıldız havşa baş",
-              "head": "countersunk", "drive_kind": "cross", "recess": "H", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "head": "countersunk", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "din": "DIN 965", "din_note": "M2 ve M2,5 dk/k aynı (M2 uç no. DIN'de PH1, ISO'da PH0). M3 dk 5,6→5,5; M4 dk/k 7,5/2,2→8,4/2,7; M5 9,2/2,5→9,3/2,7; M6 11/3→11,3/3,3 (DIN → ISO). DIN 965'in yerine 4.8 için ISO 7046-1, 8.8 için ISO 7046-2 gelmiştir.",
               "sizes": {
-                "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 0, "m": 1.9, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
-                "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "P": 0.45, "drive": 1, "m": 2.9, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
-                "M3": { "dk": 6.3, "dk_actual": 5.5, "k": 1.65, "P": 0.5, "drive": 1, "m": 3.2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
-                "M4": { "dk": 9.4, "dk_actual": 8.4, "k": 2.7, "P": 0.7, "drive": 2, "m": 4.6, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
-                "M5": { "dk": 10.4, "dk_actual": 9.3, "k": 2.7, "P": 0.8, "drive": 2, "m": 5.2, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
-                "M6": { "dk": 12.6, "dk_actual": 11.3, "k": 3.3, "P": 1.0, "drive": 3, "m": 6.8, "lengths": [10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 60] }
+                "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 0, "m": 1.9, "mZ": 1.9, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "P": 0.45, "drive": 1, "m": 2.9, "mZ": 2.8, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 6.3, "dk_actual": 5.5, "k": 1.65, "P": 0.5, "drive": 1, "m": 3.2, "mZ": 3.0, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 9.4, "dk_actual": 8.4, "k": 2.7, "P": 0.7, "drive": 2, "m": 4.6, "mZ": 4.4, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
+                "M5": { "dk": 10.4, "dk_actual": 9.3, "k": 2.7, "P": 0.8, "drive": 2, "m": 5.2, "mZ": 4.9, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
+                "M6": { "dk": 12.6, "dk_actual": 11.3, "k": 3.3, "P": 1.0, "drive": 3, "m": 6.8, "mZ": 6.6, "lengths": [10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 60] }
+              }
+            },
+            {
+              "id": "iso7047", "code": "ISO 7047", "materials": ["a2-70", "st48zn", "a4-80", "brass"], "alt": "iso7045", "name": "Yıldız bombeli havşa başlı vida", "short": "Yıldız bombeli havşa baş",
+              "head": "countersunk", "raised": true, "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "din": "DIN 966", "din_note": "M2 ve M2,5 dk/k aynı (M2 uç no. DIN'de PH1, ISO'da PH0). M3 dk 5,6→5,5; M4 dk/k 7,5/2,2→8,4/2,7; M5 9,2/2,5→9,3/2,7; M6 11/3→11,3/3,3 (DIN → ISO). DIN 966 bombesi biraz yüksektir (f: M3 0,75, M5 1,25, M6 1,5). ISO 7047 havşasında DIN 966 başı daha derine oturur, bombe daha az çıkar.",
+              "sizes": {
+                "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "f": 0.5, "rf": 4, "P": 0.4, "drive": 0, "m": 2.0, "mZ": 2.2, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "f": 0.6, "rf": 5, "P": 0.45, "drive": 1, "m": 3.0, "mZ": 2.8, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 6.3, "dk_actual": 5.5, "k": 1.65, "f": 0.7, "rf": 6, "P": 0.5, "drive": 1, "m": 3.4, "mZ": 3.1, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 9.4, "dk_actual": 8.4, "k": 2.7, "f": 1.0, "rf": 9.5, "P": 0.7, "drive": 2, "m": 5.2, "mZ": 5.0, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
+                "M5": { "dk": 10.4, "dk_actual": 9.3, "k": 2.7, "f": 1.2, "rf": 9.5, "P": 0.8, "drive": 2, "m": 5.4, "mZ": 5.3, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
+                "M6": { "dk": 12.6, "dk_actual": 11.3, "k": 3.3, "f": 1.4, "rf": 12, "P": 1.0, "drive": 3, "m": 7.3, "mZ": 7.1, "lengths": [10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 60] }
+              }
+            },
+            {
+              "id": "iso7048", "code": "ISO 7048", "materials": ["a2-70", "st48zn"], "name": "Yıldız silindir başlı vida", "short": "Yıldız silindir baş",
+              "head": "cheese", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "length_includes_head": false,
+              "din_note": "Eski DIN karşılığı yoktur; DIN EN ISO 7048 yalnızca ISO'nun Almanca baskısıdır. Baş ölçüleri ISO 1207 ile aynıdır. Seri M2,5–M8'dir, M2 yoktur; M3 uç no. PH2'dir (ISO 7045'te PH1).",
+              "sizes": {
+                "M2.5": { "dk": 4.5, "k": 1.8, "P": 0.45, "drive": 1, "m": 2.7, "mZ": 2.4, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M3": { "dk": 5.5, "k": 2.0, "P": 0.5, "drive": 2, "m": 3.5, "mZ": 3.5, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 7.0, "k": 2.6, "P": 0.7, "drive": 2, "m": 4.1, "mZ": 4.0, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
+                "M5": { "dk": 8.5, "k": 3.3, "P": 0.8, "drive": 2, "m": 4.8, "mZ": 4.6, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
+                "M6": { "dk": 10, "k": 3.9, "P": 1.0, "drive": 3, "m": 6.2, "mZ": 6.1, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 60] }
+              }
+            },
+            {
+              "id": "din7985", "code": "DIN 7985", "materials": ["a2-70", "st48zn", "a4-80", "brass", "pa66"], "name": "Yıldız yuvarlak silindir başlı vida", "short": "Yıldız yuvarlak silindir baş",
+              "head": "pan", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "length_includes_head": false, "withdrawn": "ISO 7045",
+              "sizes": {
+                "M2": { "dk": 4.0, "k": 1.72, "k_nom": 1.6, "v": 1.1, "rf": 4, "P": 0.4, "drive": 1, "m": 2.5, "mZ": 2.4, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
+                "M2.5": { "dk": 5.0, "k": 2.12, "k_nom": 2.0, "v": 1.3, "rf": 5, "P": 0.45, "drive": 1, "m": 2.7, "mZ": 2.6, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M3": { "dk": 6.0, "k": 2.52, "k_nom": 2.4, "v": 1.6, "rf": 6, "P": 0.5, "drive": 1, "m": 3.1, "mZ": 3.0, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
+                "M4": { "dk": 8.0, "k": 3.25, "k_nom": 3.1, "v": 2.0, "rf": 8, "P": 0.7, "drive": 2, "m": 4.6, "mZ": 4.3, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
+                "M5": { "dk": 10, "k": 3.95, "k_nom": 3.8, "v": 2.5, "rf": 10, "P": 0.8, "drive": 2, "m": 5.3, "mZ": 5.0, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
+                "M6": { "dk": 12, "k": 4.75, "k_nom": 4.6, "v": 3.0, "rf": 12, "P": 1.0, "drive": 3, "m": 6.8, "mZ": 6.7, "lengths": [10, 12, 16, 20, 25, 30, 35, 40, 45, 50] }
+              }
+            },
+            {
+              "id": "iso10644", "code": "ISO 10644", "materials": ["st48zn", "a2-70"], "name": "Yıldız başlı bombe kombi vida (kaybolmaz düz pullu)", "short": "Yıldız bombe baş, pullu (kombi)",
+              "head": "pan", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "length_includes_head": false, "combi": "S3",
+              "din": "DIN 6900-1", "din_note": "DIN 6900-1 (düz pullu kombi vida) geri çekilmiş, yerine DIN EN ISO 10644 gelmiştir. Ölçü karşılaştırması kaynaklarda bulunamadı; DIN parçası denetlenmeden eşdeğer sayılmamalıdır. Stokta çoğu kez DIN 7985 başlı (M3 dk 6, M5 dk 10) ve Pozidriv (Z) izlidir.",
+              "sizes": {
+                "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 1, "m": 2.7, "mZ": 2.6, "washer": { "type": "N", "d1": 2.25, "d2": 6, "s": 0.6 }, "lengths": [4, 5, 6, 8, 10] },
+                "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive": 1, "m": 3.0, "mZ": 2.8, "washer": { "type": "N", "d1": 2.75, "d2": 7, "s": 0.6 }, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
+                "M4": { "dk": 8.0, "k": 3.1, "P": 0.7, "drive": 2, "m": 4.4, "mZ": 4.3, "washer": { "type": "N", "d1": 3.6, "d2": 9, "s": 0.8 }, "lengths": [6, 8, 10, 12, 16, 20, 25] },
+                "M5": { "dk": 9.5, "k": 3.7, "P": 0.8, "drive": 2, "m": 4.9, "mZ": 4.7, "washer": { "type": "N", "d1": 4.55, "d2": 10, "s": 1.0 }, "lengths": [6, 8, 10, 12, 16, 20, 25, 30] },
+                "M6": { "dk": 12, "k": 4.6, "P": 1.0, "drive": 3, "m": 6.9, "mZ": 6.7, "washer": { "type": "N", "d1": 5.5, "d2": 12, "s": 1.6 }, "lengths": [8, 10, 12, 16, 20, 25, 30] }
               }
             }
           ]
@@ -43,6 +94,7 @@
             {
               "id": "iso1207", "code": "ISO 1207", "materials": ["a2-70", "st48zn", "brass", "pa66"], "name": "Düz silindir başlı vida", "short": "Düz silindir baş",
               "head": "cheese", "drive_kind": "slot", "thread": "M", "length_includes_head": false,
+              "din": "DIN 84", "din_note": "dk M2–M6 aynı; k M3–M6 aynı, M2 1,3→1,4, M2,5 1,6→1,8 (DIN → ISO).",
               "sizes": {
                 "M2": { "dk": 3.8, "k": 1.4, "P": 0.4, "drive": 0.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 4.5, "k": 1.8, "P": 0.45, "drive": 0.6, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -55,6 +107,7 @@
             {
               "id": "iso1580", "code": "ISO 1580", "materials": ["a2-70", "st48zn", "brass", "pa66"], "name": "Düz bombe başlı vida", "short": "Düz bombe baş",
               "head": "pan", "drive_kind": "slot", "thread": "M", "length_includes_head": false,
+              "din": "DIN 85", "din_note": "M3 dk 6→5,6, M5 dk 10→9,5 (DIN → ISO); M4 ve M6 aynı, k M3–M6 aynı. M2 ve M2,5 karşılaştırılamadı (DIN 85 tablosu M3'ten başlar).",
               "sizes": {
                 "M2": { "dk": 4.0, "k": 1.3, "P": 0.4, "drive": 0.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 5.0, "k": 1.5, "P": 0.45, "drive": 0.6, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -67,6 +120,7 @@
             {
               "id": "iso2009", "code": "ISO 2009", "materials": ["a2-70", "st48zn", "brass"], "alt": "iso1580", "name": "Düz havşa başlı vida", "short": "Düz havşa baş",
               "head": "countersunk", "drive_kind": "slot", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "din": "DIN 963", "din_note": "M2 ve M2,5 aynı. M3 dk 5,6→5,5; M4 dk/k 7,5/2,2→8,4/2,7; M5 9,2/2,5→9,3/2,7; M6 dk 11→11,3, k 3,3 aynı (DIN → ISO). DIN yalnız gerçek baş çapını verir.",
               "sizes": {
                 "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 0.5, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "P": 0.45, "drive": 0.6, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -85,6 +139,7 @@
             {
               "id": "iso4762", "code": "ISO 4762", "materials": ["a2-70", "st88zn", "st129bl", "a4-80", "pa66"], "name": "İmbus silindir başlı cıvata", "short": "İmbus silindir baş",
               "head": "socket", "drive_kind": "hex", "thread": "M", "length_includes_head": false,
+              "din": "DIN 912",
               "sizes": {
                 "M2": { "dk": 3.8, "k": 2.0, "P": 0.4, "drive": 1.5, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 4.5, "k": 2.5, "P": 0.45, "drive": 2, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -97,6 +152,7 @@
             {
               "id": "iso7380", "code": "ISO 7380-1", "materials": ["a2-70", "st109zn"], "name": "İmbus mercimek başlı cıvata", "short": "İmbus mercimek baş",
               "head": "button", "drive_kind": "hex", "thread": "M", "length_includes_head": false,
+              "din_note": "Eski DIN karşılığı yoktur; Almanca baskısı DIN EN ISO 7380-1'dir (piyasadaki \"DIN 7380\" adı bunu anlatır).",
               "sizes": {
                 "M3": { "dk": 5.7, "k": 1.65, "P": 0.5, "drive": 2, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30] },
                 "M4": { "dk": 7.6, "k": 2.2, "P": 0.7, "drive": 2.5, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
@@ -107,6 +163,7 @@
             {
               "id": "iso10642", "code": "ISO 10642", "materials": ["a2-70", "st88zn", "st129bl"], "alt": "iso4762", "name": "İmbus havşa başlı cıvata", "short": "İmbus havşa baş",
               "head": "countersunk", "drive_kind": "hex", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "din": "DIN 7991", "din_note": "Anahtar ölçüsü aynı (M3–M6: 2/2,5/3/4). Baş farklı: DIN dk 6/8/10/12, k 1,7/2,3/2,8/3,3; ISO teorik dk 6,72/8,96/11,2/13,44, k 1,86/2,48/3,1/3,72. DIN 7991'de M2 ve M2,5 yoktur.",
               "sizes": {
                 "M3": { "dk": 6.72, "k": 1.86, "P": 0.5, "drive": 2, "lengths": [8, 10, 12, 16, 20, 25, 30] },
                 "M4": { "dk": 8.96, "k": 2.48, "P": 0.7, "drive": 2.5, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40] },
@@ -123,6 +180,7 @@
             {
               "id": "iso14580", "code": "ISO 14580", "materials": ["a2-70", "st88zn"], "name": "Torx silindir başlı cıvata", "short": "Torx silindir baş",
               "head": "cheese", "drive_kind": "torx", "thread": "M", "length_includes_head": false,
+              "din_note": "Eski DIN karşılığı yoktur; Almanca baskısı DIN EN ISO 14580'dir.",
               "sizes": {
                 "M2": { "dk": 3.8, "k": 1.55, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 4.5, "k": 1.85, "P": 0.45, "drive": 8, "A": 2.4, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -135,6 +193,7 @@
             {
               "id": "iso14583", "code": "ISO 14583", "materials": ["a2-70", "st48zn", "a4-80"], "name": "Torx bombe başlı vida", "short": "Torx bombe baş",
               "head": "pan", "drive_kind": "torx", "thread": "M", "length_includes_head": false,
+              "din_note": "Eski DIN karşılığı yoktur. Baş ölçüleri ISO 7045 ile aynıdır.",
               "sizes": {
                 "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 8, "A": 2.4, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -147,6 +206,7 @@
             {
               "id": "iso14581", "code": "ISO 14581", "materials": ["a2-70", "st48zn", "a4-80"], "alt": "iso14583", "name": "Torx havşa başlı vida", "short": "Torx havşa baş",
               "head": "countersunk", "drive_kind": "torx", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
+              "din_note": "Eski DIN karşılığı yoktur. Baş ISO 7046-1 / ISO 2009 ile aynıdır (ISO 7721).",
               "sizes": {
                 "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "P": 0.45, "drive": 8, "A": 2.4, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -164,22 +224,35 @@
           "types": [
             {
               "id": "iso7049", "code": "ISO 7049", "materials": ["sttap", "a2"], "name": "Yıldız bombe başlı sac vidası", "short": "Sac vidası, bombe baş",
-              "head": "pan", "drive_kind": "cross", "recess": "H", "form": "C", "thread": "ST", "length_includes_head": false,
+              "head": "pan", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "form": "C", "thread": "ST", "length_includes_head": false,
+              "din": "DIN 7981", "din_note": "ST2,2 dk/k/uç 4,2/1,8/PH1→4,0/1,6/PH0; ST2,9 k 2,2→2,4; ST3,5 dk 6,9→7,0; ST4,2 dk/k 8,2/3,05→8,0/3,1 (DIN → ISO). Tedarikçiler çoğu kez DIN ölçüsünde teslim eder.",
               "sizes": {
-                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.2, "k": 1.8, "P": 0.8, "drive": 1, "lengths": [4.5, 6.5, 9.5, 13, 16] },
-                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 5.6, "k": 2.2, "P": 1.1, "drive": 1, "lengths": [6.5, 9.5, 13, 16, 19, 22, 25] },
-                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 6.9, "k": 2.6, "P": 1.3, "drive": 2, "lengths": [9.5, 13, 16, 19, 22, 25, 32] },
-                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 8.2, "k": 3.05, "P": 1.4, "drive": 2, "lengths": [9.5, 13, 16, 19, 22, 25, 32, 38] }
+                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.2, "k": 1.8, "P": 0.8, "drive": 1, "mZ": 2.0, "lengths": [4.5, 6.5, 9.5, 13, 16] },
+                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 5.6, "k": 2.2, "P": 1.1, "drive": 1, "mZ": 3.0, "lengths": [6.5, 9.5, 13, 16, 19, 22, 25] },
+                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 6.9, "k": 2.6, "P": 1.3, "drive": 2, "mZ": 4.0, "lengths": [9.5, 13, 16, 19, 22, 25, 32] },
+                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 8.2, "k": 3.05, "P": 1.4, "drive": 2, "mZ": 4.4, "lengths": [9.5, 13, 16, 19, 22, 25, 32, 38] }
               }
             },
             {
               "id": "iso7050", "code": "ISO 7050", "materials": ["sttap", "a2"], "alt": "iso7049", "name": "Yıldız havşa başlı sac vidası", "short": "Sac vidası, havşa baş",
-              "head": "countersunk", "drive_kind": "cross", "recess": "H", "form": "C", "thread": "ST", "countersink_angle": 90, "length_includes_head": true,
+              "head": "countersunk", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "form": "C", "thread": "ST", "countersink_angle": 90, "length_includes_head": true,
+              "din": "DIN 7982", "din_note": "ST2,2 dk/k/uç 4,3/1,3/PH1→3,8/1,1/PH0; ST2,9 aynı (5,5/1,7); ST3,5 dk/k 6,8/2,1→7,3/2,35; ST4,2 8,1/2,5→8,4/2,6 (DIN → ISO). DIN 7982'de ST3,9 da vardır.",
               "sizes": {
-                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.4, "dk_actual": 3.8, "k": 1.1, "P": 0.8, "drive": 0, "m": 1.9, "lengths": [6.5, 9.5, 13, 16] },
-                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 6.3, "dk_actual": 5.5, "k": 1.7, "P": 1.1, "drive": 1, "m": 3.2, "lengths": [6.5, 9.5, 13, 16, 19, 22, 25] },
-                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 8.2, "dk_actual": 7.3, "k": 2.35, "P": 1.3, "drive": 2, "m": 4.4, "lengths": [9.5, 13, 16, 19, 22, 25, 32] },
-                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 9.4, "dk_actual": 8.4, "k": 2.6, "P": 1.4, "drive": 2, "m": 4.6, "lengths": [9.5, 13, 16, 19, 22, 25, 32, 38] }
+                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.4, "dk_actual": 3.8, "k": 1.1, "P": 0.8, "drive": 0, "m": 1.9, "mZ": 2.0, "lengths": [6.5, 9.5, 13, 16] },
+                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 6.3, "dk_actual": 5.5, "k": 1.7, "P": 1.1, "drive": 1, "m": 3.2, "mZ": 3.0, "lengths": [6.5, 9.5, 13, 16, 19, 22, 25] },
+                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 8.2, "dk_actual": 7.3, "k": 2.35, "P": 1.3, "drive": 2, "m": 4.4, "mZ": 4.1, "lengths": [9.5, 13, 16, 19, 22, 25, 32] },
+                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 9.4, "dk_actual": 8.4, "k": 2.6, "P": 1.4, "drive": 2, "m": 4.6, "mZ": 4.4, "lengths": [9.5, 13, 16, 19, 22, 25, 32, 38] }
+              }
+            },
+            {
+              "id": "iso7051", "code": "ISO 7051", "materials": ["sttap", "a2"], "alt": "iso7049", "name": "Yıldız bombeli havşa başlı sac vidası", "short": "Sac vidası, bombeli havşa baş",
+              "head": "countersunk", "raised": true, "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "form": "C", "thread": "ST", "countersink_angle": 90, "length_includes_head": true,
+              "din": "DIN 7983", "din_note": "ST2,2 dk/k/f/uç 4,3/1,3/0,7/PH1→3,8/1,1/0,5/PH0; ST2,9 dk/k aynı, f 0,9→0,7; ST3,5 6,8/2,1/1,2→7,3/2,35/0,8; ST4,2 8,1/2,5/1,4→8,4/2,6/1,0; rf 3,8/4,6/5,4/6,6→4/6/8,5/9,5 (DIN → ISO). Tedarikçiler çoğu kez DIN ölçüsünde teslim eder; ST3,5 ve ST4,2'de DIN başı havşaya daha derin oturur.",
+              "sizes": {
+                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.4, "dk_actual": 3.8, "k": 1.1, "f": 0.5, "rf": 4.0, "P": 0.8, "drive": 0, "m": 1.9, "mZ": 2.0, "lengths": [4.5, 6.5, 9.5, 13, 16] },
+                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 6.3, "dk_actual": 5.5, "k": 1.7, "f": 0.7, "rf": 6.0, "P": 1.1, "drive": 1, "m": 3.2, "mZ": 3.0, "lengths": [6.5, 9.5, 13, 16, 19] },
+                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 8.2, "dk_actual": 7.3, "k": 2.35, "f": 0.8, "rf": 8.5, "P": 1.3, "drive": 2, "m": 4.4, "mZ": 4.1, "lengths": [9.5, 13, 16, 19, 22, 25] },
+                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 9.4, "dk_actual": 8.4, "k": 2.6, "f": 1.0, "rf": 9.5, "P": 1.4, "drive": 2, "m": 4.6, "mZ": 4.4, "lengths": [9.5, 13, 16, 19, 22, 25, 32] }
               }
             }
           ]
@@ -197,7 +270,7 @@
           "label": "Düz pullar",
           "types": [
             {
-              "id": "iso7089", "code": "ISO 7089", "name": "Düz pul, normal seri", "short": "Normal seri", "kind": "flat",
+              "id": "iso7089", "code": "ISO 7089", "name": "Düz pul, normal seri", "short": "Normal seri", "kind": "flat", "din": "DIN 125-1 A",
               "materials": ["a2", "st200zn", "brass", "pa66"],
               "sizes": {
                 "M2": { "d1": 2.2, "d2": 5, "s": 0.3 },
@@ -209,7 +282,7 @@
               }
             },
             {
-              "id": "iso7092", "code": "ISO 7092", "name": "Düz pul, küçük seri", "short": "Küçük seri (silindir baş)", "kind": "flat",
+              "id": "iso7092", "code": "ISO 7092", "name": "Düz pul, küçük seri", "short": "Küçük seri (silindir baş)", "kind": "flat", "din": "DIN 433-1",
               "materials": ["a2", "st200zn", "pa66"],
               "sizes": {
                 "M2": { "d1": 2.2, "d2": 4.5, "s": 0.3 },
@@ -222,6 +295,7 @@
             },
             {
               "id": "iso7093", "code": "ISO 7093-1", "name": "Düz pul, geniş seri", "short": "Geniş seri (plastik yüzey)", "kind": "flat",
+              "din": "DIN 9021", "din_note": "M3, M4 ve M6 aynı; M5 s 1,2→1,0 (DIN → ISO). DIN 9021'de M2,5 (8 × 0,8) ve M3,5 de vardır.",
               "materials": ["a2", "st200zn", "pa66"],
               "sizes": {
                 "M3": { "d1": 3.2, "d2": 9, "s": 0.8 },
@@ -275,6 +349,7 @@
           "types": [
             {
               "id": "iso4032", "code": "ISO 4032", "name": "Altıgen somun, normal", "short": "Altıgen, normal", "kind": "hex",
+              "din": "DIN 934", "din_note": "s M2–M6 aynı; m M2–M4 aynı, M5 4,0→4,7, M6 5,0→5,2 (DIN → ISO).",
               "materials": ["a2", "st88zn", "brass", "pa66"],
               "sizes": {
                 "M2": { "s": 4, "e": 4.32, "m": 1.6 },
@@ -286,7 +361,7 @@
               }
             },
             {
-              "id": "iso4035", "code": "ISO 4035", "name": "Altıgen somun, ince", "short": "Altıgen, ince", "kind": "hex",
+              "id": "iso4035", "code": "ISO 4035", "name": "Altıgen somun, ince", "short": "Altıgen, ince", "kind": "hex", "din": "DIN 439-2",
               "materials": ["a2", "st88zn"],
               "sizes": {
                 "M2": { "s": 4, "e": 4.32, "m": 1.2 },
@@ -299,6 +374,7 @@
             },
             {
               "id": "iso10511", "code": "ISO 10511", "name": "Naylon kilitli altıgen somun, ince", "short": "Naylon kilitli", "kind": "hex", "locking": true,
+              "din": "DIN 985", "din_note": "s aynı; toplam yükseklik h M3'te 4,0→3,9 (DIN → ISO), M4–M6 aynı.",
               "materials": ["a2", "st88zn"],
               "sizes": {
                 "M3": { "s": 5.5, "e": 6.01, "m": 3.9, "mThread": 1.55 },
