@@ -407,8 +407,13 @@ export function createDesignUI({ viewer, ui }) {
       : 'Köşe vidası';
     const tq = d?.torque?.corner;
     const cp = d?.cornerPlan;
+    // Yıldız izi seçilebilen tiplerde etkin iz ve kombi vidanın takılı pulu (PCB vidası satırındaki gibi)
+    const rec = t && (t.recesses || []).length > 1 ? (sc?.recess || resolveRecess(t, (state.cornerSpec || state.screwSpec)?.recess)) : null;
+    const cw = sc?.washer?.captive ? sc.washer : null;
     $('#corner-pick-sub').textContent = [
-      `${cs.length} köşe`, sc?.counterbore ? 'gömme baş' : null, tq ? `${String(tq.T).replace('.', ',')} N·m` : null,
+      `${cs.length} köşe`, rec ? (rec === 'Z' ? 'Pozidriv (Z)' : 'Phillips (H)') : null,
+      cw ? `${cw.code}${cw.form ? ' ' + cw.form : ''} pul (takılı)${cw.material ? ' ' + cw.material.tag : ''}` : null,
+      sc?.counterbore ? 'gömme baş' : null, tq ? `${String(tq.T).replace('.', ',')} N·m` : null,
       cp && cp.extra > 0 ? `kavite ${cp.axis === 0 ? 'X' : 'Y'} +${String(Math.round(cp.extra * 10) / 10).replace('.', ',')} mm/uç` : null,
     ].filter(Boolean).join(' · ');
     $('#corner-axis').innerHTML = [['auto', 'Otomatik'], ['x', 'X ekseni'], ['y', 'Y ekseni']].map(([id, label]) =>
@@ -1682,6 +1687,8 @@ export function createDesignUI({ viewer, ui }) {
     // reviewing: ön inceleme + (model güncelse) son inceleme
     computePost();
     state.review = composeReview();
+    // Geometri aynı kaldıysa (ör. yalnızca yıldız izi ya da aynı delikli vida tipi değişti) 3B elemanlar yeniden oluşturmasız güncellenir
+    refreshShownParts();
 
     renderPorts(d);
     const bom = d.bom || [];
@@ -2606,6 +2613,41 @@ export function createDesignUI({ viewer, ui }) {
     renderAll();
   }
 
+  /** 3B görünümdeki bağlantı ve panel elemanları (yalnızca görsel): vidalar, pullar, burçlar, aralayıcılar */
+  function viewerParts(d) {
+    const screws = d.screws.map((s) => ({
+      x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
+      head: s.head, headDActual: s.head_d_actual, driveKind: s.driveKind, drive: s.driveVal, driveA: s.driveA, driveM: s.driveM,
+      headF: s.head_f || 0, headV: s.head_v || 0, recess: s.recess || null,
+      size: s.size, P: s.P, tapping: s.tapping, seat: s.seat || 0, washer: s.washer, finish: s.material?.finish || 'stainless',
+      z: s.zSeat ?? (s.lid ? d.geometry.zTop : state.analysis.board.top),
+    }));
+    const inserts = [...d.standoffs, ...(d.cornerBosses || [])].filter((s) => s.insert).map((s) => ({ x: s.x, y: s.y, z: s.z1, ...s.insert }));
+    return { screws, inserts, panel: d.panel?.visuals || [] };
+  }
+
+  /**
+   * Çıktıların (teknik resim, montaj STEP'i) tasarımı. Katı model güncelken (geometri parmak izi aynı) son tasarım kullanılır:
+   * yıldız izi, aynı delikli vida tipi, malzeme gibi geometriyi değiştirmeyen seçimler yeniden oluşturma olmadan BOM'a,
+   * paftalara ve montaja yansır. İşlem politikası ve işlem raporu son katı modelden alınır. Model güncel değilse null.
+   */
+  function outputDesign() {
+    if (!state.result || !isCurrent()) return null;
+    const rd = state.result.design;
+    if (state.design === null || state.design === undefined) return rd;
+    return { ...state.design, geometry: { ...state.design.geometry, treat: rd.geometry?.treat ?? null }, treatReport: rd.treatReport || null };
+  }
+
+  /** Model güncelken 3B görünümdeki elemanlar son tasarımdan değilse (geometri dışı bir seçim değişti) yeniden kurulur */
+  function refreshShownParts() {
+    if (!state.result || !isCurrent() || !state.design) return;
+    const vp = viewerParts(state.design);
+    const key = JSON.stringify(vp);
+    if (key === state.shownParts) return;
+    viewer.setFasteners(vp);
+    state.shownParts = key;
+  }
+
   function onWorkerMessage(ev) {
     const msg = ev.data;
     if (state.drawingId !== null && msg.id === state.drawingId) { onDrawing(msg); return; }
@@ -2630,15 +2672,10 @@ export function createDesignUI({ viewer, ui }) {
     const d = job.design;
     const rd = { ...d, geometry: { ...d.geometry, treat: job.treat }, treatReport: msg.treatReport || null };
     state.result = { ...msg, design: rd, geomKey: job.key, buildMs: Number.isFinite(msg.buildMs) ? msg.buildMs : performance.now() - job.t0, treatErr: job.treatErr, forced: job.force };
-    const screws = d.screws.map((s) => ({
-      x: s.x, y: s.y, d: s.d, headD: s.head_d, headH: s.head_h, length: s.length, lid: s.lid,
-      head: s.head, headDActual: s.head_d_actual, driveKind: s.driveKind, drive: s.driveVal, driveA: s.driveA, driveM: s.driveM,
-      headF: s.head_f || 0, headV: s.head_v || 0, recess: s.recess || null,
-      size: s.size, P: s.P, tapping: s.tapping, seat: s.seat || 0, washer: s.washer, finish: s.material?.finish || 'stainless',
-      z: s.zSeat ?? (s.lid ? d.geometry.zTop : state.analysis.board.top),
-    }));
-    const inserts = [...d.standoffs, ...(d.cornerBosses || [])].filter((s) => s.insert).map((s) => ({ x: s.x, y: s.y, z: s.z1, ...s.insert }));
-    viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), screws, inserts, panel: d.panel?.visuals || [] });
+    // Oluşturma sürerken geometriyi değiştirmeyen bir seçim (yıldız izi, tip, malzeme) yapıldıysa son tasarımın elemanları gösterilir
+    const vp = viewerParts(isCurrent() ? state.design : d);
+    viewer.setEnclosure(msg.meshes, { explodeOffset: Math.max(d.outer.H * 0.75, 10), ...vp });
+    state.shownParts = JSON.stringify(vp);
     const first = state.firstBuild;
     if (first) viewer.setView('iso');
     state.firstBuild = false;
@@ -2759,7 +2796,8 @@ export function createDesignUI({ viewer, ui }) {
     btn.disabled = true;
     btn.querySelector('.dl-name').textContent = 'Hazırlanıyor…';
     ui.progress('Teknik resim görünüşleri hazırlanıyor…');
-    const d = state.result.design;
+    const d = outputDesign();
+    state.drawingDesign = d;
     getWorker().postMessage({
       type: 'drawing', id: state.drawingId,
       assembly: { items: assemblyItems(d, state.analysis.board.top), explode: explodeOf(d) },
@@ -2777,7 +2815,7 @@ export function createDesignUI({ viewer, ui }) {
     ui.progress('Montaj STEP dosyası hazırlanıyor…');
     const stem = fileStem();
     getWorker().postMessage({
-      type: 'assemblyStep', id: state.asmId, items: assemblyItems(state.result.design, state.analysis.board.top),
+      type: 'assemblyStep', id: state.asmId, items: assemblyItems(outputDesign(), state.analysis.board.top),
       names: { base: `${stem}_govde`, lid: `${stem}_kapak`, clip: `${stem}_din_klipsi` },
     });
   }
@@ -2825,7 +2863,9 @@ export function createDesignUI({ viewer, ui }) {
     $('#drawing-btn').querySelector('.dl-name').textContent = 'Teknik resim ve DFM raporu';
     renderOutputs();
     if (msg.type === 'error') { ui.alert('Teknik resim üretilemedi: ' + msg.message); return; }
-    const d = state.result.design;
+    // Görünüşler istenirken kullanılan tasarım (paftadaki BOM ve notlar görünüşlerdeki elemanlarla aynı)
+    const d = state.drawingDesign || outputDesign() || state.result.design;
+    state.drawingDesign = null;
     const proc = state.index.processes.find((p) => p.id === state.process);
     try {
       state.sheets = buildSheets({

@@ -242,8 +242,10 @@ export function buildScrew(s, mats) {
   let flatR = outer[outer.length - 1][0];
   let topZ = headTop(shape);
   const rawOutlines = driveOutline(shape);
+  // Bombeli tepe (ISO 7047/7051 bombeli havşa, DIN 7985): döndürme profili izin hemen dışında biter; içerisi (iz çevresindeki
+  // yüz, iz ve Pozidriv çentikleri) bombe yüzeyine oturtulur, böylece tepe izin iç köşelerinde f'ye (DIN 7985'te k'ya) yaklaşır
+  let domeAt = null;
   if (shape.f > 0 || shape.v > 0) {
-    // Bombeli tepe (ISO 7047/7051 bombeli havşa, DIN 7985): iz bombeye düz oyulur; profil izin sığdığı yarıçapta kesilir
     const rim = outer.reduce((m, [x]) => Math.max(m, x), 0);
     const need = rawOutlines.length ? Math.max(...rawOutlines.flat().map(([x, y]) => Math.hypot(x, y))) / 0.9 : 0.5 * rim;
     const rCut = Math.min(need, 0.85 * rim);
@@ -251,8 +253,18 @@ export function buildScrew(s, mats) {
     const lastIn = outer.findIndex((p, i) => i > 1 && p[0] < rCut);
     outer = (lastIn > 0 ? outer.slice(0, lastIn) : outer).concat([[rCut, yCut]]);
     flatR = rCut;
-    topZ = yCut;
+    topZ = 0;
+    domeAt = (r) => profileHeightAt(prof, r);
   }
+  // Yüz ve izler z=0 düzleminde kurulur; bombeli tepede her nokta bombe yüksekliği kadar, düz tepede topZ kadar kaldırılır
+  const place = (g) => {
+    if (!domeAt) { g.translate(0, 0, topZ); return g; }
+    const pos = g.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) pos.setZ(i, pos.getZ(i) + domeAt(Math.hypot(pos.getX(i), pos.getY(i))));
+    pos.needsUpdate = true;
+    g.computeVertexNormals();
+    return g;
+  };
   if (s.head === 'socket') {
     // ISO 4762 başı: yan yüzde düz tırtıl (≈0,5 mm adım), alt halka ve üst pah döndürme profili
     const r = s.headD / 2;
@@ -285,11 +297,11 @@ export function buildScrew(s, mats) {
   if (outline.length) face.holes.push(new THREE.Path(outline.map(([x, y]) => new THREE.Vector2(x, y))));
   for (const p of marks) face.holes.push(new THREE.Path(p.map(([x, y]) => new THREE.Vector2(x, y))));
   const faceGeom = new THREE.ShapeGeometry(face, 48);
-  faceGeom.translate(0, 0, topZ);
+  place(faceGeom);
   group.add(new THREE.Mesh(faceGeom, fm.body));
   for (const p of marks) {
     const mg = markGeometry(p, Math.min(0.12 * k, 0.25));
-    mg.translate(0, 0, topZ);
+    place(mg);
     group.add(new THREE.Mesh(mg, fm.recess));
   }
 
@@ -300,7 +312,7 @@ export function buildScrew(s, mats) {
     const bottomScale = kind === 'cross' ? 0.3 : kind === 'slot' ? 1 : 0.94;
     const cone = kind === 'slot' ? 0 : kind === 'cross' ? 0.35 * maxR : maxR * 0.94 * Math.tan((31 * Math.PI) / 180);
     const rec = recessGeometry(outline, Math.min(depth, 0.85 * (sunk ? k : k)), bottomScale, cone);
-    rec.translate(0, 0, topZ);
+    place(rec);
     group.add(new THREE.Mesh(rec, fm.recess));
   }
 

@@ -281,6 +281,31 @@ export class Viewer {
       this.enclosureGroup.add(holder);
       this.enclosure[key] = holder;
     }
+    this.explodeOffset = explodeOffset;
+    this.setFasteners({ screws, inserts, panel });
+  }
+
+  /**
+   * Muhafazadaki bağlantı ve panel elemanlarını (yalnızca görsel) yeniden kurar; muhafaza ağları ve görünüm korunur.
+   * Katı model güncelken geometriyi değiştirmeyen seçimler (vida tipi, yıldız izi, malzeme, takılı pul) böyle yansır.
+   */
+  setFasteners({ screws = [], inserts = [], panel = [] } = {}) {
+    if (!this.enclosure) return;
+    for (const o of this._fastenerObjs || []) {
+      o.parent?.remove(o);
+      o.traverse((c) => { if (c.geometry) c.geometry.dispose(); });
+    }
+    this._fastenerObjs = [];
+    const holders = [this.enclosure.base, this.enclosure.lid].filter(Boolean);
+    const before = new Map(holders.map((h) => [h, h.children.length]));
+    this.addFasteners({ screws, inserts, panel });
+    for (const h of holders) this._fastenerObjs.push(...h.children.slice(before.get(h)));
+    this.applyEnclosureOptions();
+    this.rebuildHelpers();
+    this.render();
+  }
+
+  addFasteners({ screws, inserts, panel }) {
     // Vidalar ve dişli burçlar: diş helisi, oyulmuş tahrik izi, tırtıllı insert, tel Helicoil (yalnızca görsel)
     const mats = this.fastenerMaterials();
     for (const s of screws) {
@@ -340,10 +365,6 @@ export class Viewer {
       g.position.set(...v.anchor);
       (v.part === 'lid' ? this.enclosure.lid : this.enclosure.base).add(g);
     }
-    this.explodeOffset = explodeOffset;
-    this.applyEnclosureOptions();
-    this.rebuildHelpers();
-    this.render();
   }
 
   /**
@@ -367,6 +388,7 @@ export class Viewer {
 
   clearEnclosure() {
     this.focusedPart = null;
+    this._fastenerObjs = [];
     for (const holder of [...this.enclosureGroup.children]) {
       holder.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
       this.enclosureGroup.remove(holder);

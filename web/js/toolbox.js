@@ -18,17 +18,26 @@ const sizeLabel = (size) => size.replace('.', ',');
 /** Arama için katlama: küçük harf, ı→i, aksanlar atılır (ş→s, ç→c…) */
 const fold = (s) => String(s ?? '').toLocaleLowerCase('tr').replace(/ı/g, 'i').normalize('NFD').replace(/[̀-ͯ]/g, '');
 
+/** Yıldız izi arama sözcükleri: tipin izinli izleri (H Phillips / PH, Z Pozidriv / PZ) */
+const RECESS_WORDS = { H: ['Phillips', 'PH'], Z: ['Pozidriv', 'PZ'] };
+
 /**
  * Toolbox araması: sorgunun (metin ya da katlanmış kelime listesi) her kelimesi kod, ad, kısa ad, kimlik, tür, boyut,
- * eski DIN numarası ("DIN 965", "DIN965", "965") ya da geri çekilmiş standardın yerine geleninde geçmeli.
+ * eski DIN numarası ("DIN 965", "DIN965", "965"), geri çekilmiş standardın yerine geleni, yıldız izi adı ("Phillips",
+ * "Pozidriv", "PH", "PZ") ya da kombi vidanın takılı pul standardında ("ISO 10673", "10673") geçmeli.
  */
 export function toolboxHit(t, query) {
   const tokens = Array.isArray(query) ? query : fold(query).split(/\s+/).filter(Boolean);
   if (!tokens.length) return true;
+  const recessWords = t.recess ? (t.recesses || [t.recess]).flatMap((r) => RECESS_WORDS[r] || []) : [];
   const hay = fold([t.code, t.name, t.short, t.id, t.kind, t.din, t.din ? t.din.replace(/\s+/g, '') : '', t.withdrawn,
+    ...recessWords, t.combi ? 'ISO 10673 ISO10673' : '',
     ...(t.sizes ? Object.keys(t.sizes) : [])].join(' '));
   return tokens.every((k) => hay.includes(k));
 }
+
+/** Satır ölçüsünün kaynağı ISO yerine eski DIN standardıysa (dim_src) gösterilen ek: " (DIN 7985 ölçüsü)" */
+export const dimSrcText = (sz) => (sz?.dim_src ? ` (${sz.dim_src} ölçüsü)` : '');
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -73,10 +82,13 @@ const RECESS_LABEL = { H: 'Phillips (H)', Z: 'Pozidriv (Z)' };
 function dinRows(t) {
   const rows = [];
   if (t.withdrawn) rows.push(['Durum', `Geri çekilmiş standart; yerine ${t.withdrawn}`]);
-  if (t.din) rows.push(['Eşdeğer', `${t.din}${t.din_note ? '' : ' (M2–M6 ölçüleri aynı)'}`]);
+  // din_verified: false → yalnızca eski DIN adı bilinir, ölçü eşdeğerliği doğrulanmamıştır (ör. DIN 6900-1 → ISO 10644)
+  if (t.din && t.din_verified === false) rows.push(['Eski DIN', `${t.din} (ölçü eşdeğerliği doğrulanmadı)`]);
+  else if (t.din) rows.push(['Eşdeğer', `${t.din}${t.din_note ? '' : ' (M2–M6 ölçüleri aynı)'}`]);
   else if (t.din_note) rows.push(['Eşdeğer DIN', 'yok']);
   return rows;
 }
+export { dinRows };
 const dinNote = (t) => (t.din_note ? `<p class="muted small">${t.din ? `${esc(t.din)} → ${esc(t.code)}: ` : ''}${esc(t.din_note)}</p>` : '');
 
 /* ---------- Ölçülü vida önizleme çizimi (yan görünüş + üstten) ---------- */
@@ -612,7 +624,8 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     // Arama: her kelime kod, ad, kısa ad, boyut ya da eski DIN numarasında geçmeli (Türkçe karakterler katlanır: ı→i, ş→s…)
     const tokens = fold(search).split(/\s+/).filter(Boolean);
     // Eski DIN karşılığı: ipucunda her zaman, adda yalnızca arama DIN numarasına uyunca (ör. "965" → ISO 7046-1 · DIN 965)
-    const dinTitle = (t) => (t.din ? ` · Eşdeğer: ${t.din}` : '') + (t.withdrawn ? ` · geri çekilmiş, yerine ${t.withdrawn}` : '');
+    const dinTitle = (t) => (t.din ? (t.din_verified === false ? ` · eski DIN: ${t.din} (eşdeğerliği doğrulanmadı)` : ` · Eşdeğer: ${t.din}`) : '') +
+      (t.withdrawn ? ` · geri çekilmiş, yerine ${t.withdrawn}` : '');
     const dinHit = (t) => !!t.din && tokens.some((k) => /\d/.test(k) && fold(`${t.din} ${t.din.replace(/\s+/g, '')}`).includes(k));
     const dinTag = (t) => (dinHit(t) ? ` · ${esc(t.din)}` : '');
     const screwItem = (t) => `
@@ -785,7 +798,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       ['Standart', `${nt.code} · ${nt.name}`],
       ...dinRows(nt),
       ['Boyut', `${shown}${z ? '' : ` (vida boyutu ${size} bu seride yok)`}`],
-      ['Anahtar ağzı s', `${n(zz.s)} mm`], ['Köşeler e', `Ø${n(zz.e)}`], [nt.locking ? 'Toplam yükseklik h' : 'Yükseklik m', `${n(zz.m)} mm`],
+      ['Anahtar ağzı s', `${n(zz.s)} mm`], ['Köşeler e', `Ø${n(zz.e)}`], [nt.locking ? 'Toplam yükseklik h' : 'Yükseklik m', `${n(zz.m)} mm${dimSrcText(zz)}`],
       ['Cep', nt.kind === 'square' ? `yandan yuva ${n(zz.s + 2 * fit)} × ${n(zz.m + 0.2)} mm, kavite tarafına açık` : `tabandan altıgen cep SW ${n(zz.s + 2 * fit)}; derinlik vida boyuna göre (uç somundan 1,5·P taşar)`],
       ['Vida boyu', 'somundan en az 1·P taşar, tabandan dışarı çıkmaz'],
     ];
@@ -954,14 +967,14 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       ['Standart', `${t.code} · ${t.name}`],
       ...dinRows(t),
       ['Tahrik', `${driveLabel} · ${driveText(t, sz, rec)}`],
-      ['Baş', `Ø${n(sz.dk_actual || sz.dk)} × ${n(sz.k)} mm${sunk ? ` · 90° ${raise ? 'bombeli havşa' : 'havşa'}${sz.dk_actual ? ` (teorik Ø${n(sz.dk)})` : ''}` : ''}${sz.v ? ` · silindir ${n(sz.v)} + bombe R${n(sz.rf)}` : ''}`],
+      ['Baş', `Ø${n(sz.dk_actual || sz.dk)} × ${n(sz.k)} mm${dimSrcText(sz)}${sunk ? ` · 90° ${raise ? 'bombeli havşa' : 'havşa'}${sz.dk_actual ? ` (teorik Ø${n(sz.dk)})` : ''}` : ''}${sz.v ? ` · silindir ${n(sz.v)} + bombe R${n(sz.rf)}` : ''}`],
       ...(raise ? [['Bombe', `f ${n(raise)} mm${sz.rf ? ` (R ≈ ${n(sz.rf)})` : ''}; yüzeyden çıkar`]] : []),
       ...(cw ? [['Takılı pul', `${cw.type.code} tip ${cw.z.form}: Ø${n(cw.z.d1)}/Ø${n(cw.z.d2)} × ${n(cw.z.s)} mm${wMat ? ` · ${wMat.tag}` : ''} (kaybolmaz)`]] : []),
       ['Diş', tapping ? `${effSize} sac vidası dişi, adım ${n(sz.P)} (ISO 1478)` : `${effSize} × ${n(sz.P)} (kaba)`],
       ['Kapak deliği', screw ? `Ø${n(screw.clearance)}${sunk ? ` + havşa Ø${n(sz.dk + 0.3)}` : ''}` : '–'],
       ['Gövde tarafı', bodySide],
       ['Boy ölçüsü', t.length_includes_head ? (raise ? 'başı da kapsar (havşa üst düzleminden; bombe dahil değil)' : 'başı da kapsar (havşa üst yüzünden)')
-        : cw ? 'baş altından uca (pul dahil değil)' : 'baş altından uca'],
+        : cw ? 'baş altından uca; pul kalınlığı boya eklenmez (pul boyun içindedir)' : 'baş altından uca'],
     ];
     const alt = t.withdrawn ? types.find((x) => x.code === t.withdrawn) : null;
     const groupRow = draft.cornerMode ? `<section class="tb-group">
@@ -1020,6 +1033,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
         <h4>Özellikler</h4>
         <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
         ${dinNote(t)}
+        ${t.note ? `<p class="muted small">${esc(t.note)}</p>` : ''}
         ${alt ? `<p class="small"><span class="t-warn">Geri çekilmiş standart:</span> yeni tasarımda ${esc(alt.code)} önerilir; stok parçalar çoğu kez hâlâ ${esc(t.code)} ölçüsündedir. <button type="button" class="link-btn" data-tswitch="${alt.id}">${esc(alt.code)} seç →</button></p>` : ''}
         ${!tapping ? '<button type="button" class="link-btn" data-view="insert">Gövde tarafını (burç) seç →</button>' : ''}
       </section>
