@@ -933,6 +933,8 @@ input::placeholder, textarea::placeholder { color: var(--text-2); opacity: 1; }
 .keys { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
 .keys td { padding: 6px 4px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
 .keys td:first-child { white-space: nowrap; color: var(--text-2); width: 36%; }
+/* İki sütuna yayılan not satırı (ör. kısayollar açıklaması) sarılır: dar ekranda yardım yatay kaymasın */
+.keys td[colspan] { white-space: normal; width: auto; }
 .save-body { padding: var(--sp-3) var(--sp-4); display: grid; gap: var(--sp-3); }
 .save-field { display: grid; gap: 4px; font-size: var(--fs-sm); color: var(--text-2); }
 .save-field input { font-size: var(--fs-md); color: var(--text); min-height: var(--h-md); padding: 0 9px; border: 1px solid var(--border-control); border-radius: var(--r-sm); background: var(--surface); }
