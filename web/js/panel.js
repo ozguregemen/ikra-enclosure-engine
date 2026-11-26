@@ -142,9 +142,13 @@ export function planPanel(ctx) {
   const bottomBumps = [];
   for (const s of standoffs) {
     const ins = s.insert;
-    if (ins?.kind !== 'standoff' || s.bottomCountersink) continue;
+    if (ins?.kind !== 'standoff') continue;
     const sc = screws.find((q) => Math.abs(q.x - s.x) < 1e-6 && Math.abs(q.y - s.y) < 1e-6);
-    const h = ins.bottom?.kind === 'screw' ? sc?.head_h ?? 0 : ins.bottom?.kind === 'nut' ? (ins.bottom.m || 0) + 1 : 0;
+    // Havşa başlı alt vida tabanla aynı hizada; bombeli havşada (ISO 7047 / ISO 7051) bombe f kadar dışarı çıkar
+    if (s.bottomCountersink && !(sc?.head_f > 0)) continue;
+    const h = s.bottomCountersink ? sc.head_f
+      : ins.bottom?.kind === 'screw' ? (sc?.head_h ?? 0) + (sc?.washer?.captive ? sc.washer.s : 0) // kombi vidada takılı pul da çıkar
+        : ins.bottom?.kind === 'nut' ? (ins.bottom.m || 0) + 1 : 0;
     const dd = ins.bottom?.kind === 'screw' ? sc?.head_d ?? 4 : (ins.bottom?.e || 6);
     if (h > 0) bottomBumps.push({ x: s.x, y: s.y, h, r: dd / 2, what: ins.bottom.kind === 'screw' ? 'vida başı' : 'somun' });
   }

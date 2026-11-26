@@ -25,6 +25,7 @@ import { planPanel } from './panel.js';
 import { planMount } from './mount.js';
 import { planEdgeHold } from './edgehold.js';
 import { toleranceOf, lidGap, adjustScrewRow, pocketAf, compHole, tolAt } from './fits.js';
+import { recessM } from './screw-shapes.js';
 import { runDesignLoop } from './dfm/loop.js';
 import { injectionDraft, lidTubeDraft, concaveMinR, cncToolDiameter, validToolDiameter, stdCutterAtMost, nutDogboneR, nutMaxTool, NUT_RELIEF_MIN,
   cncCornerLimits, cncCutoutR, cncDepthMachinable, stdCutterForDepth, CNC_DEPTH_RATIO_MAX, CNC_SMALL_TOOL, CNC_SMALL_TOOL_DEPTH } from './treat.js';
@@ -345,11 +346,22 @@ export function screwTable(fasteners, ttype) {
 }
 
 const nfDrive = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
-/** Tahrik ölçüsü metni: PH1, T10, imbus 2,5 mm, düz 0,8 mm */
-export function driveText(ttype, sz) {
+
+/**
+ * Yıldız izi (ISO 4757): H Phillips, Z Pozidriv. İstenen iz tipte izinliyse o, değilse tipin varsayılanı (recess);
+ * izi olmayan tiplerde (düz, imbus, torx) null. Eski proje dosyalarında alan yoktur → varsayılan (H).
+ */
+export function resolveRecess(ttype, want) {
+  if (!ttype || !ttype.recess) return null;
+  const allowed = ttype.recesses || [ttype.recess];
+  return want && allowed.includes(want) ? want : ttype.recess;
+}
+
+/** Tahrik ölçüsü metni: PH1, PZ1, T10, imbus 2,5 mm, düz 0,8 mm (recess: seçilen yıldız izi, yoksa tipin varsayılanı) */
+export function driveText(ttype, sz, recess = null) {
   if (!ttype || !sz || sz.drive === undefined) return '';
   switch (ttype.drive_kind) {
-    case 'cross': return `${ttype.recess === 'Z' ? 'PZ' : 'PH'}${sz.drive}`;
+    case 'cross': return `${(recess || ttype.recess) === 'Z' ? 'PZ' : 'PH'}${sz.drive}`;
     case 'torx': return `T${sz.drive}`;
     case 'hex': return `imbus ${nfDrive.format(sz.drive)} mm`;
     case 'slot': return `düz ${nfDrive.format(sz.drive)} mm`;
@@ -357,10 +369,29 @@ export function driveText(ttype, sz) {
   }
 }
 
-/** SolidWorks Toolbox tarzı tanım: "ISO 7045 - M3 × 12 - H", "ISO 7049 - ST2.9 × 13 - C - H" */
-export function designation(ttype, size, L) {
+/**
+ * SolidWorks Toolbox tarzı tanım: "ISO 7045 - M3 × 12 - H", "ISO 7049 - ST2.9 × 13 - C - H", Pozidriv "… - Z";
+ * kombi vidada vida sembolü ve pul tipi: "ISO 10644 - M3 × 10 - H - S3 - N" (ISO 10644:1998 madde 6 öğeleri)
+ */
+export function designation(ttype, size, L, recess = null) {
   const len = L === null || L === undefined ? '…' : nfDrive.format(L);
-  return `${ttype.code} - ${size} × ${len}${ttype.form ? ' - ' + ttype.form : ''}${ttype.recess ? ' - ' + ttype.recess : ''}`;
+  const rec = ttype.recess ? recess || ttype.recess : null;
+  const cw = ttype.combi ? ttype.sizes?.[size]?.washer : null;
+  return `${ttype.code} - ${size} × ${len}${ttype.form ? ' - ' + ttype.form : ''}${rec ? ' - ' + rec : ''}` +
+    (ttype.combi ? ` - ${ttype.combi}${cw?.type ? ' - ' + cw.type : ''}` : '');
+}
+
+/**
+ * Kombi vidanın (ISO 10644) vidaya takılı düz pulu (ISO 10673): pul tipi gibi davranır (oturma, tork, boy, 3B, BOM).
+ * Malzeme vidayı izler (çelik → 200 HV galvaniz, paslanmaz → A2). Kombi değilse ya da boyutta pul yoksa null.
+ */
+export function combiWasher(ttype, size) {
+  const z = ttype?.combi ? ttype.sizes?.[size]?.washer : null;
+  if (!z) return null;
+  return {
+    type: { id: 'iso10673', code: 'ISO 10673', name: `Düz pul, kombi vida için (tip ${z.type})`, kind: 'flat', materials: ['st200zn', 'a2'], captive: true },
+    z: { d1: z.d1, d2: z.d2, s: z.s, form: z.type },
+  };
 }
 
 function distToBoxXY(box, x, y) {
@@ -818,6 +849,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const spec = { type: 'iso7045', size: 'auto', length: 'auto', ...(options.screwSpec || {}) };
   const ttype = (options.toolbox?.types || []).find((t) => t.id === spec.type) || null;
   const tapping = isTapping(ttype);
+  // Yıldız izi (H Phillips / Z Pozidriv): tipte izinli değilse tipin varsayılanı
+  const recess = resolveRecess(ttype, spec.recess);
+  // Bombeli havşa (ISO 7047, ISO 7051): bombe f oturma düzleminden yukarı çıkar, boya dahil değildir
+  const raised = !!ttype?.raised;
   // Gövde tarafı (Toolbox › dişli burçlar): 'auto' = kural dosyası, 'none' = doğrudan kılavuz, ya da burç tipi.
   // Sac vidası dişini plastikte kendisi açar: süreçten ve burç seçiminden bağımsız olarak gövdede ön delik.
   const insertTypes = options.toolbox?.inserts || [];
@@ -879,8 +914,14 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const wtype = !spec.washer || spec.washer === 'none' ? null
     : (options.toolbox?.washers || []).find((w) => w.id === spec.washer) || null;
   if (wtype && countersunk) noteSpec('info', `Havşa başlı vidada baş altı pulu kullanılmaz; ${wtype.code} yok sayıldı.`, null, 'FAS-WASHER');
-  const useWasher = wtype && !countersunk ? wtype : null;
+  // Kombi vida (ISO 10644): pul vidaya takılıdır; ayrıca seçilen baş altı pulu kullanılmaz
+  const combi = !!ttype?.combi;
+  const combi0 = combi ? combiWasher(ttype, Object.keys(ttype.sizes)[0]) : null;
+  const combiType = combi0?.type || null;
+  if (wtype && combi) noteSpec('info', `${ttype.code} kombi vidasında düz pul (ISO 10673 tip N) vidaya takılıdır; ayrıca seçilen ${wtype.code} yok sayıldı.`, null, 'FAS-WASHER');
+  const useWasher = wtype && !countersunk && !combi ? wtype : null;
   const washerMat = useWasher ? resolveWasherMaterial(useWasher, spec.washerMaterial, screwMat, matList) : null;
+  const combiMat = combiType ? resolveWasherMaterial(combiType, 'match', screwMat, matList) : null;
   const torqueOf = []; // her vida için tork özeti
 
   if (fasteners) {
@@ -908,6 +949,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const headD = ts ? ts.dk : s.head_d;
       const headH = ts ? ts.k : s.head_h;
       const lengths = ts ? ts.lengths : fasteners.standard_lengths;
+      const cw = combi ? combiWasher(ttype, s.size) : null; // kombi vidanın takılı pulu
       // Gövde tarafı deliği: insert deliği / Helicoil matkabı / kılavuz matkabı / sac vidası ön deliği
       const ins = method === 'insert' || method === 'helicoil' ? insertFor(itype, s.size, ispec, rules) : null;
       let avail = available; // vida ucunun inebileceği derinlik (PCB altından)
@@ -1018,7 +1060,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
         if (sotype.ends === 'ff') {
           // Alttan vida: üst ve alt vida aralayıcının yarısını paylaşır
           const half = Ls / 2 - 0.25;
-          const gB = floor;
+          const gB = floor + (cw ? cw.z.s : 0); // kombi vidada takılı pul da sıkıştırılır
           const minB = Math.min(s.d, half - 0.25);
           const Lb = lengths.find((x) => x - gB >= minB - 1e-9 && x - gB <= half + 1e-9) ?? lengths.find((x) => x - gB >= minB - 1e-9) ?? null;
           const eB = Lb !== null ? Math.min(half, Lb - gB) : half;
@@ -1109,6 +1151,13 @@ export function computeDesign(analysis, rules, params, options = {}) {
           } else if (depthC > lidT + 1e-6) {
             noteSpec('info', `${s.size} havşası ${f(depthC)} mm derin; ${f(lidT)} mm kapağın altında vida borusunun içinde devam ediyor.`, null, 'FAS-CSK', { part: 'lid' });
           }
+          if (raised && ts?.f > 0) {
+            // Bombe kapak üstünden çıkar: kapak üstü düz kalmalıysa düz havşa başlı karşılığı önerilir
+            const flatAlt = (options.toolbox?.types || []).find((t) => t.id === (tapping ? 'iso7050' : 'iso7046'));
+            noteSpec('info', `${ttype.code} ${s.size} bombeli havşa başının bombesi kapak yüzeyinden ${f(ts.f)} mm çıkar (boy bombeyi kapsamaz)` +
+              (flatAlt ? `; kapak üstü düz kalmalıysa ${flatAlt.code} (${flatAlt.short.toLocaleLowerCase('tr')}) seçilebilir.` : '.'),
+            flatAlt ? { key: 'screwType', value: flatAlt.id, label: `${flatAlt.code} seç` } : null, 'FAS-CSK', { measured: num(ts.f), unit: 'mm', part: 'lid' });
+          }
         } else {
           const alt = (options.toolbox?.types || []).find((t) => t.id === ttype.alt);
           noteSpec('error', `${ttype.code} havşa başlı vida yalnızca kapak vidası olarak kullanılabilir; PCB yüzeyine havşa açılamaz.` +
@@ -1120,7 +1169,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
       // Vida boyu: baş kapak (veya PCB) üstünde, uç standoff deliğinde.
       // Havşa başlıda boy başı da kapsar ve baş kapakla aynı hizada biter: uç yine üst yüz − L'dedir.
       // Baş altı pulu kalınlığı sıkıştırılan boya eklenir (yaylı rondelada ezilmiş kalınlık s)
-      const wz = useWasher ? useWasher.sizes[washerSizeFor(s.size)] || null : null;
+      // Kombi vidada pul vidaya takılıdır (ISO 10673 tip N): ayrı seçilen pul gibi oturma, boy, tork ve 3B'ye girer
+      const wInfo = cw ? cw.type : useWasher;
+      const wMat = cw ? combiMat : washerMat;
+      const wz = cw ? cw.z : useWasher ? useWasher.sizes[washerSizeFor(s.size)] || null : null;
       if (useWasher && !wz) noteSpec('info', `${useWasher.code} ${washerSizeFor(s.size)} boyutunda yok; bu deliklerde pul kullanılmadı.`, null, 'FAS-DATA');
       const ws = wz ? wz.s : 0;
       // Gömme baş (oyuk): yalnızca kapakta (sandviç vidası); PCB üstüne oyuk açılamaz
@@ -1139,8 +1191,11 @@ export function computeDesign(analysis, rules, params, options = {}) {
         const hit = obstacles.find((o) => o.box.max[2] > b.top + 0.01 && o.box.min[2] < b.top + ws + headH &&
           distToBoxXY(o.box, h.x, h.y) < headR + 0.2);
         if (hit) {
-          fastenChecks.push({ level: 'warn', text: `Delik ${at(h)}: vida başı${wz ? '/pul' : ''} (Ø${f(2 * headR)}) ${hit.name} bileşenine değiyor; daha küçük başlı vida ya da pulsuz montaj seçilmeli.`,
-            focus: partIdByName(hit.name), rule: 'FAS-HEAD-CLEAR' });
+          // Kombi vidada pul vidaya takılıdır: pulsuz montaj için pulsuz karşılığı (ISO 7045) önerilir
+          const plain = cw ? (options.toolbox?.types || []).find((t) => t.id === 'iso7045') : null;
+          fastenChecks.push({ level: 'warn', text: `Delik ${at(h)}: vida başı${wz ? '/pul' : ''} (Ø${f(2 * headR)}) ${hit.name} bileşenine değiyor; ` +
+            (cw ? `${ttype.code} vidasının pulu takılıdır, daha küçük başlı ya da pulsuz vida${plain ? ` (${plain.code})` : ''} seçilmeli.` : 'daha küçük başlı vida ya da pulsuz montaj seçilmeli.'),
+          ...(plain ? { fix: { key: 'screwType', value: plain.id, label: `${plain.code} seç` } } : {}), focus: partIdByName(hit.name), rule: 'FAS-HEAD-CLEAR' });
         }
         // Tornavida / anahtar erişimi: başın üstünde (kapak kapanmadan önce) bileşen olmamalı
         const headTopZ = b.top + ws + headH;
@@ -1291,16 +1346,17 @@ export function computeDesign(analysis, rules, params, options = {}) {
         size: s.size, length: len.L, engagement: len.engagement, ok: len.ok, lid: !!tube, x: h.x, y: h.y, role: tube ? 'sandwich' : 'pcb',
         zSeat: tube ? zTop - (cbore ? cbore.depth : 0) : b.top, counterbore: cbore,
         head_d: headD, head_h: headH, head_d_actual: ts?.dk_actual ?? headD, head: ttype ? ttype.head : 'pan', d: s.d, grip,
+        ...(raised && ts?.f > 0 ? { head_f: ts.f } : {}), ...(ts?.v > 0 ? { head_v: ts.v } : {}), ...(recess ? { recess } : {}),
         type: ttype ? ttype.id : null, code: ttype ? ttype.code : null, name: ttype ? ttype.name : 'vida',
-        driveKind: ttype ? ttype.drive_kind : null, driveText: driveText(ttype, ts),
-        driveVal: ts ? ts.drive : null, driveA: ts?.A ?? null, driveM: ts?.m ?? null,
-        designation: ttype ? designation(ttype, s.size, len.L) + (screwMat ? ` - ${screwMat.tag}` : '') : null,
+        driveKind: ttype ? ttype.drive_kind : null, driveText: driveText(ttype, ts, recess),
+        driveVal: ts ? ts.drive : null, driveA: ts?.A ?? null, driveM: recessM(ts, recess),
+        designation: ttype ? designation(ttype, s.size, len.L, recess) + (screwMat ? ` - ${screwMat.tag}` : '') : null,
         P: ts?.P ?? null, tapping,
         material: screwMat ? { id: screwMat.id, tag: screwMat.tag, label: screwMat.label, finish: screwMat.finish } : null,
         seat: ws,
-        washer: wz ? { type: useWasher.id, code: useWasher.code, name: useWasher.name, kind: useWasher.kind, size: washerSizeFor(s.size),
+        washer: wz ? { type: wInfo.id, code: wInfo.code, name: wInfo.name, kind: wInfo.kind, size: washerSizeFor(s.size),
           d1: wz.d1, d2: wz.d2, s: wz.s, teeth: wz.teeth || null, b: wz.b || null,
-          material: washerMat ? { id: washerMat.id, tag: washerMat.tag, finish: washerMat.finish } : null } : null,
+          material: wMat ? { id: wMat.id, tag: wMat.tag, finish: wMat.finish } : null, ...(cw ? { captive: true, form: cw.z.form } : {}) } : null,
         torque: tqInfo,
       });
     }
@@ -1310,16 +1366,28 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const s = cp.s;
       const ts = cp.ts;
       const cSunk = cp.ctype?.head === 'countersunk';
+      const cRecess = resolveRecess(cp.ctype, cp.spec.recess);
+      const cRaise = cp.ctype?.raised && ts?.f > 0 ? ts.f : 0;
       const cm = resolveScrewMaterial(cp.ctype, cp.spec.material, matList);
-      const cwt = cp.spec.washer && cp.spec.washer !== 'none' && !cSunk ? (options.toolbox?.washers || []).find((w) => w.id === cp.spec.washer) || null : null;
-      const cwz = cwt ? cwt.sizes[washerSizeFor(cp.size)] || null : null;
+      // Kombi köşe vidası: takılı pul; ayrıca seçilen pul yok sayılır (not PCB vidalarındaki gibi)
+      const cCombi = combiWasher(cp.ctype, cp.size);
+      if (cCombi && cp.spec.washer && cp.spec.washer !== 'none') {
+        const wc = (options.toolbox?.washers || []).find((w) => w.id === cp.spec.washer)?.code || cp.spec.washer;
+        noteSpec('info', `${cp.ctype.code} kombi vidasında düz pul (ISO 10673 tip N) vidaya takılıdır; köşe vidaları için seçilen ${wc} yok sayıldı.`, null, 'FAS-WASHER');
+      }
+      const cwt = cCombi ? cCombi.type : cp.spec.washer && cp.spec.washer !== 'none' && !cSunk ? (options.toolbox?.washers || []).find((w) => w.id === cp.spec.washer) || null : null;
+      const cwz = cCombi ? cCombi.z : cwt ? cwt.sizes[washerSizeFor(cp.size)] || null : null;
       const cws = cwz ? cwz.s : 0;
-      const cwMat = cwz ? resolveWasherMaterial(cwt, cp.spec.washerMaterial, cm, matList) : null;
+      const cwMat = cwz ? resolveWasherMaterial(cwt, cCombi ? 'match' : cp.spec.washerMaterial, cm, matList) : null;
       const headDc = ts ? ts.dk : s.head_d;
       const headHc = ts ? ts.k : s.head_h;
       const headDA = ts?.dk_actual ?? headDc;
       const cb = cp.spec.headSeat === 'counterbore' && !cSunk ? counterboreFor(headDA, headHc, cwz, lidTol.hole_comp) : null;
       const csk = cSunk ? { dTop: headDc + 0.3, depth: (headDc + 0.3 - lidClr(s)) / 2 } : null;
+      if (cRaise > 0) {
+        noteSpec('info', `Köşe vidası ${cp.ctype.code} ${cp.size} bombeli havşa başının bombesi kapak yüzeyinden ${f(cRaise)} mm çıkar (boy bombeyi kapsamaz).`,
+          null, 'FAS-CSK', { measured: num(cRaise), unit: 'mm', part: 'lid' });
+      }
       // Kapak kalınlığı oyuğa/havşaya yetmezse kapağın altına boss'a oturan bir yastık eklenir
       const padH = Math.max(0, Math.max(cb ? cb.depth : 0, csk ? csk.depth : 0) + 0.8 - lidT);
       const bossTop = cavTop - padH;
@@ -1392,15 +1460,17 @@ export function computeDesign(analysis, rules, params, options = {}) {
           size: s.size, length: Lc, engagement: engC, ok: engC >= cp.minEngage, lid: true, x, y, role: 'corner',
           zSeat: zTop - (cb ? cb.depth : 0), counterbore: cb,
           head_d: headDc, head_h: headHc, head_d_actual: headDA, head: cp.ctype ? cp.ctype.head : 'pan', d: s.d, grip,
+          ...(cRaise > 0 ? { head_f: cRaise } : {}), ...(ts?.v > 0 ? { head_v: ts.v } : {}), ...(cRecess ? { recess: cRecess } : {}),
           type: cp.ctype?.id ?? null, code: cp.ctype?.code ?? null, name: cp.ctype?.name ?? 'vida',
-          driveKind: cp.ctype?.drive_kind ?? null, driveText: driveText(cp.ctype, ts),
-          driveVal: ts ? ts.drive : null, driveA: ts?.A ?? null, driveM: ts?.m ?? null,
-          designation: cp.ctype ? designation(cp.ctype, s.size, Lc) + (cm ? ` - ${cm.tag}` : '') : null,
+          driveKind: cp.ctype?.drive_kind ?? null, driveText: driveText(cp.ctype, ts, cRecess),
+          driveVal: ts ? ts.drive : null, driveA: ts?.A ?? null, driveM: recessM(ts, cRecess),
+          designation: cp.ctype ? designation(cp.ctype, s.size, Lc, cRecess) + (cm ? ` - ${cm.tag}` : '') : null,
           P: ts?.P ?? null, tapping: cp.tapping,
           material: cm ? { id: cm.id, tag: cm.tag, label: cm.label, finish: cm.finish } : null,
           seat: cws,
           washer: cwz ? { type: cwt.id, code: cwt.code, name: cwt.name, kind: cwt.kind, size: washerSizeFor(s.size), d1: cwz.d1, d2: cwz.d2, s: cwz.s,
-            teeth: cwz.teeth || null, b: cwz.b || null, material: cwMat ? { id: cwMat.id, tag: cwMat.tag, finish: cwMat.finish } : null } : null,
+            teeth: cwz.teeth || null, b: cwz.b || null, material: cwMat ? { id: cwMat.id, tag: cwMat.tag, finish: cwMat.finish } : null,
+            ...(cCombi ? { captive: true, form: cCombi.z.form } : {}) } : null,
           torque: cTq,
         });
       }
@@ -1425,7 +1495,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
           const size = screws.find((x) => x.lid === lidSide)?.size;
           const big = (options.toolbox?.washers || []).find((w) => w.id === 'iso7093' && w.sizes[washerSizeFor(size)]);
           const norm = (options.toolbox?.washers || []).find((w) => w.id === 'iso7089');
-          const sugg = !countersunk && (!useWasher || useWasher.id !== 'iso7093') ? (big && useWasher?.id !== 'iso7093' ? big : !useWasher ? norm : null) : null;
+          const sugg = !countersunk && !combi && (!useWasher || useWasher.id !== 'iso7093') ? (big && useWasher?.id !== 'iso7093' ? big : !useWasher ? norm : null) : null;
           noteSpec('info', `${where}: sıkma torku ${f(t.T)} N·m ile sınırlı (${torqueLimitText(t.limit)}).` +
             (sugg ? ` ${sugg.code} pul baskıyı yayar, torku artırır.` : ''), sugg ? toWasher(sugg.id, `${sugg.code} pul ekle`) : null, 'FAS-TORQUE', { measured: t.T, unit: 'N·m' });
         } else if (['strip', 'insert', 'helicoil'].includes(t.limit) && t.T < 0.6 * t.Tscrew) {
@@ -1456,8 +1526,9 @@ export function computeDesign(analysis, rules, params, options = {}) {
     }
     // Vida tipi ile gövde süreci uyumu
     if (usedHoles.length && ttype) {
-      const tapAlt = (options.toolbox?.types || []).find((t) => t.id === (ttype.head === 'countersunk' ? 'iso7050' : 'iso7049'));
-      const machineAlt = (options.toolbox?.types || []).find((t) => t.id === (ttype.head === 'countersunk' ? 'iso7046' : 'iso7045'));
+      // Karşılık gelen sac vidası / metrik vida (bombeli havşa: ISO 7051 ↔ ISO 7047)
+      const tapAlt = (options.toolbox?.types || []).find((t) => t.id === (raised ? 'iso7051' : ttype.head === 'countersunk' ? 'iso7050' : 'iso7049'));
+      const machineAlt = (options.toolbox?.types || []).find((t) => t.id === (raised ? 'iso7047' : ttype.head === 'countersunk' ? 'iso7046' : 'iso7045'));
       if (tapping && rules.conductive) {
         noteSpec('warn', `${ttype.code} sac vidası metal gövdeye önerilmez: metrik vida + ${METHOD_TEXT[rules.fastening || 'tapped']} kullanılmalı.`,
           machineAlt ? { key: 'screwType', value: machineAlt.id, label: `${machineAlt.code} seç` } : null, 'FAS-SCREW-PROCESS');
@@ -1474,7 +1545,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const toHeli = { key: 'insertType', value: 'helicoil-fr', label: 'Helicoil seç' };
       const toHeat = { key: 'insertType', value: 'rx-heatset', label: 'Isıyla gömülen insert seç' };
       if (tapping && ispec.type !== 'auto') {
-        const machineAlt = (options.toolbox?.types || []).find((t) => t.id === (ttype.head === 'countersunk' ? 'iso7046' : 'iso7045'));
+        const machineAlt = (options.toolbox?.types || []).find((t) => t.id === (raised ? 'iso7047' : ttype.head === 'countersunk' ? 'iso7046' : 'iso7045'));
         noteSpec('warn', `Sac vidası seçili: gövdede burç kullanılmaz, vida dişini kendisi açar. Burç için metrik vida seçilmeli.`,
           machineAlt ? { key: 'screwType', value: machineAlt.id, label: `${machineAlt.code} seç` } : null, 'FAS-INSERT-PROCESS');
       } else if (method === 'insert' && rules.conductive) {
@@ -1510,7 +1581,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
           if (ntype.locking) noteSpec('info', `${ntype.code} naylon kilitli somun titreşimde gevşemeyi önler; vida ucu somundan en az 1–2 diş taşmalıdır (boy buna göre seçildi).`, null, 'FAS-INSERT-PROCESS');
         }
       } else if (method === 'standoff' && sotype) {
-        noteSpec('info', `Hazır aralayıcı tabana ${sotype.ends === 'ff' ? 'alttan vidayla' : 'erkek dişi ve altta somunla'} bağlanır; ${countersunk && sotype.ends === 'ff' ? 'havşa başlı alt vidalar tabanla aynı hizada kalır.' : 'tabandaki vida başları/somunlar dışarıda kalır, lastik ayak önerilir.'}`, null, 'FAS-STANDOFF');
+        const domeF = raised ? Math.max(0, ...screws.map((x) => x.head_f || 0)) : 0;
+        noteSpec('info', `Hazır aralayıcı tabana ${sotype.ends === 'ff' ? 'alttan vidayla' : 'erkek dişi ve altta somunla'} bağlanır; ${countersunk && sotype.ends === 'ff'
+          ? (domeF > 0 ? `bombeli havşa başlı alt vidaların bombesi tabandan ${f(domeF)} mm çıkar, lastik ayak önerilir.` : 'havşa başlı alt vidalar tabanla aynı hizada kalır.')
+          : 'tabandaki vida başları/somunlar dışarıda kalır, lastik ayak önerilir.'}`, null, 'FAS-STANDOFF');
       }
     }
     for (const c of specIssues.values()) fastenChecks.push(c);
@@ -1579,7 +1653,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   const addPart = (pp) => parts.push({ standard: '', size: '', length: null, material: '', spec: '', where: '', at: null, part: 'base', ...pp });
   const groups = new Map();
   for (const sc of screws) {
-    const key = `${sc.code}|${sc.size}|${sc.length}|${sc.role}|${sc.material?.id}`;
+    const key = `${sc.code}|${sc.size}|${sc.length}|${sc.role}|${sc.material?.id}|${sc.recess || ''}`;
     if (!groups.has(key)) groups.set(key, { ...sc, count: 0 });
     groups.get(key).count++;
   }
@@ -1588,9 +1662,11 @@ export function computeDesign(analysis, rules, params, options = {}) {
     const len = g.length === null || g.length === undefined ? '?' : f(g.length);
     const mat = g.material ? ` ${g.material.tag}` : '';
     const where = { sandwich: 'kapak + PCB', pcb: 'PCB', corner: 'kapak (köşe)' }[g.role] || (g.lid ? 'kapak + PCB' : 'PCB');
-    bom.push(`${g.count} × ${g.code ? g.code + ' ' : ''}${g.size}×${len}${mat} ${g.name.toLocaleLowerCase('tr')}${drive}${g.counterbore ? ', gömme' : ''} — ${where}`);
+    // Kombi vida tek kalem: takılı pul (ISO 10673 tip N) vidayla birlikte listelenir
+    const cwTxt = g.washer?.captive ? `${g.washer.code} ${g.washer.form} pul Ø${f(g.washer.d1)}/Ø${f(g.washer.d2)} × ${f(g.washer.s)}${g.washer.material ? ' ' + g.washer.material.tag : ''}` : '';
+    bom.push(`${g.count} × ${g.code ? g.code + ' ' : ''}${g.size}×${len}${mat} ${g.name.toLocaleLowerCase('tr')}${drive}${cwTxt ? `, takılı ${cwTxt}` : ''}${g.counterbore ? ', gömme' : ''} — ${where}`);
     addPart({ qty: g.count, kind: 'screw', standard: g.code || '', name: g.name, size: g.size, length: g.length ?? null, material: g.material?.tag || '',
-      spec: [g.driveText, g.counterbore ? 'gömme baş' : ''].filter(Boolean).join(', '), where, at: [g.x, g.y, g.zSeat ?? (g.lid ? zTop : b.top)], part: g.lid ? 'lid' : 'base' });
+      spec: [g.driveText, cwTxt ? `takılı ${cwTxt}` : '', g.counterbore ? 'gömme baş' : ''].filter(Boolean).join(', '), where, at: [g.x, g.y, g.zSeat ?? (g.lid ? zTop : b.top)], part: g.lid ? 'lid' : 'base' });
   }
   // Köşe boss'larının gövde tarafı
   if (cornerBosses.length && cplan) {
@@ -1613,7 +1689,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   // Baş altı pulları (tip + boyut + malzeme gruplanır)
   const wgroups = new Map();
   for (const sc of screws) {
-    if (!sc.washer) continue;
+    if (!sc.washer || sc.washer.captive) continue; // kombi vidanın pulu vida kaleminde
     const w = sc.washer;
     const key = `${w.type}|${w.size}|${w.material?.id}`;
     if (!wgroups.has(key)) wgroups.set(key, { ...w, count: 0, at: [sc.x, sc.y, sc.zSeat ?? (sc.lid ? zTop : b.top)], lid: sc.lid });
@@ -2464,7 +2540,9 @@ export function computeDesign(analysis, rules, params, options = {}) {
     insertType: itype ? { id: itype.id, kind: itype.kind, code: itype.code, name: itype.name } : null,
     screwType: ttype ? { id: ttype.id, code: ttype.code, name: ttype.name, head: ttype.head } : null,
     screwMaterial: screwMat ? { id: screwMat.id, tag: screwMat.tag, label: screwMat.label } : null,
-    washer: useWasher ? { id: useWasher.id, code: useWasher.code, material: washerMat ? washerMat.tag : null } : null,
+    washer: useWasher ? { id: useWasher.id, code: useWasher.code, material: washerMat ? washerMat.tag : null }
+      : combiType ? { id: combiType.id, code: `${combiType.code} ${combi0.z.form}`, material: combiMat ? combiMat.tag : null, captive: true } : null,
+    recess,
     torque: { lid: tLid || null, pcb: tPcb || null, corner: tCorner || null },
     cornerInfo,
     cornerPlan: cplan ? { size: cplan.size, method: cplan.method, od: cplan.od, axis: cornerPad?.axis ?? null, extra: cornerPad?.extra ?? 0, spec: cplan.spec } : null,

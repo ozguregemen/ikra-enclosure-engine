@@ -4,7 +4,19 @@
  * Koordinatlar mm. Profil: [yarıçap, yükseklik]; yükseklik 0 = oturma yüzü (havşada üst yüz, baş aşağıda).
  */
 
-/** Baş için döndürme profili. s: { head, dk, k, d, dkActual } */
+/**
+ * Bombeli havşa başın (ISO 7047, ISO 7051) bombesi: havşanın üst kenarından (ra, 0) tepeye (0, f) küre kapağı.
+ * Yarıçap kenardan ve tepeden geçecek biçimde hesaplanır (ISO rf ≈ bu değer; M3: 5,75 / rf 6). Bombesizse null.
+ */
+export function raisedDome(s) {
+  if (s.head !== 'countersunk' || !(s.f > 0)) return null;
+  const ra = Math.min(s.dk / 2, (s.dkActual || s.dk) / 2);
+  const R = (ra * ra + s.f * s.f) / (2 * s.f);
+  const yc = s.f - R;
+  return { ra, f: s.f, R, yc, at: (x) => yc + Math.sqrt(Math.max(0, R * R - x * x)) };
+}
+
+/** Baş için döndürme profili. s: { head, dk, k, d, dkActual, f? (bombe), v? (DIN 7985 silindir yüksekliği) } */
 export function headProfile(s) {
   const r = s.dk / 2;
   const k = s.k;
@@ -13,7 +25,17 @@ export function headProfile(s) {
       // 90° koni; gerçek baş çapı teorik çaptan küçükse üstte kısa silindirik kenar kalır
       const ra = Math.min(r, (s.dkActual || s.dk) / 2);
       const yCone = -k + (ra - s.d / 2);
-      return [[0, -k], [s.d / 2, -k], [ra, Math.min(0, yCone)], [ra, 0], [0, 0]];
+      const base = [[0, -k], [s.d / 2, -k], [ra, Math.min(0, yCone)], [ra, 0]];
+      const dome = raisedDome(s);
+      if (!dome) return [...base, [0, 0]];
+      // Bombeli havşa: oturma düzleminden (havşa üst kenarı) tepeye f yüksekliğinde küre kapağı
+      const a0 = Math.asin(Math.min(1, ra / dome.R));
+      for (let i = 1; i <= 8; i++) {
+        const a = a0 * (1 - i / 8);
+        base.push([dome.R * Math.sin(a), dome.yc + dome.R * Math.cos(a)]);
+      }
+      base[base.length - 1] = [0, dome.f];
+      return base;
     }
     case 'socket': {
       const ch = Math.min(0.12 * k, 0.3);
@@ -42,6 +64,20 @@ export function headProfile(s) {
       return pts;
     }
     default: {
+      if (s.v > 0 && s.v < k) {
+        // Yuvarlak silindir baş (DIN 7985): v yüksekliğinde silindir, üstü dk boyunca küre kapağı (tepe k)
+        const h = k - s.v;
+        const R = (r * r + h * h) / (2 * h);
+        const yc = k - R;
+        const a0 = Math.asin(Math.min(1, r / R));
+        const pts = [[0, 0], [r, 0], [r, s.v]];
+        for (let i = 1; i <= 8; i++) {
+          const a = a0 * (1 - i / 8);
+          pts.push([R * Math.sin(a), yc + R * Math.cos(a)]);
+        }
+        pts[pts.length - 1] = [0, k];
+        return pts;
+      }
       // Bombe (pan) baş: düşük kenar, yuvarlatılmış omuz, düz tepe
       const pts = [[0, 0], [r, 0], [r, 0.35 * k]];
       for (let i = 1; i <= 6; i++) {
@@ -54,12 +90,16 @@ export function headProfile(s) {
   }
 }
 
-/** Baş tepesinin oturma yüzüne göre yüksekliği */
-export const headTop = (s) => (s.head === 'countersunk' ? 0 : s.k);
+/** Baş tepesinin oturma yüzüne göre yüksekliği (bombeli havşada bombe yüksekliği f) */
+export const headTop = (s) => (s.head === 'countersunk' ? (s.f > 0 ? s.f : 0) : s.k);
+
+/** Yıldız iz çapı: Pozidriv (Z) için mZ, yoksa m; ikisi de yoksa null (çizimler 0,54·dk alır) */
+export const recessM = (sz, recess) => (recess === 'Z' ? (sz?.mZ ?? sz?.m ?? null) : (sz?.m ?? null));
 
 /**
  * Üstten tahrik izi (merkez 0,0): kapalı çokgenler listesi.
- * s: { head, dk, dkActual, driveKind, drive (PH no. / yarık n / imbus s / T no.), A (torx), m (yıldız iz çapı) }
+ * s: { head, dk, dkActual, driveKind, drive (PH no. / yarık n / imbus s / T no.), A (torx), m (yıldız iz çapı), recess ('H' | 'Z') }
+ * Pozidriv (Z): yıldızın yanında, kollar arasında 45°'de dört ince çentik (ilk çokgen yine yıldızdır).
  */
 export function driveOutline(s) {
   const dk = s.dkActual || s.dk;
@@ -67,7 +107,19 @@ export function driveOutline(s) {
     case 'cross': {
       const L = (s.m || 0.54 * dk) / 2;
       const w = 0.11 * (s.m || 0.54 * dk);
-      return [[[-L, -w], [-w, -w], [-w, -L], [w, -L], [w, -w], [L, -w], [L, w], [w, w], [w, L], [-w, L], [-w, w], [-L, w]]];
+      const cross = [[-L, -w], [-w, -w], [-w, -L], [w, -L], [w, -w], [L, -w], [L, w], [w, w], [w, L], [-w, L], [-w, w], [-L, w]];
+      if (s.recess !== 'Z') return [cross];
+      // Pozidriv imi: köşeden (w√2) dışa doğru, kol boyunun ~%75'ine kadar 45° çentikler
+      const r0 = w * Math.SQRT2 + 0.15 * w;
+      const r1 = 0.78 * L;
+      const t = 0.14 * w;
+      const ticks = [1, 3, 5, 7].map((q) => {
+        const a = (q * Math.PI) / 4;
+        const [c, sn] = [Math.cos(a), Math.sin(a)];
+        const [nx, ny] = [-sn * t, c * t];
+        return [[r0 * c - nx, r0 * sn - ny], [r1 * c - nx, r1 * sn - ny], [r1 * c + nx, r1 * sn + ny], [r0 * c + nx, r0 * sn + ny]];
+      });
+      return [cross, ...ticks];
     }
     case 'slot': {
       const L = (s.head === 'pan' || s.head === 'button' ? 0.6 : 0.95) * dk / 2;
