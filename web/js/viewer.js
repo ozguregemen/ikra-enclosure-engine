@@ -107,13 +107,15 @@ export class Viewer {
       roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide,
       emissiveIntensity: 0.35, polygonOffset: true, polygonOffsetFactor: -1,
     });
+    // İnceleme bulgusu "Göster": vurgulanan muhafaza parçası
+    this.focusMaterial = new THREE.MeshStandardMaterial({
+      roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide, transparent: true, opacity: 0.7,
+      emissiveIntensity: 0.3, depthWrite: false,
+    });
+    this.focusedPart = null;
 
     this.applyTheme();
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      this.applyTheme();
-      this.rebuildHelpers();
-      this.render();
-    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.refreshTheme());
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -128,9 +130,18 @@ export class Viewer {
     this.scene.background = new THREE.Color(cssVar('--viewer-bg') || '#e9edf1');
     this.highlightMaterial.color.copy(accent);
     this.highlightMaterial.emissive.copy(accent);
+    this.focusMaterial.color.copy(accent);
+    this.focusMaterial.emissive.copy(accent);
     this.enclosureMaterial.color.set(cssVar('--enclosure') || '#a9bccf');
     this.enclosureEdgeMaterial.color.set(cssVar('--enclosure-edge') || '#4a5866');
     this.cube?.applyTheme();
+  }
+
+  /** Tema değişti (sistem tercihi ya da uygulamadaki seçim): renkler belirteçlerden yeniden okunur */
+  refreshTheme() {
+    this.applyTheme();
+    this.rebuildHelpers();
+    this.render();
   }
 
   resize() {
@@ -348,6 +359,7 @@ export class Viewer {
   }
 
   clearEnclosure() {
+    this.focusedPart = null;
     for (const holder of [...this.enclosureGroup.children]) {
       holder.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
       this.enclosureGroup.remove(holder);
@@ -465,22 +477,54 @@ export class Viewer {
     this.orientTo(dir, { fit: true });
   }
 
-  fitParams() {
-    const box = this.viewBox();
+  fitParams(boxIn = null, margin = 1.08) {
+    const box = boxIn || this.viewBox();
     if (!box || box.isEmpty()) return null;
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const halfFov = THREE.MathUtils.degToRad(this.camera.fov / 2);
-    let dist = sphere.radius / Math.sin(halfFov);
+    let dist = Math.max(sphere.radius, 1) / Math.sin(halfFov);
     if (this.camera.aspect < 1) dist /= this.camera.aspect;
-    return { center: sphere.center, dist: dist * 1.08 };
+    return { center: sphere.center, dist: dist * margin };
+  }
+
+  /**
+   * İnceleme bulgusunu 3B'de göster: PCB bileşeni (partId) vurgulanır ya da muhafaza parçası (base | lid | clip)
+   * renklendirilir; kamera mevcut bakış yönünü koruyarak o öğeye yaklaşır. Gösterilecek bir şey yoksa false.
+   */
+  focus({ partId = null, part = null } = {}) {
+    this.clearFocus();
+    if (partId !== null && partId !== undefined && this.partMeshes.has(partId)) {
+      this.highlight(partId);
+      const box = new THREE.Box3();
+      for (const m of this.partMeshes.get(partId)) box.expandByObject(m);
+      this.orientTo(this.camera.position.clone().sub(this.controls.target), { fit: true, box, margin: 2.4 });
+      return true;
+    }
+    const holder = part && this.enclosure ? this.enclosure[part] : null;
+    if (holder) {
+      if (!this.encOpts[part === 'clip' ? 'base' : part]) this.setEnclosureOptions({ [part === 'clip' ? 'base' : part]: true });
+      const mesh = holder.children.find((c) => c.isMesh);
+      if (mesh) { mesh.material = this.focusMaterial; this.focusedPart = { mesh }; }
+      this.orientTo(this.camera.position.clone().sub(this.controls.target), { fit: true, box: new THREE.Box3().setFromObject(holder), margin: 1.3 });
+      this.render();
+      return true;
+    }
+    if (part === 'all' && this.enclosure) { this.fit(); return true; }
+    return false;
+  }
+
+  clearFocus() {
+    if (this.focusedPart?.mesh) this.focusedPart.mesh.material = this.enclosureMaterial;
+    this.focusedPart = null;
+    this.highlight(null);
   }
 
   /**
    * Kamerayı hedefin dir yönündeki tarafa çevirir (yumuşak geçişle).
-   * fit: true ise hedef ve uzaklık modele göre yeniden hesaplanır; değilse korunur.
+   * fit: true ise hedef ve uzaklık modele (ya da verilen kutuya) göre yeniden hesaplanır; değilse korunur.
    */
-  orientTo(dirIn, { fit = false, animate = true } = {}) {
-    const fp = this.fitParams();
+  orientTo(dirIn, { fit = false, animate = true, box = null, margin = 1.08 } = {}) {
+    const fp = this.fitParams(box, margin);
     const toDir = safeDir(dirIn);
     const fromTarget = this.controls.target.clone();
     const fromOffset = this.camera.position.clone().sub(fromTarget);

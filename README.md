@@ -4,6 +4,50 @@ PCB'nin STEP montajından, seçilen üretim yöntemine ve malzemeye uygun muhafa
 Tamamen tarayıcıda çalışır: STEP dosyası hiçbir sunucuya gönderilmez, sunucu maliyeti yoktur.
 GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 
+## Tasarım akışı: tasarla → incele → düzelt → sun
+
+Muhafaza doğrudan çizilip gösterilmez. Her tasarım kaynaklı bir DFM kural setinden geçer, kural tabanlı
+inceleme modülü tarafından değerlendirilir, güvenli düzeltmeler küçük bir döngüde otomatik uygulanır ve ancak bundan sonra
+katı model olarak sunulur. Algoritmanın ayrıntısı [docs/TASARIM-ALGORITMASI.md](docs/TASARIM-ALGORITMASI.md),
+kuralların dayandığı kaynaklar [docs/KAYNAKLAR.md](docs/KAYNAKLAR.md) belgesindedir.
+
+Sol aşama çubuğu akışı yedi adımda gösterir; her aşamanın simgesi durumunu verir (✓ tamam, ! uyarı, × hata, numara: henüz çalışmadı):
+
+| Aşama | Ne olur |
+|---|---|
+| 1 Kart | STEP analiz edilir: PCB, bileşen yükseklikleri, montaj delikleri, kenardaki konnektörler |
+| 2 Gereksinimler | Üretim yöntemi ve malzeme (FDM'de varsayılan PETG), isteğe bağlı en yüksek çalışma sıcaklığı (malzemenin sürekli kullanım sıcaklığı yetmezse inceleme hatası, uygun malzeme önerisiyle), kapak malzemesi, IP seviyesi, kutunun sabitlenmesi |
+| 3 Tasarım (otomatik) | Ölçüler kural setinden üretilir: kartın tutulması, kapak bağlantısı, port açıklıkları, panel elemanları; ayrıntılarda parametreler ve toleranslar |
+| 4 İnceleme döngüsü | Kaynaklı kural kataloğuyla inceleme; yalnızca değeri artıran güvenli sayısal düzeltmeler uygulanıp yeniden incelenir; turlar, düzeltmeler, reddedilen denemeler ve durma nedeni zaman çizelgesinde |
+| 5 Katı model | OpenCascade ile gövde, kapak ve (varsa) DIN klipsi; kenar işlemleri ve kalıp çıkma açısı dahil; düzenlemeden yarım saniye sonra kendiliğinden yeniden oluşturulur |
+| 6 Son inceleme | Katı modelde gerçekten uygulanan radyüs, pah, çıkma açısı ve Boole işlemleri incelemeyle karşılaştırılır; "Kenar işlemleri" tablosu |
+| 7 Final tasarım ve çıktılar | Özet ölçüler, STEP / STL / montaj STEP'i, PDF teknik resim (DFM inceleme raporu paftasıyla), BOM, analiz ve inceleme raporu (JSON) |
+
+**Tasarım incelemesi paneli** (sağda; 1200 px altında çekmece):
+- Karar bandı: **Hazır** (hata ve uyarı yok), **Uyarılarla hazır**, **Engelli** (en az bir hata); katı modelden önce "ön inceleme",
+  sonra "son inceleme" (birleşik karar)
+- Döngü günlüğü: tur sayısı, otomatik düzeltme sayısı ve durma nedeni (yakınsadı, kullanıcı kararı gerekiyor, tur sınırı, salınım, ilerleme yok)
+- Otomatik düzeltmeler (eski → yeni değer, kural, gerekçe); **Geri al** parametreyi önceki değerinde kilitler.
+  "Denendi, uygulanmadı" listesi döngünün geri aldığı denemeleri ve doğuracakları yeni bulguları gösterir
+- Bulgu kartları düzeye ve kategoriye göre: kural kimliği, ölçülen değer–sınır (ör. `1,6 mm < 1,95 mm`), açıklama,
+  **Neden?** altında kuralın gerekçesi ve kaynak bağlantıları; **Uygula** (önerilen düzeltme), **Göster** (3B'de vurgula),
+  **Muaf tut** (en az 3 karakterlik gerekçe zorunlu; proje dosyasına, JSON rapora ve teknik resme yazılır), **Muafiyeti kaldır**;
+  geçen kontroller "N kontrol geçti" altında toplanır; düzey ve kategori süzgeci
+
+**Otomatik ve Kilitli parametreler:** otomatik alanları döngü belirler; alana yazılan değer kilitlenir ve döngü dokunmaz
+(kilit düğmesiyle yeniden otomatiğe döner). Süreç ya da malzeme değişince kilitli değerler korunur. Alanlar satır içinde
+doğrulanır; geçersiz ya da aralık dışı değer uygulanmaz.
+
+**Güncellik ve çıktı kapısı:** durum makinesi `idle → designing → reviewing → building → built | build-error | invalid`.
+Muaf tutulmamış hata varsa katı model kendiliğinden oluşturulmaz (bilerek "Hatalara rağmen oluştur" seçilebilir);
+model tasarımla güncel değilse indirme düğmeleri gerekçesiyle kapalıdır, eski dosya sessizce sunulmaz. Engelli tasarımda
+indirmeden önce açık hatalar listelenip onay istenir. Alttaki durum çubuğu akışı özetler:
+`Tasarım ✓ · İnceleme: 2 tur, 1 otomatik düzeltme · Katı model ✓ 1,4 s · Son inceleme ✓`.
+
+**Kullanım kolaylıkları:** 50 adımlı geri al / yinele (`Ctrl+Z`, `Ctrl+Y`, `Ctrl+Shift+Z`; yazı alanında değil),
+"Geri al" düğmeli bildirimler, kaydedilmemiş tasarımda dosya değiştirmeden önce onay, açık / koyu / sistem teması,
+WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kullanım (aşama çubuğu ve seçim gruplarında ok tuşları).
+
 ## Şu anki durum: V1.14 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj + kapak malzemesi + kart kenarı tutucu + DIN ray klipsi)
 
 **Analiz (M0)**
@@ -171,7 +215,7 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Kartın STEP'i isteğe bağlı olarak projeye gömülür (tek dosyada taşınır); gömülmezse proje açılınca aynı STEP istenir.
   Kart kimliği SHA-256 ile kontrol edilir, farklı STEP yüklenirse uyarılır. Açılan proje hatasızsa muhafaza hemen oluşturulur
 
-**Montaj (V1.11)** — Tasarım › Montaj
+**Kutunun sabitlenmesi (V1.11)** — Gereksinimler › Kutunun sabitlenmesi
 - Montaj kulağı: taban hizasında (kutu yüzeye düz oturur), 2 ya da 4 kulak, M3–M6, yuvarlak ya da uzun (hizalama) delik;
   delik ISO 273 serisi + FDM telafisi, delik merkezi duvardan vida başı/pul + tornavida payı kadar uzakta, kalınlık
   ≥ max(3 mm; 1,5·et; 0,8·d). Otomatik duvar seçimi kulak üstünde port/panel elemanı çakışması olmayan çifti seçer
@@ -180,7 +224,7 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 - Kontroller: kulak üstündeki fiş/panel elemanı, ayakla birlikte kullanım, tabandan çıkan vida başı, CNC stok boyu
 - Teknik resimde M# delik satırları, delik aralığı notu ve kulaklı taban izi ölçüsü; malzeme listesinde montaj satırı
 
-**DIN ray klipsi (V1.14)** — Tasarım › Montaj › DIN ray (TS35)
+**DIN ray klipsi (V1.14)** — Gereksinimler › Kutunun sabitlenmesi › DIN ray (TS35)
 - EN 60715 TS35×7,5 ray için ayrı parça klips (45 mm ray boyunca): +v tarafında boydan boya sabit kanca, −v tarafında
   plaka düzleminde esneyen iki kilit dili ve rampalı dudak (flanşın 1 mm altına biner, kancalar flanş kenarından 0,2 mm
   boşluklu). Takma: sabit kancayı flanşa geçirip kutuyu bastır; sökme: tornavidayı plaka ucundan dil yarığına sokup çevir
@@ -190,7 +234,7 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   standart seriden; vida başı PCB altına sığmazsa PCB altı yükseklik artar
 - Kilit dili genişliği malzemenin yaklaşık izin verilen geçme uzamasına göre (ε ≈ 1,5·t·δ/L², 1,6–2,5 mm); aşılırsa
   uyarı, alüminyumda ticari yaylı klips önerisi; düşük HDT'li malzemede pano sıcaklığı uyarısı. İzin değerleri başlangıç
-  değeridir (test baskısıyla doğrulayın)
+  değeridir (test baskısıyla doğrulanmalı)
 - Klips STL'si ayrı indirilir (üst yüzü tablaya, kancalar yukarı, desteksiz), STEP'te ve montaj STEP'inde ayrı gövde;
   3B görünümde ve montaj paftasında patlatılmış olarak altta; kütle ve BOM'da (klips, vidalar, insertler) yer alır
 - Kontroller: IP'de sızdırmazlık pulu, ayakla birlikte kullanım, tabandan çıkan vida başı, rayda kapladığı yer (18 mm modül)
@@ -209,7 +253,7 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
   yükseklikleri ve PCB kalınlıkları yaklaşıktır (üreteçte işaretli). Standoff bir bileşene çarparsa hata, o noktaya
   sığacak en büyük boss çapını ve "Bu deliği kullanma" düzeltmesini gösterir
 
-**Kart kenarı tutucu (V1.13)** — Bağlantı › Kart kenarı tutucu (Otomatik / Açık / Kapalı)
+**Kart kenarı tutucu (V1.13)** — Tasarım › Kartın tutulması › Kart kenarı tutucu (Otomatik / Açık / Kapalı)
 - Montaj deliği olmayan kartlarda kendiliğinden: tabana ve duvara bağlı alt destekler kartı kenar bandından (2 mm, gerekirse
   1,5 / 1,2 mm) taşır, kapaktan inen baskı dilleri kapak kapanınca üstten sıkıştırır; yerler kenar bandında altında / üstünde
   bileşen, standoff, boss, kapak borusu, ışık borusu ve kapak panel elemanı olmayan noktalardan köşelere yayılarak seçilir
@@ -220,11 +264,13 @@ GitHub Pages gibi statik bir barındırmada link ile paylaşılabilir.
 **Arayüz**
 - Yön küpü (ViewCube): yüz, kenar veya köşeye tıklayarak 26 yönden bakış; tutup sürükleyince model eşzamanlı döner,
   eksen üçlüsü gösterir; ana görünüm ve sığdır düğmeleri, yumuşak kamera geçişleri
-- Sekmeli akış: Analiz → Tasarım (katlanır, özetli kartlar) → Çıktılar; ana eylem ve DFM durumu altta hep görünür
+- Aşama çubuğu (Kart → Gereksinimler → Tasarım → İnceleme döngüsü → Katı model → Son inceleme → Çıktılar), katlanır ve
+  durum noktalı kartlar, sağda tasarım incelemesi, altta işlem durum çubuğu; 768 px altında dikey yığın
 - Gerçekçi bağlantı elemanları (yalnızca görsel): vidalarda helisel ISO dişi (metrikte pahlı, sac vidasında sivri uç),
   başa oyulmuş yıldız/yarık/imbus/torx izi, imbus başta tırtıl; pirinç insertte ters yönlü tırtıl bantları ve iç diş,
   Helicoil'de helisel tel; metal yüzeyler ortam yansımalı (PBR)
-- Kısayollar: `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt, `G` kılavuzlar, `T` Toolbox, `Ctrl+S` projeyi kaydet, `Ctrl+O` aç (yardım: üst çubuktaki `?`)
+- Kısayollar (tek tuşlar yalnızca 3B görünüm odaktayken): `H` ana görünüm, `F` sığdır, `1…6` ön/arka/sol/sağ/üst/alt,
+  `G` kılavuzlar, `T` Toolbox; her yerde `Ctrl+S` projeyi kaydet, `Ctrl+O` aç, `Ctrl+Z` / `Ctrl+Y` geri al / yinele (yardım: üst çubuktaki `?`)
 
 ## Kural dosyaları
 
@@ -297,7 +343,9 @@ web/                  Yayınlanan statik site
   js/holes.js         Montaj deliği tespiti (B-rep yüzlerine çember uydurma)
   js/ports.js         Port açıklığı tespiti (ağların duvar düzlemindeki kesiti)
   js/design.js        Muhafaza ölçüleri ve DFM kontrolleri (saf fonksiyonlar)
-  js/design-ui.js     Süreç/malzeme/parametre paneli, üretim ve indirme
+  js/design-ui.js     Gereksinim ve tasarım panelleri, inceleme paneli, durum makinesi, katı model, çıktı kapısı, geri al
+  js/dfm/             Kural kataloğu (catalog.js), inceleme (review.js), tasarım döngüsü (loop.js)
+  js/treat.js         Kenar işlemi ve kalıp çıkma açısı politikası (saf fonksiyon)
   js/cad-worker.js    Katı model üretimi, STEP/STL çıktısı, teknik resim izdüşümleri (Web Worker, replicad)
   js/drawing.js       Teknik resim paftaları (SVG) ve PDF çıktısı
   js/viewer.js        3B önizleme (three.js)
@@ -316,6 +364,8 @@ web/                  Yayınlanan statik site
   samples/            Örnek STEP dosyaları (ornek-kart, arduino-uno-r3, raspberry-pi-4b, esp32-devkitc, nucleo-64)
 tools/
   serve.ps1           Yerel statik sunucu
+  selftest.ps1        Uygulamayı görünmez Edge'de çalıştırıp tasarım / inceleme / katı model sonucunu JSON verir
+  testpage.ps1        Kural kataloğu ve döngü testleri (web/test/catalog.html)
   make-sample-step.ps1  Örnek kart STEP üreteci (-Board all / kart adı)
 ```
 

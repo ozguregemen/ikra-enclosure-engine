@@ -561,20 +561,20 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     q('#tb-search').value = '';
     render();
     if (!dialog.open) dialog.showModal();
-    q('.tb-item[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    q('.tb-item[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
   }
 
   function renderTree() {
     const screwItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-type="${t.id}" aria-selected="${draft.view === 'screw' && t.id === active().type}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-type="${t.id}" aria-current="${draft.view === 'screw' && t.id === active().type}" title="${esc(t.name)}">
         ${headIcon(t.head)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
       </button>`;
     const insertItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-insert="${t.id}" aria-selected="${draft.view === 'insert' && t.id === draft.insert.type}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-insert="${t.id}" aria-current="${draft.view === 'insert' && t.id === draft.insert.type}" title="${esc(t.name)}">
         ${insertIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}</span></span>
       </button>`;
     const washerItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-washer="${t.id}" aria-selected="${draft.view === 'washer' && t.id === draft.washerView}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-washer="${t.id}" aria-current="${draft.view === 'washer' && t.id === draft.washerView}" title="${esc(t.name)}">
         ${washerIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${active().washer === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
     // Arama: her kelime kod, ad, kısa ad ya da boyutlarda geçmeli (Türkçe karakterler katlanır: ı→i, ş→s…)
@@ -584,7 +584,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     const withStar = (t, html) => (isPref(t.code) ? html.replace('</span><span class="tb-name">', `${STAR}</span><span class="tb-name">`) : html);
     const lib = (L, itemFor, count) => {
       const cats = L.categories.map((cat) => {
-        if (cat.soon) return tokens.length ? '' : `<div class="tb-node lvl1 soon"><span class="tb-caret" aria-hidden="true"></span>${esc(cat.label)}<span class="tb-soon">yakında</span></div>`;
+        if (cat.soon) return ''; // henüz kütüphanesi olmayan kategoriler arayüzde gösterilmez
         const groups = (cat.groups || []).map((g) => {
           const list = g.types.filter(hit);
           if (!list.length) return '';
@@ -602,24 +602,24 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       return cats ? `<div class="tb-node"><span class="tb-caret" aria-hidden="true"></span><strong>${esc(L.standard)}</strong><span class="tb-count">${count} tip</span></div>${cats}` : '';
     };
     const nutItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-nut="${t.id}" aria-selected="${draft.view === 'nut' && t.id === draft.insert.nut}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-nut="${t.id}" aria-current="${draft.view === 'nut' && t.id === draft.insert.nut}" title="${esc(t.name)}">
         ${insertIcon(t.kind === 'square' ? 'squarenut' : 'nut')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'nut' && draft.insert.nut === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
     const standoffItem = (t) => `
-      <button type="button" class="tb-item" role="treeitem" data-standoff="${t.id}" aria-selected="${draft.view === 'standoff' && t.id === draft.insert.standoff}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-standoff="${t.id}" aria-current="${draft.view === 'standoff' && t.id === draft.insert.standoff}" title="${esc(t.name)}">
         ${insertIcon('standoff')}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${draft.insert.type === 'standoff' && draft.insert.standoff === t.id ? ' · seçili' : ''}</span></span>
       </button>`;
     const panelItem = (t) => {
       const count = draft.panel.filter((x) => x.type === t.id).length;
       return `
-      <button type="button" class="tb-item" role="treeitem" data-panel="${t.id}" aria-selected="${draft.view === 'panel' && draft.panelView?.type === t.id}" title="${esc(t.name)}">
+      <button type="button" class="tb-item" data-panel="${t.id}" aria-current="${draft.view === 'panel' && draft.panelView?.type === t.id}" title="${esc(t.name)}">
         ${panelIcon(t.kind)}<span class="tb-item-text"><span class="tb-code">${esc(t.code)}</span><span class="tb-name">${esc(t.short)}${count ? ` · ${count} eklendi` : ''}</span></span>
       </button>`;
     };
     const html = lib(screwLib, (cat) => (cat.id === 'washers' ? washerItem : cat.id === 'nuts' ? nutItem : screwItem), types.length + washerTypes.length + nutTypes.length) +
       (insertLib ? lib(insertLib, (cat) => (cat.id === 'standoffs' ? standoffItem : insertItem), insertTypes.length + standoffTypes.length) : '') +
       (panelLib ? lib(panelLib, () => panelItem, panelTypes.length) : '');
-    q('#tb-tree-items').innerHTML = html || `<p class="tb-empty small muted">"${esc(search)}" için sonuç yok. Kod (7045), ad (imbus, rakor) ya da boyut (M5) deneyin.</p>`;
+    q('#tb-tree-items').innerHTML = html || `<p class="tb-empty small muted">"${esc(search)}" için sonuç yok. Kod (7045), ad (imbus, rakor) ya da boyut (M5) ile aranabilir.</p>`;
   }
 
   /* ---------- Panel elemanları ---------- */
@@ -790,7 +790,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
       <section class="tb-group">
         <h4>Özellikler</h4>
         <table class="tb-table">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${esc(b)}</td></tr>`).join('')}</table>
-        <p class="muted small">Ölçüler üretici serisidir (M3 SW 5,5 Würth WA-SSTII; erkek diş 6 mm Würth/Ettinger); tedarikçinizle doğrulayın.</p>
+        <p class="muted small">Ölçüler üretici serisidir (M3 SW 5,5 Würth WA-SSTII; erkek diş 6 mm Würth/Ettinger); tedarikçiyle doğrulanmalı.</p>
         <button type="button" class="link-btn" data-view="screw">← Vida seçimine dön</button>
       </section>
       ${torqueSection(ev)}
@@ -810,7 +810,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
         <p class="small">Sınırlayan: <span class="t-accent">${esc(torqueLimitText(t.limit))}</span></p>
         <table class="tb-table tq-table">${t.limits.map(row).join('')}</table>
         ${other}
-        <p class="muted small">VDI 2230 yaklaşımı; plastik gövdede ilk parçada deneyle doğrulayın.</p>
+        <p class="muted small">VDI 2230 yaklaşımı; plastik gövdede ilk parçada deneyle doğrulanmalı.</p>
       </section>`;
   }
 
@@ -1076,7 +1076,7 @@ export function createToolbox({ dialog, libraries, fasteners, materials = [], ev
     // Ağaçta etkin burcu işaretle (Otomatik seçiliyken kuralın verdiği burç)
     if (effType) {
       const el = q(`[data-insert="${effType.id}"]`);
-      if (el) { el.setAttribute('aria-selected', 'true'); el.scrollIntoView({ block: 'nearest' }); }
+      if (el) { el.setAttribute('aria-current', 'true'); el.scrollIntoView({ block: 'nearest' }); }
     }
     // Çizim ve tanım
     const v = zs ? (zs.variants.find((x) => x.id === (draft.insert.variant !== 'auto' ? draft.insert.variant : st0?.insert?.id)) || zs.variants[zs.variants.length - 1]) : null;
