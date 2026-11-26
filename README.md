@@ -38,17 +38,19 @@ Sol aşama çubuğu akışı yedi adımda gösterir; her aşamanın simgesi duru
   Negatif ölçüler tipografik eksiyle (`−0,2 mm`) yazılır
 - Otomatik düzeltme satırlarında tetikleyen bulgunun ölçüsü (`neden: 3 mm < 5,5 mm`), döngü bu bilgiyi verdiğinde
 - **Eşleşmeyen muafiyetler**: artık bulgusunu örtmeyen muafiyetler gerekçesiyle listelenir ve **Kaldır** ile silinir:
-  bulgu kalkmış, metni değişmiş ya da ölçü muafiyet verildiğinden kötüleşmiş olabilir (sayılar bulgu kimliğine girmez;
-  muafiyet ölçüyü kaydeder, ölçü kötüleşirse bulgu yeniden açılır). Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz
+  bulgu kalkmış, metni değişmiş ya da muafiyet verildikten sonra ölçü veya sınır kötüleşmiş olabilir (sayılar bulgu
+  kimliğine girmez; muafiyet ölçüyü ve sınırı kaydeder; ölçü kötüleşirse ya da sınır sıkılaşırsa, ör. gereksinim sıcaklığı
+  yükseltilirse, bulgu yeniden açılır). Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz
 
 **Otomatik ve Kilitli parametreler:** otomatik alanları döngü belirler; alana yazılan değer kilitlenir ve döngü dokunmaz
 (kilit düğmesiyle yeniden otomatiğe döner). Süreç ya da malzeme değişince kilitli değerler korunur. Alanlar satır içinde
 doğrulanır; geçersiz ya da aralık dışı değer uygulanmaz. CNC'de **Freze takım çapı** (0,5–12 mm) kavite köşelerini ve
 cepleri bitiren parmak frezenin çapını alır: boşsa kural dosyasının değeri (yer tutucuda), yazılırsa kilitli; geri al / yinele,
 proje dosyası ve "Tüm kilitleri kaldır" bu değeri de kapsar. İç köşe radyüsü, port açıklığı köşeleri ve somun cebi köşe
-boşaltmasının yanında cep derinliği oranı da (CNC-POCKET-DEPTH: ≤ 4 × Ø önerilir, 10 × Ø üstü ve Ø1 mm ve küçük frezede
-9,52 mm'den derin cep hata) bu çapla denetlenir; çok küçük freze derinlik uyarısı ya da hatası verir, frezeden dar port
-açıklıkları ayrı freze ister (CNC-CUTOUT-TOOL).
+boşaltmasının yanında cep derinliği oranı da (CNC-POCKET-DEPTH: ≤ 4 × Ø önerilir; 10 × Ø'den derin cep ve Ø1 mm ya da
+daha küçük frezeyle 9,52 mm'den derin cep işlenemez, hata) bu çapla denetlenir; çok küçük freze derinlik uyarısı ya da hatası
+verir, frezeden dar port açıklıkları ayrı freze ister (CNC-CUTOUT-TOOL). Gövde ve kapak ikisi de CNC ise freze önerisi iki
+parçanın en derin işlemesini karşılar; iç köşe radyüsü yeni frezeye yetmiyorsa öneri radyüsü de değiştirir.
 
 **Güncellik ve çıktı kapısı:** durum makinesi `idle → designing → building → built | build-error | invalid`
 (inceleme ve düzeltme döngüsü `designing` içinde çalışır).
@@ -75,7 +77,8 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
 **Muhafaza**
 - Üretim yöntemi (3D baskı, CNC, enjeksiyon) ve malzeme seçimi
 - Kural dosyalarından gelen et kalınlığı, boşluk, köşe radyüsü; kullanıcı değiştirebilir
-- Alt gövde + kapak (kenar başına konumlandırma dili; yüksek bileşen varsa kısaltılır/kaldırılır)
+- Alt gövde + kapak (kenar başına konumlandırma dili; yüksek bileşen varsa kısaltılır/kaldırılır, duvara ulaşmayan
+  konnektörün önünde fiş yolunu kapatmasın diye bölünür ya da fiş yolunun üstünde biter)
 - DFM kontrolleri: et kalınlığı aralığı, nozzle katı (FDM), takım yarıçapı ve cep derinliği (CNC),
   draft ve çöküntü riski (enjeksiyon), metal muhafazada RF uyarısı, duvardan geçen konnektörler
 - STEP (gövde + kapak, PCB ile aynı koordinatlarda) ve STL indirme
@@ -303,7 +306,7 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 
 ## Sürüm geçmişi
 
-| Aşama | İçerik |
+| Sürüm | İçerik |
 |---|---|
 | İlk sürüm: analiz | STEP yükle, 3B göster, PCB ve bileşen analizi |
 | İlk sürüm: muhafaza | Kural dosyaları (süreç × malzeme), parametrik alt gövde + kapak, STEP/STL indir |
