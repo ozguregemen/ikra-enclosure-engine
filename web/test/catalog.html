@@ -23,10 +23,11 @@
 <div class="sum" id="sum">Çalışıyor…</div>
 <table><thead><tr><th>Sonuç</th><th>Test</th><th>Ayrıntı</th></tr></thead><tbody id="rows"></tbody></table>
 <script type="module">
-import { RULES, ruleInfo, CATEGORIES, LEVELS, PROCESSES } from '../js/dfm/catalog.js';
-import { findingsFromChecks, reviewBuild, summarize, fingerprint } from '../js/dfm/review.js';
+import { RULES, ruleInfo, CATEGORIES, LEVELS, PROCESSES, TREAT_RULE_IDS } from '../js/dfm/catalog.js';
+import { findingsFromChecks, reviewBuild, summarize, fingerprint, mergeBuildFindings } from '../js/dfm/review.js';
 import { runDesignLoop, baseParams, AUTO_KEYS } from '../js/dfm/loop.js';
-import { defaultParams, libraryTypes } from '../js/design.js';
+import { defaultParams, libraryTypes, usesTapOverrun } from '../js/design.js';
+import * as fitsMod from '../js/fits.js';
 
 const results = [];
 const check = (name, pass, detail = '') => results.push({ name, pass: !!pass, detail: String(detail).slice(0, 600) });
@@ -128,12 +129,14 @@ const cases = [
   ['injection/abs', { lidMode: 'corner' }],
 ];
 const table = [];
+const allLoops = []; // her durumun döngü sonucu (sonraki testlerde kullanılır)
 for (const [rid, extra] of cases) {
   const rules = await rulesFor(rid);
   const o = opts(extra);
   const t0 = performance.now();
   const L = runDesignLoop(analysis, rules, { userParams: {} }, o);
   const ms = Math.round(performance.now() - t0);
+  allLoops.push(L);
   const label = `${rid}${extra.sealing ? ' IP67' : ''}${extra.lidMode === 'corner' ? ' köşe' : ''}${extra.mount ? ' DIN' : ''}`;
   const unknownRules = L.findings.filter((fd) => !RULES[fd.rule]).map((fd) => fd.rule || '(yok)');
   check(`${label}: tüm bulguların kuralı katalogda`, !unknownRules.length, unknownRules.join(', ') || `${L.findings.length} bulgu`);
@@ -191,24 +194,267 @@ for (const [rid, extra] of cases) {
   check('IP67: sıkıştırma aralığı en büyük boşlukla ölçülür', pitch && Number.isFinite(pitch.measured), pitch?.text);
 }
 
-// Katı model sonrası inceleme
+// ---------- 4) Katı model sonrası inceleme: işlem raporu sözleşmesi A (sürüm 2) ----------
 {
   const rules = await rulesFor('injection/abs');
   const L = runDesignLoop(analysis, rules, { userParams: {} }, opts());
+  const draftLim = L.design.checks.find((c) => c.rule === 'INJ-DRAFT' && c.part !== 'lid')?.limit;
+  check('INJ-DRAFT ön incelemesi sınırı (limit) taşır', Number.isFinite(draftLim) && draftLim >= 1, `limit ${draftLim}`);
+  const row = (o) => ({ part: 'base', key: 'x', feature: 'özellik', kind: 'fillet', size: 1, applied: 1, unit: 'mm', ok: true, limited: false, count: 1, rule: 'GEO-FILLET-INNER', note: '', ...o });
   const tr = [
-    { part: 'base', feature: 'iç taban kenarı', kind: 'fillet', size: 1, ok: false, applied: null, note: 'BRepFilletAPI hatası' },
-    { part: 'lid', feature: 'kapak dış kenarı', kind: 'chamfer', size: 0.5, ok: true, applied: 0.3, note: '' },
-    { part: 'base', feature: 'yan duvarlar', kind: 'draft', size: 1, ok: true, applied: 1, note: '' },
-    { part: 'base', feature: 'port açıklığı', kind: 'boolean', size: 0, ok: false, applied: null, note: 'kesim başarısız' },
+    row({ key: 'floor', feature: 'taban–duvar iç köşesi', kind: 'fillet', size: 1, applied: 1, count: 4 }),
+    row({ key: 'outer.bottom', feature: 'dış alt kenar', kind: 'fillet', size: 2, applied: 2, rule: 'GEO-FILLET-OUTER' }),
+    row({ key: 'corner.concave', feature: "köşe boss'u–duvar birleşimi", kind: 'fillet', size: 1.95, applied: 0.74, limited: true, rule: 'GEO-CORNER-CONCAVE', note: 'kapak dili ucu' }),
+    row({ key: 'rim.leadin', feature: 'ağız iç kenarı giriş pahı', kind: 'leadin', size: 0.3, applied: 0, ok: false, rule: 'GEO-LEADIN', note: 'kenar seçilemedi' }),
+    row({ key: 'weird', feature: 'tanımsız kurallı işlem', kind: 'chamfer', size: 0.5, applied: 0, ok: false, rule: 'FOO-BAR' }),
+    row({ key: 'parting', feature: 'ayırma çizgisi', kind: 'info', size: 0, applied: 0, unit: 'mm', rule: 'INJ-DRAFT', note: 'keskin bırakıldı' }),
+    row({ key: 'cutout.window', feature: 'yan duvar penceresi', kind: 'info', size: 0, applied: 0, unit: '°', rule: 'INJ-SIDE-ACTION' }),
+    row({ key: 'draft.outer', feature: 'dış duvar çıkma açısı', kind: 'draft', size: draftLim, applied: draftLim, unit: '°', rule: 'INJ-DRAFT' }),
+    row({ key: 'draft.pocket', feature: 'cep çıkma açısı', kind: 'draft', size: draftLim, applied: draftLim, unit: '°', rule: 'INJ-DRAFT' }),
+    row({ part: 'lid', key: 'draft.plate', feature: 'kapak yan yüzü çıkma açısı', kind: 'draft', size: 1, applied: 0, unit: '°', ok: false, rule: 'INJ-DRAFT' }),
+    row({ key: 'standoffs.bool', feature: 'standoff öğeleri (toplu)', kind: 'boolean', size: 5, applied: 5, unit: 'adet', rule: 'GEO-BUILD' }),
+    row({ key: 'cutouts.bool', feature: 'port açıklıkları', kind: 'boolean', size: 5, applied: 4, unit: 'adet', ok: false, rule: 'GEO-BUILD', note: 'kesim başarısız' }),
+    row({ key: 'holes.bool', feature: 'delik girişleri', kind: 'boolean', size: 3, applied: 3, unit: 'adet', limited: true, rule: 'GEO-HOLE-ENTRY', note: '1 delik işlemsiz' }),
+    row({ part: 'clip', key: 'all', feature: 'DIN klipsi (tüm işlemler)', kind: 'build', size: 1, applied: 0, unit: 'adet', ok: false, rule: 'GEO-BUILD', note: 'işlemsiz klipse düşüldü' }),
   ];
-  const fb = reviewBuild(L.design, tr);
-  check('reviewBuild: uygulanamayan kenar işlemi → GEO-TREAT uyarı', fb.some((fd) => fd.rule === 'GEO-TREAT' && fd.level === 'warn'));
-  check('reviewBuild: başarısız Boole → GEO-BUILD hata', fb.some((fd) => fd.rule === 'GEO-BUILD' && fd.level === 'error'));
-  check('reviewBuild: uygulanan draft → INJ-DRAFT uygun', fb.some((fd) => fd.rule === 'INJ-DRAFT' && fd.level === 'ok'));
+  const deepFreeze = (o) => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); for (const v of Object.values(o)) deepFreeze(v); } return o; };
+  const trJson = JSON.stringify(tr);
+  deepFreeze(tr);
+  let fb = [];
+  let threw = null;
+  try { fb = reviewBuild(L.design, tr); } catch (err) { threw = err; }
+  check('reviewBuild: girdi raporunu değiştirmez (dondurulmuş girdiyle çalışır)', !threw && JSON.stringify(tr) === trJson, threw ? String(threw) : '');
+  const by = (rule, level) => fb.filter((fd) => fd.rule === rule && (!level || fd.level === level));
+  check('reviewBuild: sınırlandırılmış işlem (ok, limited) → satırın kuralıyla bilgi "istenen … yerine … uygulandı"',
+    by('GEO-CORNER-CONCAVE', 'info').some((fd) => /istenen 1,95 mm radyüs yerine 0,74 mm uygulandı/.test(fd.text) && fd.measured === 0.74 && fd.limit === 1.95 && fd.op === '>='),
+    by('GEO-CORNER-CONCAVE').map((fd) => fd.text).join(' | '));
+  check('reviewBuild: uygulanamayan işlem (ok:false) → satırın kuralıyla uyarı "uygulanamadı"',
+    by('GEO-LEADIN', 'warn').some((fd) => /uygulanamadı/.test(fd.text) && fd.cat === 'geometri' && fd.part === 'base'), by('GEO-LEADIN').map((fd) => fd.text).join(' | '));
+  check('reviewBuild: katalogda olmayan kural → GEO-TREAT', by('GEO-TREAT', 'warn').some((fd) => /tanımsız kurallı işlem/.test(fd.text)) && !fb.some((fd) => fd.rule === 'FOO-BAR'));
+  check('reviewBuild: kind info satırları bulgu üretmez', !fb.some((fd) => /ayırma çizgisi|yan duvar penceresi/.test(fd.text)));
+  const okLine = by('GEO-TREAT', 'ok')[0];
+  check('reviewBuild: özet satırı yalnızca tam uygulanan gerçek işlemleri sayar (Boole, build, info, sınırlı hariç)',
+    okLine && okLine.measured === 4 && /4 kenar işlemi/.test(okLine.text), okLine?.text);
+  check('reviewBuild: Boole satırı öğe sayısını karşılaştırır (5/4 → GEO-BUILD hata, "1 tanesi")',
+    by('GEO-BUILD', 'error').some((fd) => /5 öğeden 1 tanesi/.test(fd.text) && fd.unit === 'adet' && fd.measured === 4 && fd.limit === 5));
+  check('reviewBuild: başarılı Boole satırı bulgu üretmez', !fb.some((fd) => /standoff öğeleri/.test(fd.text)));
+  check('reviewBuild: sınırlı Boole → bilgi (satırın kuralı)', by('GEO-HOLE-ENTRY', 'info').some((fd) => /düz geometriyle/.test(fd.text)));
+  check('reviewBuild: build ok:false → GEO-BUILD hata (parça)', by('GEO-BUILD', 'error').some((fd) => fd.part === 'clip' && /işlemsiz yapıya düşüldü/.test(fd.text)));
+  check('reviewBuild: metinlerde İngilizce tür adı yok', !fb.some((fd) => /\b(build|boolean|sharp|embed|offset|info|fillet|chamfer|leadin)\b/i.test(fd.text)),
+    fb.map((fd) => fd.text).filter((t) => /\b(build|boolean|sharp|embed|offset|info|fillet|chamfer|leadin)\b/i.test(t)).join(' | '));
+  check('reviewBuild: tüm bulguların kuralı katalogda', fb.every((fd) => RULES[fd.rule]), fb.filter((fd) => !RULES[fd.rule]).map((fd) => fd.rule).join(','));
+  const dOk = by('INJ-DRAFT').filter((fd) => fd.part === 'base');
+  check('reviewBuild: INJ-DRAFT yalnız gövde draft.outer/pocket ile ve ön inceleme sınırıyla → uygun (kapak draft.plate hatası etkilemez)',
+    dOk.length === 1 && dOk[0].level === 'ok' && dOk[0].limit === draftLim && dOk[0].measured === draftLim, dOk.map((fd) => `${fd.level}: ${fd.text}`).join(' | '));
+  check('reviewBuild: kapak draft.plate uygulanamadı → kapak için satırın kuralıyla (INJ-DRAFT, part lid) uyarı', fb.some((fd) => fd.part === 'lid' && fd.rule === 'INJ-DRAFT' && fd.level === 'warn' && /kapak yan yüzü/.test(fd.text)));
+  const low = [row({ key: 'draft.outer', kind: 'draft', size: draftLim, applied: draftLim - 0.5, unit: '°', limited: true, rule: 'INJ-DRAFT' }),
+    row({ key: 'draft.pocket', kind: 'draft', size: draftLim, applied: draftLim, unit: '°', rule: 'INJ-DRAFT' })];
+  const fl = reviewBuild(L.design, low).filter((fd) => fd.rule === 'INJ-DRAFT');
+  check('reviewBuild: INJ-DRAFT uygulanan < sınır → uyarı, measured/limit dolu', fl.length === 1 && fl[0].level === 'warn' && fl[0].measured === draftLim - 0.5 && fl[0].limit === draftLim, fl[0]?.text);
+  const fo = reviewBuild(L.design, [row({ key: 'draft.outer', kind: 'draft', size: 2, applied: 2, unit: '°', rule: 'INJ-DRAFT' })], { draftLimit: 2.5 }).filter((fd) => fd.rule === 'INJ-DRAFT');
+  check('reviewBuild: opts.draftLimit ön inceleme sınırının yerine geçer', fo.length === 1 && fo[0].level === 'warn' && fo[0].limit === 2.5);
+  const fz = reviewBuild(L.design, [row({ key: 'cutout.window', kind: 'draft', size: 0, applied: 0, unit: '°', rule: 'INJ-DRAFT' })]).filter((fd) => fd.rule === 'INJ-DRAFT');
+  check('reviewBuild: size 0 draft satırı sayılmaz → INJ-DRAFT "uygulanmadı" uyarısı', fz.length === 1 && fz[0].level === 'warn' && /uygulanmadı/.test(fz[0].text));
+  const fv = reviewBuild(L.design, [{ part: 'base', key: 'floor.limit', feature: 'taban', kind: 'fillet', size: 1, ok: false, applied: 0.6, note: 'sürüm 1' }]);
+  check('reviewBuild: sürüm 1 satırı (ok:false, applied > 0) sınırlı uygulama sayılır', fv.some((fd) => fd.rule === 'GEO-TREAT' && fd.level === 'info' && /yerine 0,6 mm/.test(fd.text)));
   const nb = reviewBuild(L.design, null);
   check('reviewBuild: rapor yoksa enjeksiyonda INJ-DRAFT uyarı', nb.some((fd) => fd.rule === 'INJ-DRAFT' && fd.level === 'warn'));
+  const fdm = runDesignLoop(analysis, await rulesFor('fdm/pla'), { userParams: {} }, opts());
+  check('reviewBuild: enjeksiyon dışı gövdede toplu INJ-DRAFT değerlendirmesi yapılmaz', !reviewBuild(fdm.design, tr).some((fd) => fd.rule === 'INJ-DRAFT' && fd.part === 'base') &&
+    !reviewBuild(fdm.design, null).some((fd) => fd.rule === 'INJ-DRAFT'));
   check('summarize: hata → blocked', summarize(fb).status === 'blocked');
   check('findingsFromChecks: hatalı girdi → GEN-INPUT', findingsFromChecks({ ok: false, error: 'x' })[0]?.rule === 'GEN-INPUT');
+  // Birleştirme: ön inceleme INJ-DRAFT bilgisi düşer, girdiler değişmez
+  const before = JSON.stringify(L.findings);
+  const M = mergeBuildFindings(L.findings, fb);
+  check('mergeBuildFindings: gövde INJ-DRAFT ön bilgi satırı yerini katı model sonucuna bırakır; girdiler değişmez',
+    M.findings.filter((fd) => fd.rule === 'INJ-DRAFT' && fd.part !== 'lid').length === 1 && JSON.stringify(L.findings) === before &&
+    new Set(M.findings.map((fd) => fd.id)).size === M.findings.length && M.status === 'blocked');
+}
+
+// ---------- 5) Muafiyet gerekçesi (D10) ----------
+{
+  const design = { ok: true, rulesId: 'fdm/pla', checks: [{ level: 'warn', text: 'Deneme uyarısı', rule: 'GEN-WALL-RANGE' }] };
+  const id = findingsFromChecks(design)[0].id;
+  const w = (reason) => findingsFromChecks(design, { waivers: { [id]: { reason, date: '2026-11-26' } } })[0].waived;
+  check('Muafiyet: boş / kısa / yalnız boşluk gerekçe yok sayılır', !w('') && !w('   ') && !w(' a b ') && !w(undefined));
+  check('Muafiyet: en az 3 karakter gerekçe işlenir (kırpılmış)', w('  müşteri onayı ')?.reason === 'müşteri onayı');
+}
+
+// ---------- 6) Döngü: takılma, sınır üstü, bedavacı, autoFixed, önbellek ----------
+{
+  const rules = await rulesFor('fdm/pla');
+  const syn = (checksOf) => (an, ru, p) => ({ ok: true, rulesId: ru.id, checks: checksOf(p), params: { ...p }, geometry: { center: [0, 0] } });
+  // E9: en büyük hedef (5) iki yeni uyarı getirir; aynı anahtarın başka kuraldan gelen küçük hedefi (3) denenmeli
+  const c9 = syn((p) => {
+    const c = [];
+    if (p.wall < 5) c.push({ level: 'warn', text: 'A conta payı', rule: 'IP-RIM', fix: { key: 'wall', value: 5 } });
+    if (p.wall > 4) { c.push({ level: 'warn', text: 'B1 kalın', rule: 'GEN-WALL-RANGE' }); c.push({ level: 'warn', text: 'B2 kalın', rule: 'INJ-UNIFORM-WALL' }); }
+    if (p.wall < 3) c.push({ level: 'warn', text: 'C nozul', rule: 'FDM-WALL-NOZZLE', fix: { key: 'wall', value: 3 } });
+    return c;
+  });
+  const L9 = runDesignLoop(analysis, rules, { userParams: {}, compute: c9 }, opts());
+  check('Döngü E9: reddedilen büyük hedef tabu, aynı anahtarın küçük hedefi denenir', L9.params.wall === 3 && L9.rejected.some((r) => r.rule === 'IP-RIM' && r.to === 5),
+    `wall ${L9.params.wall}, ${L9.stop}, red: ${L9.rejected.map((r) => `${r.rule}→${r.to} ${r.why}`).join('; ')}`);
+  check('Döngü E9/E10: reddedilmiş düzeltmesi açık kalan uyarı → needs-user (converged değil)', L9.stop === 'needs-user', L9.stop);
+  // Tüm adaylar reddedilir → stalled
+  const cS = syn((p) => {
+    const c = [];
+    if (p.wall < 5) c.push({ level: 'warn', text: 'A conta payı', rule: 'IP-RIM', fix: { key: 'wall', value: 5 } });
+    if (p.wall > 4) { c.push({ level: 'warn', text: 'B1 kalın', rule: 'GEN-WALL-RANGE' }); c.push({ level: 'warn', text: 'B2 kalın', rule: 'INJ-UNIFORM-WALL' }); }
+    return c;
+  });
+  const LS = runDesignLoop(analysis, rules, { userParams: {}, compute: cS }, opts());
+  check('Döngü: son geçişte tüm adaylar reddedilirse stalled (aday listesi boşalınca)', LS.stop === 'stalled' && LS.params.wall === rules.default_wall, `${LS.stop} wall ${LS.params.wall}`);
+  // E10: sınır üstü hedef
+  const c10 = syn((p) => (p.wall < 20 ? [{ level: 'warn', text: 'Çok kalın duvar ister', rule: 'IP-RIM', fix: { key: 'wall', value: 20 } }] : []));
+  const L10 = runDesignLoop(analysis, rules, { userParams: {}, compute: c10 }, opts());
+  check('Döngü E10: BOUNDS üstü düzeltmesi olan açık uyarı → needs-user', L10.stop === 'needs-user' && L10.params.wall === rules.default_wall, L10.stop);
+  const cC = syn(() => [{ level: 'warn', text: 'Düzeltmesiz uyarı', rule: 'GEN-WALL-RANGE' }]);
+  check('Döngü: düzeltmesi olmayan açık uyarıda converged', runDesignLoop(analysis, rules, { userParams: {}, compute: cC }, opts()).stop === 'converged');
+  // E11: toplu geçişte bedavacı (kendi bulgusu iyileşmeyen) üye geri alınır
+  const c11 = syn((p) => {
+    const c = [];
+    if (p.topClearance < 3) c.push({ level: 'warn', text: 'X üst boşluk', rule: 'IP-PORT-BRIDGE', fix: { key: 'topClearance', value: 3 } });
+    if (p.cornerRadius < 4 || p.wall < 5) c.push({ level: 'warn', text: 'Y kanal radyüsü', rule: 'IP-GROOVE-RADIUS', fix: { key: 'cornerRadius', value: 4 } });
+    return c;
+  });
+  const L11 = runDesignLoop(analysis, rules, { userParams: { wall: 2 }, compute: c11 }, opts());
+  check('Döngü E11: bedavacı üye (köşe radyüsü) geri alınır, yalnız üst boşluk değişir',
+    L11.params.topClearance === 3 && L11.params.cornerRadius === rules.corner_radius_min && L11.rejected.some((r) => r.key === 'cornerRadius' && r.why === 'no-effect'),
+    `top ${L11.params.topClearance} cr ${L11.params.cornerRadius}; ${L11.changes.map((c) => c.text).join(' ')}`);
+  // E14: autoFixed yalnızca geçen bulgularda
+  check('Döngü E14: autoFixed yalnızca artık geçen (ok) bulgularda', L11.findings.filter((fd) => fd.autoFixed).every((fd) => fd.level === 'ok') &&
+    L11.findings.some((fd) => fd.autoFixed && fd.rule === 'IP-PORT-BRIDGE') && !L11.findings.some((fd) => fd.rule === 'IP-GROOVE-RADIUS' && fd.autoFixed));
+  // E15: dönen sonuç önbellekten bağımsız (bulgular ve tasarım üzerinde yazma önbelleği bozmaz)
+  const A = runDesignLoop(analysis, rules, { userParams: {} }, opts());
+  const n0 = A.findings.length;
+  const t0 = A.findings[0].text;
+  A.findings[0].text = 'BOZUK';
+  A.findings[0].fix = { key: 'wall', value: 99 };
+  A.findings.push({ id: 'x', level: 'error' });
+  A.design.geometry.treat = { bozuk: true };
+  A.design.treatReport = [{ bozuk: true }];
+  A.changes.push({ bozuk: true });
+  const B = runDesignLoop(analysis, rules, { userParams: {} }, opts());
+  check('Döngü E15: önbellekteki sonuç çağıranın yazmalarından etkilenmez', B.findings.length === n0 && B.findings[0].text === t0 && B.findings[0].fix?.value !== 99 &&
+    !B.design.geometry.treat && !B.design.treatReport && !B.changes.some((c) => c.bozuk));
+  // Tüm gerçek döngülerde autoFixed yalnız ok bulgularda
+  const all = allLoops;
+  check('Döngü E14: gerçek tasarımlarda autoFixed işaretli açık bulgu yok', all.every((Lx) => Lx.findings.every((fd) => !fd.autoFixed || fd.level === 'ok')));
+  check('Döngü: needs-user/converged doğru — converged sonuçta açık hata/uyarıda düzeltme yok',
+    all.every((Lx) => Lx.stop !== 'converged' || !Lx.findings.some((fd) => !fd.waived && (fd.level === 'error' || fd.level === 'warn') && fd.fix)));
+  // Bedavacı: değişiklik uygulandığı hâlde kendi kuralının açık bulgusu aynı anahtar için ≤ uygulanan değeri istiyor
+  const riders = [];
+  for (const Lx of all) for (const c of Lx.changes) for (const fd of Lx.findings) {
+    if (fd.rule === c.rule && (fd.level === 'error' || fd.level === 'warn') && fd.fix?.key === c.key && typeof fd.fix.value === 'number' && fd.fix.value <= Lx.params[c.key] + 0.06) riders.push(`  : `);
+  }
+  check('Döngü: kabul edilen değişikliklerde bedavacı yok (kendi bulgusu çözülmeden kalan değişiklik yok)', !riders.length, riders.slice(0, 3).join(' | '));
+}
+
+// ---------- 7) design.js düzeltmeleri ----------
+{
+  // E6: conta kanalı İÇ köşe radyüsü = iç köşe + et/2 − kanal genişliği/2
+  const ip = runDesignLoop(analysis, await rulesFor('fdm/petg'), { userParams: {} }, opts({ sealing: ip67 }));
+  const g = ip.findings.find((fd) => fd.rule === 'IP-GROOVE-RADIUS');
+  const dp = ip.design.params;
+  const want = Math.round((dp.rIn + dp.wall / 2 - ip.design.sealing.groove.width / 2) * 100) / 100;
+  check('E6: IP-GROOVE-RADIUS kanalın iç köşe radyüsünü ölçer ve geçer', g && g.measured === want && g.level === 'ok' && g.limit === 3 * ip67.cord_d, `${g?.level} ${g?.measured} / ${want}: ${g?.text}`);
+  // E11 gerçek durum: duvar 2 mm'de kilitli + IP67 → köşe radyüsü 5,2 mm duvara göre değil, 2 mm duvara göre
+  const lk = runDesignLoop(analysis, await rulesFor('fdm/petg'), { userParams: { wall: 2 } }, opts({ sealing: ip67 }));
+  const lg = lk.findings.find((fd) => fd.rule === 'IP-GROOVE-RADIUS');
+  const crCh = lk.changes.find((c) => c.key === 'cornerRadius');
+  check('E6/E11: kilitli 2 mm duvar + IP67 → köşe radyüsü 2 mm duvara göre büyür, kanal radyüsü bulgusu çözülür',
+    lk.params.wall === 2 && (!crCh || (lg && lg.level === 'ok')) && lk.stop === 'needs-user',
+    `cr ${lk.params.cornerRadius}, ${lg?.level} ${lg?.text}; ${lk.stop}`);
+  // E12: metal altıgen aralayıcı boyu boyunca ölçülür (plastik vidayla yalnız aralayıcı metal)
+  const so = runDesignLoop(analysis, await rulesFor('fdm/pla'), { userParams: {} }, opts({
+    screwSpec: { type: 'iso7045', size: 'auto', length: 'auto', material: 'pa66', washer: 'none', washerMaterial: 'match' },
+    insertSpec: { type: 'standoff', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' } }));
+  const rk = so.findings.find((fd) => fd.rule === 'RF-KEEPOUT-METAL');
+  check('E12: metal aralayıcı anten mesafesi zBottom..zTop boyunca (nokta değil)', rk && rk.level === 'warn' && /aralayıcı/.test(rk.text) && rk.measured < 15, rk?.text);
+  // E13: kılavuz payı koşulu tek
+  check('E13: kılavuz ucu payı koşulu (tapped, verisiz Helicoil) tek fonksiyonda', usesTapOverrun('tapped', null) && usesTapOverrun('helicoil', null) &&
+    !usesTapOverrun('helicoil', { v: {} }) && !usesTapOverrun('self_tap', null) && !usesTapOverrun('insert', null));
+  // E17: negatif tutunma yazılmaz
+  const sh = runDesignLoop(analysis, await rulesFor('fdm/pla'), { userParams: {} }, opts({
+    screwSpec: { type: 'iso7045', size: 'auto', length: 4, material: 'auto', washer: 'none', washerMaterial: 'match' } }));
+  const fl = sh.findings.filter((fd) => fd.rule === 'FAS-LENGTH');
+  check('E17: kısa vida "dişli bölgeye ulaşmıyor" der, negatif tutunma yazmaz', fl.some((fd) => /dişli bölgeye ulaşmıyor/.test(fd.text)) &&
+    !fl.some((fd) => /-\s?\d/.test(fd.text)) && fl.every((fd) => !(fd.measured < 0)), fl.map((fd) => fd.text).join(' | '));
+  check('E17: hiçbir FAS-LENGTH metninde negatif sayı yok', allLoops.every((Lx) => !Lx.findings.some((fd) => fd.rule === 'FAS-LENGTH' && /−\d|-\d/.test(fd.text))));
+  // E17: kip (emir kipi yerine edilgen)
+  const imper = / (seç|seçin|kullan|kullanın|dene|deneyin|bastır|koy|sür|kontrol et|uzaklaştırın|yapın|ekleyin|takın|kaldırın|kısaltın|büyüt|azalt|doğrulayın)[.;,:!)]/;
+  const bad = [];
+  for (const Lx of allLoops) for (const fd of Lx.findings) if (imper.test(fd.text)) bad.push(fd.text);
+  check('E17: bulgu metinlerinde emir kipi yok (edilgen anlatım)', !bad.length, [...new Set(bad)].slice(0, 4).join(' | '));
+  // G1: CNC altıgen somun cebi takım çapı
+  const nut = runDesignLoop(analysis, await rulesFor('cnc/pom'), { userParams: {} }, opts({
+    insertSpec: { type: 'nut', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' } }));
+  const np = nut.findings.find((fd) => fd.rule === 'CNC-NUT-POCKET-TOOL');
+  check('G1: CNC M3 somun cebi (SW 5,6) Ø3 takımla → CNC-NUT-POCKET-TOOL hata, öneri (otomatik değil)',
+    np && np.level === 'error' && np.fix && np.fix.auto === false && !np.fixAuto && np.measured === 3 && np.limit === 2.8 && np.op === '<=', np?.text);
+  const nutF = runDesignLoop(analysis, await rulesFor('fdm/pla'), { userParams: {} }, opts({ insertSpec: { type: 'nut', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' } }));
+  check('G1: FDM somun cebinde takım kuralı yok', !nutF.findings.some((fd) => fd.rule === 'CNC-NUT-POCKET-TOOL'));
+  // G6: kapak dili ucu köşe boss'u–duvar radyüsünün ötesinde; rc geometride
+  const cr = runDesignLoop(analysis, await rulesFor('cnc/pom'), { userParams: {} }, opts({ lidMode: 'corner' }));
+  const gg = cr.design.geometry;
+  const Rb = cr.design.cornerPlan.od / 2;
+  const rc = gg.cornerConcaveR;
+  const need = Rb + 2 * Math.sqrt(Rb * rc) + 0.3;
+  const cmin = cr.design.cavity.min;
+  const lipOk = cr.design.lipBars.every((l) => (l.side === '-X' || l.side === '+X' ? l.min[1] - cmin[1] : l.min[0] - cmin[0]) >= need - 1e-6);
+  check('G6: köşe kapağında dil ucu ≥ Rb + 2·√(Rb·rc) + 0,3; rc = 1,3 × takım yarıçapı geometride', rc === 1.95 && gg.lipEnd >= need - 1e-6 && lipOk,
+    `Rb ${Rb} rc ${rc} lipEnd ${gg.lipEnd} need ${need.toFixed(2)}`);
+  // D14: IP65 ve üstünde basınç dengeleme önerisi
+  const ip65 = sealing.levels.find((l) => l.id === 'IP65');
+  const v65 = runDesignLoop(analysis, await rulesFor('fdm/petg'), { userParams: {} }, opts({ sealing: ip65 }));
+  check('D14: IP65 → IP-VENT önerisi', v65.findings.some((fd) => fd.rule === 'IP-VENT' && fd.fix?.key === 'panelAdd'));
+  // Kapak kendi süreciyle
+  const mx = (lidId) => rulesFor(lidId);
+  const m1 = runDesignLoop(analysis, await rulesFor('cnc/al6061'), { userParams: {} }, opts({ lidRules: await mx('fdm/petg') }));
+  check('Kapak süreci: CNC gövde + FDM kapak → kapak için FDM-WALL-NOZZLE (part lid)', m1.findings.some((fd) => fd.rule === 'FDM-WALL-NOZZLE' && fd.part === 'lid'));
+  const m2 = runDesignLoop(analysis, await rulesFor('cnc/pom'), { userParams: {} }, opts({ lidRules: await mx('injection/abs') }));
+  check('Kapak süreci: CNC gövde + enjeksiyon kapak → kapak INJ-DRAFT, INJ-LIP-RATIO, INJ-BOSS-WALL (part lid)',
+    ['INJ-DRAFT', 'INJ-LIP-RATIO', 'INJ-BOSS-WALL', 'INJ-SHRINK'].every((r) => m2.findings.some((fd) => fd.rule === r && fd.part === 'lid')) &&
+    !m2.findings.some((fd) => fd.rule === 'INJ-DRAFT' && fd.part !== 'lid'), m2.findings.filter((fd) => /^INJ/.test(fd.rule)).map((fd) => `${fd.rule}/${fd.part}`).join(', '));
+  const m3 = runDesignLoop(analysis, await rulesFor('injection/abs'), { userParams: {} }, opts({ lidRules: await mx('cnc/pmma') }));
+  const uw = m3.findings.find((fd) => fd.rule === 'INJ-UNIFORM-WALL');
+  check('Kapak süreci: enjeksiyon gövde + CNC kapak → kapakta INJ-LIP-RATIO yok, kapak borusu boss kontrolü yok, CNC-POCKET-DEPTH kapak',
+    !m3.findings.some((fd) => fd.rule === 'INJ-LIP-RATIO') && !m3.findings.some((fd) => fd.rule === 'INJ-BOSS-WALL' && /kapak borusu/.test(fd.text)) &&
+    m3.findings.some((fd) => fd.rule === 'CNC-POCKET-DEPTH' && fd.part === 'lid'));
+  check('E17: INJ-UNIFORM-WALL uygun metni kapak kalınlığını (lidT) kullanır', uw && (uw.level !== 'ok' || /kapak ayrı parça/.test(uw.text)), uw?.text);
+  // lid_fit_clearance kapak dili boşluğunu belirler; kullanıcı toleransı ezerse uygulanmaz; tolAt kaldırıldı
+  const pom = await rulesFor('cnc/pom');
+  const fp = runDesignLoop(analysis, pom, { userParams: {} }, opts()).design;
+  const fpL = runDesignLoop(analysis, pom, { userParams: {} }, opts({ fits: { lid: 'loose', screw: 'normal' } })).design;
+  const fpO = runDesignLoop(analysis, pom, { userParams: {} }, opts({ tolerance: { normal: 0.05 } })).design;
+  check('lid_fit_clearance: normal geçmede en az kural değeri, bol geçme daha büyük, kullanıcı toleransında model değeri',
+    fp.params.fit >= pom.lid_fit_clearance - 1e-9 && fpL.params.fit > fp.params.fit && fpO.params.fit < pom.lid_fit_clearance, `${fp.params.fit} / ${fpL.params.fit} / ${fpO.params.fit}`);
+  check('fits.js: tolAt kullanılıyor (dış ölçü toleransı computeDesign().tolerance.outerTol)',
+    fp.tolerance.outerTol === fitsMod.tolAt(fp.tolerance, Math.max(fp.outer.L, fp.outer.W)) && fp.tolerance.outerTol > 0, `±${fp.tolerance.outerTol}`);
+  const fpG = runDesignLoop(analysis, pom, { userParams: {} }, opts({ tolerance: { general: 0.2 } })).design;
+  check('lid_fit_clearance: kapak geçmesini etkilemeyen düzeltmede (genel tolerans) kural değeri korunur', fpG.params.fit >= pom.lid_fit_clearance - 1e-9, `${fpG.params.fit}`);
+  // GEN-STANDOFF-BELOW: geometrik çakışma (yüksek güven), hava boşluğu ayrı düşük güvenli öneri
+  check('D11: GEN-STANDOFF-BELOW geometrik çakışma (conf high), GEN-STANDOFF-GAP düşük güvenli bilgi', RULES['GEN-STANDOFF-BELOW'].conf === 'high' &&
+    RULES['GEN-STANDOFF-BELOW'].level === 'error' && RULES['GEN-STANDOFF-GAP']?.conf === 'low' && RULES['GEN-STANDOFF-GAP'].level === 'info');
+  const gapL = runDesignLoop(analysis, await rulesFor('fdm/pla'), { userParams: { standoffHeight: 2.5 } }, opts({ insertSpec: { type: 'none', variant: 'auto', nut: 'iso4032', standoff: 'hex-ff', standoffMat: 'auto' } }));
+  check('GEN-STANDOFF-GAP: pin–taban arası 0,5 mm (kilitli) → bilgi, çakışma hatası yok', gapL.findings.some((fd) => fd.rule === 'GEN-STANDOFF-GAP' && fd.level === 'info' && fd.measured === 0.5) &&
+    !gapL.findings.some((fd) => fd.rule === 'GEN-STANDOFF-BELOW'));
+}
+
+// ---------- 8) Katalog: geometri kuralları (sözleşme B) ve başlık düzeltmeleri ----------
+{
+  const B = ['GEO-EDGE-BED', 'GEO-EDGE-BREAK', 'GEO-FILLET-INNER', 'GEO-FILLET-OUTER', 'GEO-LEADIN', 'GEO-HOLE-ENTRY', 'GEO-BOSS', 'GEO-DOGBONE', 'GEO-GROOVE',
+    'GEO-CORNER-CONCAVE', 'INJ-DRAFT', 'INJ-SIDE-ACTION', 'GEO-TREAT', 'GEO-BUILD'];
+  const miss = B.filter((id) => !RULES[id]);
+  check('Sözleşme B: tüm geometri kural kimlikleri katalogda', !miss.length && B.every((id) => TREAT_RULE_IDS.includes(id)), miss.join(', '));
+  check('Sözleşme B: GEO-* kategori geometri, INJ-* kendi kategorisinde', B.filter((id) => id.startsWith('GEO-')).every((id) => RULES[id].cat === 'geometri') &&
+    RULES['INJ-DRAFT'].cat === 'surec' && RULES['INJ-SIDE-ACTION'].cat === 'surec');
+  check('Sözleşme B: geometri kurallarının URL\'li kaynağı var', B.every((id) => RULES[id].source.some((s) => /^https:\/\//.test(s.url))));
+  check('G1: CNC-NUT-POCKET-TOOL kuralı (hata, CNC)', RULES['CNC-NUT-POCKET-TOOL']?.level === 'error' && RULES['CNC-NUT-POCKET-TOOL'].processes.join() === 'cnc');
+  check('E17: GEN-CORNER-MIN başlığı "kural dosyasındaki en küçük değer"', /kural dosyasındaki en küçük değer/.test(RULES['GEN-CORNER-MIN'].title));
+  check('D14: IP-VENT başlığı IP65 ve üstü', /IP65 ve üstü/.test(RULES['IP-VENT'].title));
 }
 
 // ---------- Sonuç ----------

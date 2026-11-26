@@ -131,8 +131,8 @@ export function planMount(ctx) {
         : m.count !== 2 ? { key: 'mountCount', value: 2, label: '2 kulak (duvar ortasında)' } : null;
       for (const c of [...new Set(L.conflicts)]) add('warn', `${c}.`, fix, 'MNT-EAR-CONFLICT');
     }
-    if (ctx.hasFeet) add('warn', 'Lastik ayak ve montaj kulağı birlikte: kutu ayaklara oturur, kulaklar yüzeye değmez. Duvara montajda ayakları kaldırın.', null, 'MNT-FEET');
-    if (ctx.bottomBump > 0) add('warn', `Tabandan ${f(ctx.bottomBump)} mm vida başı/somun çıkıyor: kutu montaj yüzeyine düz oturmaz. Havşa başlı alt vida ya da somun cebi seçin.`, null, 'MNT-BOTTOM-BUMP', { measured: ctx.bottomBump, unit: 'mm' });
+    if (ctx.hasFeet) add('warn', 'Lastik ayak ve montaj kulağı birlikte: kutu ayaklara oturur, kulaklar yüzeye değmez. Duvara montajda ayaklar kaldırılmalı.', null, 'MNT-FEET');
+    if (ctx.bottomBump > 0) add('warn', `Tabandan ${f(ctx.bottomBump)} mm vida başı/somun çıkıyor: kutu montaj yüzeyine düz oturmaz. Havşa başlı alt vida ya da somun cebi seçilmeli.`, null, 'MNT-BOTTOM-BUMP', { measured: ctx.bottomBump, unit: 'mm' });
     if (rules.process === 'cnc') add('info', `CNC'de kulaklar ham malzeme (stok) boyunu ${f(out.footprint.L)} × ${f(out.footprint.W)} mm'ye büyütür; çok sayıda parçada ayrı sac braket daha ekonomik olabilir.`, null, 'CNC-STOCK');
     if (rules.process === 'fdm') add('ok', 'Kulaklar taban hizasında: baskı tablasına oturur, destek gerekmez.', null, 'FDM-PRINT-ORIENT');
     out.bom.push(`Montaj: ${out.ears.length} × ${m.size} vida (+ ISO 7089 pul) — kulaklarda Ø${f(d)}${slot ? `×${f(d + slot)} uzun` : ''} delik, aralık ${[sx, sy].filter((v) => v > 0).map(f).join(' × ')} mm; vida/dübel montaj yüzeyine göre seçilir`);
@@ -183,7 +183,7 @@ export function planMount(ctx) {
     out.info = { count: out.floorHoles.length, d, hd, spacing: [r1(sx), r1(sy)] };
     add('ok', `${out.floorHoles.length} taban montaj deliği (${m.size}, Ø${f(d)}): vidalar içeriden, kart takılmadan önce sıkılır; delik aralığı ${[sx, sy].filter((v) => v > 0.05).map(f).join(' × ')} mm.`, null, 'MNT-FLOOR');
     headRoom();
-    if (ctx.seal) add('warn', `${ctx.seal.label}: tabandaki montaj delikleri sızdırmazlığı bozar; her vidaya sızdırmazlık pulu (ya da O-ring) kullanın veya dıştan montaj kulağı seçin.`,
+    if (ctx.seal) add('warn', `${ctx.seal.label}: tabandaki montaj delikleri sızdırmazlığı bozar; her vidada sızdırmazlık pulu (ya da O-ring) kullanılmalı ya da dıştan montaj kulağı seçilmeli.`,
       { key: 'mountType', value: 'ears', label: 'Montaj kulağı' }, 'IP-FLOOR-HOLES');
     if (ctx.hasFeet) add('info', 'Lastik ayaklar tabandan vidalı montajda kutuyu yüzeyden ayırır; vidalar ayak yüksekliği kadar uzun seçilmeli.', null, 'MNT-FEET');
     out.bom.push(`Montaj: ${out.floorHoles.length} × ${m.size} vida (+ pul) — tabanda Ø${f(d)} delik, içeriden; aralık ${[sx, sy].filter((v) => v > 0.05).map(f).join(' × ')} mm`);
@@ -261,7 +261,7 @@ function planDin(ctx, m, out, add, s) {
   let len = STD_LEN.find((l) => l >= lo - 1e-6 && l <= hi + 1e-6);
   if (!len) {
     len = STD_LEN.find((l) => l >= lo - 1e-6) || STD_LEN[STD_LEN.length - 1];
-    add('warn', `Klips vidası için standart boy bulunamadı (taban ${f(floor)} + diş ${f(emin)} … ${f(depth - 0.3)} mm); ${method === "self_tap" ? "Ø3" : "M3"}×${len} seçildi, ucunu ${f(len - hi)} mm kısaltın.`, null, 'MNT-DIN', { part: 'clip' });
+    add('warn', `Klips vidası için standart boy bulunamadı (taban ${f(floor)} + diş ${f(emin)} … ${f(depth - 0.3)} mm); ${method === "self_tap" ? "Ø3" : "M3"}×${len} seçildi, ucu ${f(len - hi)} mm kısaltılmalı.`, null, 'MNT-DIN', { part: 'clip' });
   }
   const scr = method === 'self_tap' ? `Ø3×${len} diş açan vida` : `M3×${len}`;
   for (const [x, y] of pick.ps) {
@@ -282,10 +282,10 @@ function planDin(ctx, m, out, add, s) {
 
   const clip = { part: 'clip' };
   add('ok', `DIN ray klipsi (EN 60715 TS35, ayrı parça ${f(C.L)} × ${f(width)} × ${f(C.tp + bossDrop)} mm): ray ${axis === 0 ? 'X' : 'Y'} yönünde; kutuya içeriden 2 × ${scr} ile bağlanır, delik aralığı ${f(sp)} mm.`, null, 'MNT-DIN', clip);
-  add('info', `Takma: ${fixedSide} tarafındaki sabit kancayı ray flanşına geçirip kutuyu raya bastırın, ${latchSide} tarafındaki iki esnek dil flanşın altına oturur. Sökme: düz tornavidayı plaka ucundan dil yarığına sokup dili dışa itin.`, null, 'MNT-DIN', clip);
+  add('info', `Takma: ${fixedSide} tarafındaki sabit kanca ray flanşına geçirilip kutu raya bastırılır, ${latchSide} tarafındaki iki esnek dil flanşın altına oturur. Sökme: düz tornavida plaka ucundan dil yarığına sokulup dil dışa itilir.`, null, 'MNT-DIN', clip);
   const sMeta = { measured: Math.round(strain * 100) / 100, limit: allow, op: '<=', unit: '%', part: 'clip' };
   if (allow < 1) {
-    add('warn', `${rules.label} esnek dile uygun değil (izin verilen uzama ≈ %${f(allow)}, dilde ≈ %${f(strain)}): ticari yaylı DIN klipsi kullanın; kutudaki ${f(sp)} mm aralıklı delikler ona göre.`, null, 'MNT-DIN-SNAP', sMeta);
+    add('warn', `${rules.label} esnek dile uygun değil (izin verilen uzama ≈ %${f(allow)}, dilde ≈ %${f(strain)}): ticari yaylı DIN klipsi kullanılmalı; kutudaki ${f(sp)} mm aralıklı delikler ona göre.`, null, 'MNT-DIN-SNAP', sMeta);
   } else if (strain > allow + 1e-6) {
     add('warn', `Kilit dilinde takarken uzama ≈ %${f(strain)}, ${rules.label} için izin ≈ %${f(allow)}: dil birkaç takma-sökmede çatlayabilir. Klips için PETG, ASA, PA ya da POM önerilir.`, null, 'MNT-DIN-SNAP', sMeta);
   } else {
@@ -296,9 +296,9 @@ function planDin(ctx, m, out, add, s) {
   if (dimU(1 - axis) < width - 1e-6) add('info', `Kutu raya dik yönde klipsten dar (${f(dimU(1 - axis))} < ${f(width)} mm): kancalar kutunun dışından görünür.`, null, 'MNT-DIN', clip);
   add('info', `Rayda kapladığı yer ${f(r1(railSpace))} mm (≈ ${modules} modül × 18 mm); kutunun ray flanşından yüksekliği ${f(outer.H + C.tp)} mm, pano arka yüzünden ${f(outer.H + C.tp + RAIL.h)} mm.`, null, 'MNT-DIN', clip);
   headRoom();
-  if (ctx.seal) add('warn', `${ctx.seal.label}: klips vidalarının taban delikleri sızdırmazlığı bozar; iki vidaya sızdırmazlık pulu (ya da O-ring) kullanın.`, null, 'IP-FLOOR-HOLES');
-  if (ctx.hasFeet) add('warn', 'Lastik ayaklar kutuyla klips arasına girer: DIN montajında ayakları kaldırın.', null, 'MNT-FEET');
-  if (ctx.bottomBump > 0) add('warn', `Tabandan ${f(ctx.bottomBump)} mm vida başı/somun çıkıyor: klips plakası kutuya düz oturmayabilir. Havşa başlı alt vida ya da somun cebi seçin.`, null, 'MNT-BOTTOM-BUMP', { measured: ctx.bottomBump, unit: 'mm' });
+  if (ctx.seal) add('warn', `${ctx.seal.label}: klips vidalarının taban delikleri sızdırmazlığı bozar; iki vidada sızdırmazlık pulu (ya da O-ring) kullanılmalı.`, null, 'IP-FLOOR-HOLES');
+  if (ctx.hasFeet) add('warn', 'Lastik ayaklar kutuyla klips arasına girer: DIN montajında ayaklar kaldırılmalı.', null, 'MNT-FEET');
+  if (ctx.bottomBump > 0) add('warn', `Tabandan ${f(ctx.bottomBump)} mm vida başı/somun çıkıyor: klips plakası kutuya düz oturmayabilir. Havşa başlı alt vida ya da somun cebi seçilmeli.`, null, 'MNT-BOTTOM-BUMP', { measured: ctx.bottomBump, unit: 'mm' });
   if (rules.process === 'fdm') add('ok', 'Klips üst yüzü tablaya gelecek şekilde (kancalar yukarı) desteksiz basılır; dudak çıkıntısı 1,2 mm.', null, 'FDM-PRINT-ORIENT', clip);
   else if (rules.process === 'cnc') add('info', `CNC: klips ray yönünde sabit kesitli bir profil (dil yarıkları ve boss'lar ek işlem). Az adette ticari vidalı TS35 klipsi daha ekonomik olabilir; delik aralığı ${f(sp)} mm.`, null, 'MNT-DIN-PROCESS', clip);
   else add('info', 'Kalıpta kanca dudakları yan maça ister: klipsi ayrı FDM parça olarak basmak ya da ticari TS35 klipsi kullanmak daha ucuzdur.', null, 'MNT-DIN-PROCESS', clip);

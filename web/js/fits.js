@@ -6,6 +6,7 @@
  *   hole_comp   FDM: dikey delikler küçük çıkar; modeldeki delik çapına eklenen telafi (CNC/enjeksiyon: 0)
  *   fits        çapsal (iki yan toplam) boşluk, mm — press: sıkı (negatif = sıkılık), normal: kayar, loose: bol
  * Kullanıcı kendi yazıcısı/atölyesi için bu değerleri ezebilir (options.tolerance).
+ * Kural dosyasının lid_fit_clearance değeri (her yan, mm) normal/bol kapak geçmesinde en küçük dil boşluğudur (lidGap).
  */
 
 export const FIT_CLASSES = [
@@ -40,22 +41,31 @@ export function toleranceOf(rules, override = null) {
   return {
     general: pick('general'), per_100mm: pick('per_100mm'), hole_comp: pick('hole_comp'), fits,
     lid_extra: Number.isFinite(o.lid_extra) ? o.lid_extra : base.lid_extra ?? 0,
+    // Kural dosyasındaki kapak dili boşluğu (lid_fit_clearance, her yan): normal ve bol geçmede en küçük boşluk
+    lid_min: Number.isFinite(rules.lid_fit_clearance) ? rules.lid_fit_clearance : null,
     overridden: Object.keys(o).some((k) => Number.isFinite(o[k])),
+    // Kullanıcı kapak geçmesini etkileyen bir değeri (geçme boşlukları, kapak ek payı, boy payı) ezdiyse kural değeri uygulanmaz
+    lidOverridden: ['press', 'normal', 'loose', 'lid_extra', 'per_100mm'].some((k) => Number.isFinite(o[k])),
     source: base.source || '',
   };
 }
 
-/** Uzunluk L için toplam ± tolerans */
+/** Uzunluk L için toplam ± tolerans (genel + boy payı); computeDesign().tolerance.outerTol dış ölçü için verir */
 export const tolAt = (tol, L) => r2(tol.general + (tol.per_100mm * L) / 100);
 
 /**
  * Kapak dili ile gövde iç duvarı arasındaki boşluk (her yan). İki baskı/işlenmiş yüzeyin uzun dikdörtgen geçmesi:
  * sınıf boşluğunun yarısı + iki yüzeyin baskı/işleme sapması (lid_extra) + boy payı. Gövde ve kapak aynı malzemeden
  * olduğu için çekme aynı yöne gider; boy payı genel toleransın dörtte biri alınır (per_100mm · L / 400).
+ * Kural dosyasında lid_fit_clearance varsa normal geçme en az bu kadar, bol geçme bu değer + (bol − normal) farkı
+ * kadar boşluk alır; sıkı geçmede ve kullanıcı toleransı ezdiğinde (kendi yazıcısı/atölyesi) uygulanmaz.
  */
 export function lidGap(tol, cls, L) {
-  const fitD = tol.fits[cls] ?? tol.fits.normal;
-  const g = fitD / 2 + (tol.lid_extra || 0) + (tol.per_100mm * L) / 400;
+  const gapOf = (c) => (tol.fits[c] ?? tol.fits.normal) / 2 + (tol.lid_extra || 0) + (tol.per_100mm * L) / 400;
+  let g = gapOf(cls);
+  if (Number.isFinite(tol.lid_min) && !(tol.lidOverridden ?? tol.overridden) && cls !== 'press') {
+    g = Math.max(g, tol.lid_min + (cls === 'loose' ? gapOf('loose') - gapOf('normal') : 0));
+  }
   return r2(Math.max(cls === 'press' ? -0.05 : 0.02, g));
 }
 

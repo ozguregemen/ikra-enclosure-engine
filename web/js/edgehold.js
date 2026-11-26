@@ -114,7 +114,7 @@ export function planEdgeHold(ctx) {
   const why = ctx.hasHoles ? '' : 'Kartta montaj deliği yok: ';
   out.info = { pads: pads.length, pressers: pressers.length, clr: ctx.clr, overlap: pads[0]?.ov ?? pressers[0]?.ov ?? null };
   if (pads.length < 3) {
-    add('error', `${why}kartı kenarından alttan taşıyacak yer bulunamadı (${pads.length} destek; en az 3 gerekir). Kartın kenar bandının (≈2 mm) altında bileşen/pin var; PCB altı yüksekliği ya da kart–duvar boşluğunu değiştirin veya kartı pin başlıklarından dişi soket/aralayıcıyla tutun.`,
+    add('error', `${why}kartı kenarından alttan taşıyacak yer bulunamadı (${pads.length} destek; en az 3 gerekir). Kartın kenar bandının (≈2 mm) altında bileşen/pin var; PCB altı yükseklik ya da kart–duvar boşluğu değiştirilmeli ya da kart pin başlıklarından dişi soket/aralayıcıyla tutulmalı.`,
       null, 'EDGE-SUPPORT', { measured: pads.length, limit: 3, op: '>=', unit: 'adet' });
   } else {
     const sp = spread(pads);
@@ -127,7 +127,7 @@ export function planEdgeHold(ctx) {
     add(pressers.length < 3 ? 'info' : 'ok', `${pressers.length} kapak baskısı kartı kenarından üstten sıkıştırır (kapak kapanınca temas; titreşimli ortamda baskı altına 0,5–1 mm silikon/EVA ped önerilir).`, null, 'EDGE-PRESSER',
       { measured: pressers.length, limit: 3, op: '>=', unit: 'adet', part: 'lid' });
   }
-  add('info', `Kart yanal olarak kavite duvarlarıyla konumlanır (her yanda ${f(ctx.clr)} mm boşluk); daha sıkı konum için PCB–duvar boşluğunu azaltın.`, null, 'EDGE-LATERAL');
+  add('info', `Kart yanal olarak kavite duvarlarıyla konumlanır (her yanda ${f(ctx.clr)} mm boşluk); daha sıkı konum için PCB–duvar boşluğu azaltılabilir.`, null, 'EDGE-LATERAL');
   if (ctx.rules?.process === 'cnc') add('info', 'CNC: alt destekler cep tabanında duvara bağlı adacıklar olarak işlenir; baskı dilleri kapağın iç yüzünden.', null, 'EDGE-CNC');
   return out;
 }

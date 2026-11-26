@@ -178,7 +178,7 @@ export function planPanel(ctx) {
     out.parts.push({ ...part(pd, { name: 'Yapışkanlı lastik ayak', spec: `köşeden ${f(inset)} mm`, material: 'kauçuk' }, 'bottom', [pos[0].x, pos[0].y, z0 - pd.h / 2], false), qty: 4 });
   }
   if (bump > 0 && !feet.length) {
-    add('warn', `Tabandan ${f(bump)} mm ${bottomBumps[0].what} çıkıyor: kutu düz oturmaz. Gömme baş (havşa) seçin ya da en az ${f(bump + 0.5)} mm lastik ayak ekleyin.`,
+    add('warn', `Tabandan ${f(bump)} mm ${bottomBumps[0].what} çıkıyor: kutu düz oturmaz. Gömme baş (havşa) seçilmeli ya da en az ${f(bump + 0.5)} mm lastik ayak eklenmeli.`,
       { key: 'panelAdd', value: 'bumper', label: 'Lastik ayak ekle' }, null, 'PNL-BOTTOM-BUMP', { measured: bump, unit: 'mm' });
   }
 
@@ -548,10 +548,10 @@ export function planPanel(ctx) {
         { key: 'setParam', value: `topClearance:${it.wallNeed}`, label: `${f(it.wallNeed)} mm yap` }, null, 'PNL-WALL-NEED');
     }
     if (it.kind === 'rf' && it.pigtail) add('info', `${label(it)}: karttaki RF bileşenine yaklaşık ${it.pigtail} mm u.FL pigtail kablo yeter.`, null, null, 'PNL-RF-CABLE', { measured: it.pigtail, limit: 150, op: '<=', unit: 'mm' });
-    if (it.kind === 'vent' && it.face === 'lid') add('info', `${label(it)}: membran yukarı bakıyor; yağmur ve su birikintisi alan yerde duvara (yana) alın.`, null, null, 'PNL-VENT');
+    if (it.kind === 'vent' && it.face === 'lid') add('info', `${label(it)}: membran yukarı bakıyor; yağmur ve su birikintisi alan yerde duvara (yana) alınmalı.`, null, null, 'PNL-VENT');
     if (it.kind === 'gland') add('info', `${label(it)}: kablo dış çapı Ø${f(it.pd.clamp[0])}–${f(it.pd.clamp[1])} mm olmalı; kontra somun içten ${f(it.pd.af)} mm anahtarla sıkılır.`, null, null, 'PNL-GLAND');
     if (it.face !== 'lid' && it.face !== 'bottom' && it.kind !== 'foot' && rules.process === 'fdm' && it.pd.hole && it.pd.hole.d >= 8 && it.pd.hole.shape !== 'D') {
-      add('info', `${label(it)}: yan duvardaki Ø${f(it.pd.hole.d)} deliğin üst yarısı baskıda köprü yapar ve hafif sarkar; baskıdan sonra matkap/rayba ile ölçüye getirin.`, null, null, 'FDM-HOLE-HORIZ',
+      add('info', `${label(it)}: yan duvardaki Ø${f(it.pd.hole.d)} deliğin üst yarısı baskıda köprü yapar ve hafif sarkar; baskıdan sonra matkap/rayba ile ölçüye getirilmeli.`, null, null, 'FDM-HOLE-HORIZ',
         { measured: it.pd.hole.d, unit: 'mm' });
     }
   }
@@ -562,14 +562,23 @@ export function planPanel(ctx) {
   // Sızdırmazlık
   if (seal) {
     for (const it of out.items) {
-      if (it.kind === 'rf') add('info', `${label(it)}: ${seal.label} için O-ringli (IP67) panel konnektör seçin; boştayken toz kapağı takın.`, null, null, 'IP-PANEL');
-      if (it.kind === 'custom') add('info', `${label(it)}: ${seal.label} için IP sınıflı (contalı) parça seçin.`, null, null, 'IP-PANEL');
+      if (it.kind === 'rf') add('info', `${label(it)}: ${seal.label} için O-ringli (IP67) panel konnektörü seçilmeli; boştayken toz kapağı takılmalı.`, null, null, 'IP-PANEL');
+      if (it.kind === 'custom') add('info', `${label(it)}: ${seal.label} için IP sınıflı (contalı) parça seçilmeli.`, null, null, 'IP-PANEL');
     }
     const glands = out.items.filter((it) => it.kind === 'gland' || it.kind === 'vent');
     if (glands.length) add('ok', `${glands.length} rakor / basınç elemanı IP68 sınıfında; conta yüzeyi düz ve temiz olmalı.`, null, null, 'IP-PANEL');
-    if (/67|68/.test(seal.id) && !out.items.some((it) => it.kind === 'vent')) {
-      add('info', `${seal.label} dış ortam kutusunda sıcaklık değişimi contayı zorlar ve yoğuşma yapar: basınç dengeleme elemanı önerilir.`,
+    // Basınç dengeleme (RST, Gore; araştırma ENC-VENT-01): IP65 ve üstü sızdırmaz kutularda önerilir; IP68 iddiasıyla
+    // nefes alan eleman birlikte kullanılmaz
+    const ipHigh = /^IP6[5-9]/i.test(String(seal.id || ''));
+    const ip68 = /^IP68/i.test(String(seal.id || ''));
+    const hasVent = out.items.some((it) => it.kind === 'vent');
+    if (ipHigh && !ip68 && !hasVent) {
+      add('info', `${seal.label} sızdırmaz kutuda sıcaklık ve basınç değişimi contayı zorlar ve yoğuşma yapar: dikey yan duvarın üst kısmına membranlı basınç dengeleme elemanı önerilir.`,
         { key: 'panelAdd', value: 'vent-m12', label: 'Basınç dengeleme ekle' }, null, 'IP-VENT');
+    } else if (ip68) {
+      add(hasVent ? 'warn' : 'info', hasVent
+        ? `${seal.label} iddiasıyla nefes alan (membranlı) basınç dengeleme elemanı birlikte kullanılmamalı; sürekli daldırmada membran su geçirebilir.`
+        : `${seal.label}: nefes alan basınç dengeleme elemanı kullanılmaz; basınç farkı kapak ve conta tasarımıyla karşılanmalı.`, null, null, 'IP-VENT');
     }
   }
   return out;
