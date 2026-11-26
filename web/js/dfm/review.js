@@ -60,10 +60,12 @@ export function validWaiver(w) {
 }
 
 /**
- * Muafiyet verilirken ölçülen değer bulgunun kuralına göre kötüleştiyse (op '>=': küçüldü, op '<=': büyüdü) ya da ölçü birimi
- * değiştiyse muafiyet bulguyu örtmez: parmak izi rakamları attığı için muafiyet ölçü değişince de aynı bulguya bağlı kalır,
- * kabul edilen sapmadan büyük bir sapmayı sessizce örtmemelidir. Ölçü kaydı olmayan (eski) muafiyetlerde ve aralık/kat
- * karşılaştırmalarında kontrol yapılmaz. Dönüş: null (muafiyet geçerli) ya da { from, to, unit }.
+ * Muafiyet verilirken kaydedilen ölçüye göre ölçü ya da sınır bulgunun kuralının aleyhine değiştiyse muafiyet bulguyu örtmez:
+ * op '>=' kuralında ölçü küçüldüyse ya da sınır büyüdüyse, op '<=' kuralında ölçü büyüdüyse ya da sınır küçüldüyse; ölçü birimi
+ * değiştiyse de. Parmak izi rakamları attığı için muafiyet ölçü ya da gereksinim (ör. REQ-TEMP sıcaklığı, CNC-CORNER-DEPTH
+ * derinlik/8 sınırı) değişince de aynı bulguya bağlı kalır; kabul edilen sapmadan büyük bir sapmayı sessizce örtmemelidir.
+ * Sınır kaydı olmayan muafiyette yalnızca ölçü, ölçü kaydı olmayan (eski) muafiyette hiçbiri denetlenmez; aralık (op 'in')
+ * karşılaştırmalarında denetim yapılmaz. Dönüş: null (muafiyet geçerli) ya da { from, to, unit, fromLimit?, toLimit?, limitChanged? }.
  */
 export function waiverWorsened(fd, w) {
   const wm = numOrNull(w?.measured);
@@ -71,15 +73,23 @@ export function waiverWorsened(fd, w) {
   if (wm === null || m === null) return null;
   const unit = fd.unit ?? null;
   if ((w.unit ?? null) !== unit) return { from: wm, to: m, unit, unitChanged: true };
+  if (fd.op !== '>=' && fd.op !== '<=') return null;
   const eps = 0.005; // değerler iki ondalığa yuvarlanır
-  if (fd.op === '>=' && m < wm - eps) return { from: wm, to: m, unit };
-  if (fd.op === '<=' && m > wm + eps) return { from: wm, to: m, unit };
-  return null;
+  const wL = numOrNull(w?.limit);
+  const L = Array.isArray(fd.limit) ? null : numOrNull(fd.limit);
+  const ge = fd.op === '>=';
+  const measWorse = ge ? m < wm - eps : m > wm + eps;
+  const limWorse = wL !== null && L !== null && (ge ? L > wL + eps : L < wL - eps);
+  if (!measWorse && !limWorse) return null;
+  const out = { from: wm, to: m, unit };
+  if (wL !== null && L !== null && Math.abs(L - wL) > eps) Object.assign(out, { fromLimit: wL, toLimit: L, limitChanged: true });
+  return out;
 }
 
 /**
- * Bulguya muafiyeti uygula (yerinde): gerekçesiz muafiyet yok sayılır; ölçü kötüleştiyse bulgu açık kalır ve
- * fd.waiverWorse = { from, to, unit } işaretlenir (arayüz bunu "ölçü kötüleşti" diye eşleşmeyen muafiyetlerde gösterir).
+ * Bulguya muafiyeti uygula (yerinde): gerekçesiz muafiyet yok sayılır; ölçü ya da sınır kötüleştiyse bulgu açık kalır ve
+ * fd.waiverWorse = { from, to, unit, … } işaretlenir (arayüz bunu "ölçü kötüleşti" ya da "sapma kötüleşti" diye eşleşmeyen
+ * muafiyetlerde gösterir).
  */
 export function applyWaiver(fd, w) {
   if (!fd || fd.level === 'ok' || !validWaiver(w)) return fd;

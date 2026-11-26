@@ -830,6 +830,22 @@ for (const [rid, extra] of cases) {
     !wW.waived && wW.waiverWorse?.from === 6.64 && wW.waiverWorse.to === 8.3 && staleWaivers({ [wid]: { reason: 'abc' } }, [wW]).includes(wid) && wB.waived && wO.waived &&
     staleWaivers({ [wid]: { reason: 'abc' } }, [wB]).length === 0, JSON.stringify(wW.waiverWorse));
 
+  // Sınır sıkılaşırsa da (REQ-TEMP: gereksinim 101 → 120 °C, ölçü 100 °C aynı) muafiyet örtmez; sınır gevşerse örter
+  const tc = { level: 'error', rule: 'REQ-TEMP', text: 'POM-C hizmet sıcaklığı gereksinimin altında', measured: 100, limit: 120, op: '>=', unit: '°C' };
+  const tid = fingerprint(tc.rule, null, tc.text);
+  const twv = { reason: 'kısa süreli', measured: 100, limit: 101, op: '>=', unit: '°C' };
+  const tW = findingsFromChecks({ checks: [tc] }, { waivers: { [tid]: twv } })[0];
+  const tR = findingsFromChecks({ checks: [{ ...tc, limit: 90 }] }, { waivers: { [tid]: twv } })[0];
+  const tN = findingsFromChecks({ checks: [tc] }, { waivers: { [tid]: { reason: 'kısa süreli', measured: 100, op: '>=', unit: '°C' } } })[0];
+  const dc = { level: 'warn', rule: 'CNC-CORNER-DEPTH', text: 'İç köşe radyüsü derinliğe göre küçük', measured: 1.95, limit: 3.1, op: '>=', unit: 'mm' };
+  const did = fingerprint(dc.rule, null, dc.text);
+  const dW = findingsFromChecks({ checks: [dc] }, { waivers: { [did]: { reason: 'abc', measured: 1.95, limit: 2.4, op: '>=', unit: 'mm' } } })[0];
+  const dL = findingsFromChecks({ checks: [{ ...dc, op: '<=', measured: 9, limit: 8 }] }, { waivers: { [did]: { reason: 'abc', measured: 9, limit: 10, op: '<=', unit: 'mm' } } })[0];
+  check('dfm4: muafiyetten sonra sınır kuralın aleyhine değişirse (≥: büyür, ≤: küçülür) bulgu açılır ve iki sapma kaydedilir; sınır gevşerse ya da sınır kaydı yoksa muaf kalır',
+    !tW.waived && tW.waiverWorse?.limitChanged && tW.waiverWorse.fromLimit === 101 && tW.waiverWorse.toLimit === 120 && tW.waiverWorse.from === 100 &&
+    staleWaivers({ [tid]: twv }, [tW]).includes(tid) && tR.waived && !tR.waiverWorse && tN.waived && !dW.waived && dW.waiverWorse?.toLimit === 3.1 && !dL.waived,
+    JSON.stringify([tW.waiverWorse, tR.waived, tN.waived, dW.waiverWorse, dL.waiverWorse]));
+
   // Kart kenarı tutucu: kapak baskıları köşe boss'u–duvar radyüsü bölgesine konmaz (CNC köşe kapağı)
   const eh = runDesignLoop(analysis, pom, { userParams: {} }, opts({ lidMode: 'corner', edgeHold: 'on' })).design;
   const rcE = eh.geometry.cornerConcaveR || 0;
@@ -857,6 +873,77 @@ for (const [rid, extra] of cases) {
   const lipEnd = reviewBuild(ehI, [drow({ part: 'lid', key: 'lip.end.draft', size: 2, applied: 0, ok: false })]).filter((fd) => fd.rule === 'INJ-DRAFT' && fd.part === 'lid');
   check('final-fix: katı model sonrası INJ-DRAFT kart desteği (pad.draft) ve dil uç yüzleri (lip.end.draft) uygulanmazsa uyarı', padBad[0]?.level === 'warn' && /kart destekleri/.test(padBad[0].text) &&
     lipEnd[0]?.level === 'warn' && /dil uç yüzleri/.test(lipEnd[0].text), `${padBad[0]?.text} | ${lipEnd[0]?.text}`);
+
+  // ---------- dfm4: fiş yolu, ortak freze, açıklık payı, PORT-RECESS nedeni ----------
+  // Kapak dili duvara ulaşmayan açık konnektörün fiş yoluna (ön yüz → iç duvar × açıklık × açıklık üstü) sarkmaz
+  const lipBlocks = (dz) => {
+    const bad = [];
+    for (const pt of (dz.ports || []).filter((q) => q.enabled && !q.crossing)) {
+      const nLo = Math.min(pt.front, pt.inner); const nHi = Math.max(pt.front, pt.inner);
+      for (const bar of (dz.lipBars || []).filter((l) => l.side === pt.side)) {
+        const ov = (lo, hi, a, b) => Math.min(hi, b) - Math.max(lo, a) > 1e-6;
+        if (ov(bar.min[pt.axis], bar.max[pt.axis], nLo, nHi) && ov(bar.min[pt.along], bar.max[pt.along], pt.a0, pt.a1) && bar.min[2] < pt.pathTop - 1e-6) bad.push(`${pt.name} ${pt.side}`);
+      }
+    }
+    return bad;
+  };
+  const rjDef = [...partsDef, { name: 'RJ45_Jack', box: { min: [-1, 20, 1.6], max: [12, 34, 11.6] }, edges: [{ side: '-X', kind: 'overhang', value: 1 }] }];
+  const anR = { ...analysis, parts: rjDef.map((p, i) => ({ id: i, name: p.name, meshIdx: [i], box: p.box, isBoard: !!p.isBoard, edges: p.edges || [] })),
+    meshBoxes: rjDef.map((p) => p.box), meshes: rjDef.map((p) => boxMesh(p.box)) };
+  const r12 = runDesignLoop(anR, pom, { userParams: {} }, opts({ toolDiameter: 12 }));
+  const r3 = runDesignLoop(anR, pom, { userParams: {} }, opts());
+  const rj12 = (r12.design.ports || []).find((pt) => pt.name === 'RJ45_Jack');
+  const rj3 = (r3.design.ports || []).find((pt) => pt.name === 'RJ45_Jack');
+  const lipX12 = r12.design.lipBars.filter((l) => l.side === '-X');
+  const splitF = r12.findings.find((fd) => fd.rule === 'LID-LIP-SHORT' && /önünde kesildi/.test(fd.text));
+  check('dfm4: Ø12 frezede duvara ulaşmayan RJ45 önünde kapak dili bölünür (iki parça, açıklık ± 0,3 mm boş), LID-LIP-SHORT bilgisi; fiş yoluna dil sarkmaz',
+    rj12?.enabled && !rj12.crossing && lipX12.length === 2 && lipX12.every((l) => l.max[1] <= rj12.a0 - 0.3 + 1e-6 || l.min[1] >= rj12.a1 + 0.3 - 1e-6) &&
+    r12.design.lipSplit.some((s) => s.side === '-X') && splitF?.level === 'info' && lipBlocks(r12.design).length === 0,
+    `${lipX12.map((l) => `${l.min[1].toFixed(2)}–${l.max[1].toFixed(2)}`).join(', ')} | açıklık ${rj12?.a0?.toFixed(2)}–${rj12?.a1?.toFixed(2)} | ${splitF?.text}`);
+  check('dfm4: duvardan geçen konnektörde (Ø3) dil bölünmez, bileşen kuralı geçerli; tüm döngü durumlarında fiş yolu açık',
+    rj3?.crossing && r3.design.lipSplit.length === 0 && [...allLoops, r12, r3, p12].every((Lx) => lipBlocks(Lx.design).length === 0),
+    [...allLoops, r12, r3, p12].map((Lx) => lipBlocks(Lx.design).join(';')).filter(Boolean).join(' | '));
+
+  // Gövde ve kapak aynı frezeyi paylaşır: iki derinlik hatası da en derin işlemeyi karşılayan frezeyi önerir
+  const dB = d05.findings.find((fd) => fd.rule === 'CNC-POCKET-DEPTH' && fd.part !== 'lid' && fd.level === 'error');
+  const dLd = d05.findings.find((fd) => fd.rule === 'CNC-POCKET-DEPTH' && fd.part === 'lid' && fd.level === 'error');
+  const lidH = Math.max(0, ...d05.design.lidTubes.map((t) => t.length || 0), ...d05.design.lipBars.map((l) => l.depth || 0));
+  const depthB = d05.design.z.cavTop - d05.design.z.floorTop;
+  check('dfm4: Ø0,5 frezede gövde ve kapak derinlik hataları aynı frezeyi önerir; o freze iki parçayı da işler',
+    dB && dLd && dB.fix?.value === dLd.fix?.value && cncDepthMachinable(depthB, dB.fix.value) && cncDepthMachinable(lidH, dB.fix.value) &&
+    dB.fix.value === stdCutterForDepth(Math.max(depthB, lidH)), `${dB?.fix?.value} / ${dLd?.fix?.value} · ${dLd?.text}`);
+  // Kilitli iç köşe radyüsü: freze önerisi yeni frezenin radyüsünü de taşır; ikisi birlikte uygulanınca hata kalmaz
+  const lk4 = runDesignLoop(analysis, pom, { userParams: { cornerRadius: 0.65 } }, opts({ toolDiameter: 1 }));
+  const lkF = lk4.findings.find((fd) => fd.rule === 'CNC-POCKET-DEPTH' && fd.part !== 'lid' && fd.level === 'error');
+  const lkV = lkF?.fix?.value;
+  const lkR = lkF?.fix?.with?.cornerRadius;
+  const lkA = Number.isFinite(lkR) ? runDesignLoop(analysis, pom, { userParams: { cornerRadius: lkR } }, opts({ toolDiameter: lkV })) : null;
+  const lkU = Number.isFinite(lkV) ? runDesignLoop(analysis, pom, { userParams: {} }, opts({ toolDiameter: lkV })) : null;
+  check('dfm4: R0,65 kilitli + Ø1 freze: derinlik düzeltmesi "Ø… mm freze ve R… iç köşe" (yeni frezenin önerilen radyüsü); uygulanınca CNC-CORNER-TOOL ve CNC-POCKET-DEPTH hatası yok (kilitsizde döngü radyüsü kendisi yükseltir)',
+    lkV === stdCutterForDepth(lk4.design.z.cavTop - lk4.design.z.floorTop) && lkV > 1 && lkR === cncCornerLimits(pom, lkV).rNeed && /^Ø[\d,]+ mm freze ve R[\d,]+ iç köşe seç$/.test(lkF.fix.label) && lkA &&
+    !lkA.findings.some((fd) => (fd.rule === 'CNC-CORNER-TOOL' || fd.rule === 'CNC-POCKET-DEPTH') && fd.level === 'error') &&
+    lkU.findings.find((fd) => fd.rule === 'CNC-CORNER-TOOL')?.level === 'ok', `${lkF?.fix?.label} ${JSON.stringify(lkF?.fix?.with)}`);
+  check('dfm4: varsayılan freze (Ø3) ile derinlik hatası yoksa öneri metni değişmez; kilitsiz radyüs yeni freze için yeterliyse düzeltmede radyüs yok',
+    !b0.findings.some((fd) => fd.rule === 'CNC-POCKET-DEPTH' && fd.level === 'error') && d05.findings.filter((fd) => fd.rule === 'CNC-POCKET-DEPTH' && fd.level === 'error')
+      .every((fd) => !fd.fix?.with || d05.design.params.rIn < cncCornerLimits(pom, fd.fix.value).rNeed - 1e-6));
+
+  // Açıklık köşe payı modeldeki radyüsle (sabit nokta): Ø6'da dar USB-C açıklığı radyüsü kendi payıyla tutarlı, Ø3'te değişmez
+  const u6 = usbOf(p6);
+  const cU = Math.min(pom.cutout_clearance_xy, pom.cutout_clearance_z);
+  const hU = (u6.sec.z1 - u6.sec.z0) + 2 * pom.cutout_clearance_z;
+  check('dfm4: açıklık köşe payı modeldeki radyüsten (Ø6 USB-C: r < 1,3 × takım yarıçapı, pay r ile tutarlı, yükseklik eski payla olandan küçük); Ø3 R1,95 aynı',
+    u6.r < 3.9 - 1e-6 && Math.abs(u6.reliefR - u6.r) < 1e-3 && Math.abs(u6.openHeight - (hU + 2 * (u6.r - cU) * (1 - Math.SQRT1_2))) < 3e-3 &&
+    u6.openHeight < hU + 2 * (3.9 - cU) * (1 - Math.SQRT1_2) - 0.1 && u3.reliefR === 1.95 && cornerD(u6) <= -cU + 0.02,
+    `r ${u6.r.toFixed(3)} payR ${u6.reliefR.toFixed(3)} boy ${u6.openHeight.toFixed(3)} köşe ${cornerD(u6).toFixed(3)}`);
+
+  // PORT-RECESS: neden ve çözüm ayrı ayrı (radyüs frezeden gelmiyorsa freze önerilmez; köşe payı ekseni)
+  const pR6 = runDesignLoop(anP, pom, { userParams: { cornerRadius: 6 } }, opts());
+  const recR6 = pR6.findings.find((fd) => fd.rule === 'PORT-RECESS' && fd.focus?.partId === usbOf(pR6)?.partId);
+  const pAx = runDesignLoop(anP, pla, { userParams: {} }, opts({ lidMode: 'corner', cornerAxis: 'x' }));
+  const recAx = pAx.findings.find((fd) => fd.rule === 'PORT-RECESS' && fd.focus?.partId === usbOf(pAx)?.partId);
+  check('dfm4: PORT-RECESS kilitli R6 (frezeden gelmiyor): neden radyüs payı, freze önerisi ve düzeltmesi yok; köşe payı eksenindeki port: köşe vidası payı ve eksen önerisi',
+    recR6 && /iç köşe radyüsü için her yanda/.test(recR6.text) && !/freze/.test(recR6.text) && !recR6.fix && /Açıklık fiş ölçüsüne göre büyütülmeli/.test(recR6.text) &&
+    recAx && /köşe vidası boss'ları için bu eksende/.test(recAx.text) && /öşe payı ekseni değiştiril/.test(recAx.text), `${recR6?.text} || ${recAx?.text}`);
 }
 
 // ---------- Sonuç ----------

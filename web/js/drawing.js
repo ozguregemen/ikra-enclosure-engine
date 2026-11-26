@@ -371,7 +371,7 @@ function edgeNotes(d, part) {
     if (cnc) {
       const pp = d.params || {};
       const tool = P.toolD || 3;
-      const radii = [`cep köşeleri R${d1(pp.rIn ?? geo.cavity.r)}`];
+      const radii = [`cep köşeleri R${d2(pp.rIn ?? geo.cavity.r)}`];
       const cr = got('corner.concave', 0);
       const pr = got('pad.concave', 0);
       const er = got('ear.concave', 0);
@@ -380,8 +380,12 @@ function edgeNotes(d, part) {
       if (cr > 0) radii.push(`köşe boss'u–duvar birleşimi R${d2(cr)}${toolLeft(cr) ? ` (${toolLeft(cr)}; kapak dili ucuyla çakışma kontrol edilmeli)` : ''}`);
       if (pr > 0) radii.push(`kart desteği–duvar birleşimi R${d2(pr)}${toolLeft(pr) ? ` (${toolLeft(pr)}; destek ucuna kadar yuvarlanır)` : ''}`);
       if (er > 0) radii.push(`kulak–duvar birleşimi R${d2(er)}${toolLeft(er) ? ` (${toolLeft(er)})` : ''}`);
-      if ((geo.cutouts || []).length) radii.push(`port köşeleri R${d1(Math.max(...geo.cutouts.map((c) => c.r)))}`);
-      n.push(`İç dikey köşeler: ${radii.join(', ')}; taban–duvar iç köşesi keskin (düz parmak freze).`);
+      if ((geo.cutouts || []).length) {
+        // Dar açıklıkta radyüs açıklığa sığan en büyük değerdir (design.js): aralık yazılır
+        const cr = [Math.min(...geo.cutouts.map((c) => c.r)), Math.max(...geo.cutouts.map((c) => c.r))];
+        radii.push(`port köşeleri R${rng(cr)}${cr[1] - cr[0] > 0.005 ? ' (dar açıklıkta açıklığa sığan en büyük radyüs)' : ''}`);
+      }
+      n.push(`İç dikey köşeler Ø${d1(tool)} frezeye göre: ${radii.join(', ')}; taban–duvar iç köşesi keskin (düz parmak freze).`);
       const nut = span('nut.dogbone', 0);
       if (nut) {
         const lim = limitedOf('nut.dogbone');
@@ -592,7 +596,7 @@ function baseSheet(ctx) {
   const n = [
     ...toleranceNotes(rules, d),
     ...edgeNotes(d, 'base'),
-    `Et kalınlığı ${d1(d.params.wall)} mm, taban ${d1(d.params.floor)} mm, iç köşe R${d1(d.params.rIn)}, dış köşe R${d1(d.params.rOut)}.`,
+    `Et kalınlığı ${d1(d.params.wall)} mm, taban ${d1(d.params.floor)} mm, iç köşe R${d2(d.params.rIn)}, dış köşe R${d2(d.params.rOut)}.`,
     `Açıklık konumu duvar boyunca sıfır noktasından, Z gövde altından ölçülür; açıklıklar konnektör + ${d1(rules.cutout_clearance_xy)} mm boşlukla (yuvarlak köşelerde de bu boşluk kalacak kadar büyütülmüş).`,
   ];
   if (d.edgeHold?.active && d.edgeHold.pads) n.push(`Kart kenarı tutucu: ${d.edgeHold.pads} alt destek kartı kenarından ${d1(d.edgeHold.info?.overlap ?? 2)} mm içeri taşır; kapakta ${d.edgeHold.pressers} baskı dili kartı üstten sıkıştırır.`);
