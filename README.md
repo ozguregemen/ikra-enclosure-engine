@@ -24,7 +24,7 @@ Sol aşama çubuğu akışı yedi adımda gösterir; her aşamanın simgesi duru
 | 7 Final tasarım ve çıktılar | Özet ölçüler, STEP / STL / montaj STEP'i, PDF teknik resim (DFM inceleme raporu paftasıyla), BOM, analiz ve inceleme raporu (JSON) |
 
 **Tasarım incelemesi paneli** (sağda; 1200 px altında çekmece):
-- Karar bandı: **Hazır** (hata ve uyarı yok), **Uyarılarla hazır**, **Engelli** (en az bir hata); katı modelden önce "ön inceleme",
+- Karar bandı: **Hazır** (hata ve uyarı yok), **Uyarılarla hazır**, **Üretime uygun değil** (en az bir açık hata; teknik resimdeki DFM paftasında "ÜRETİME UYGUN DEĞİL"); katı modelden önce "ön inceleme",
   sonra "son inceleme" (birleşik karar)
 - Döngü günlüğü: tur sayısı, otomatik düzeltme sayısı ve durma nedeni (yakınsadı, kullanıcı kararı gerekiyor, tur sınırı, salınım, ilerleme yok)
 - Otomatik düzeltmeler (eski → yeni değer, kural, gerekçe); **Geri al** parametreyi önceki değerinde kilitler.
@@ -33,14 +33,22 @@ Sol aşama çubuğu akışı yedi adımda gösterir; her aşamanın simgesi duru
   **Neden?** altında kuralın gerekçesi ve kaynak bağlantıları; **Uygula** (önerilen düzeltme), **Göster** (3B'de vurgula),
   **Muaf tut** (en az 3 karakterlik gerekçe zorunlu; proje dosyasına, JSON rapora ve teknik resme yazılır), **Muafiyeti kaldır**;
   geçen kontroller "N kontrol geçti" altında toplanır; düzey ve kategori süzgeci
+- Aynı kuralın aynı düzeydeki tekrarlanan bulguları tek grup kartında (ör. `PORT-RECESS · 3 bulgu`), her bulgunun düğmeleri ayrı;
+  hata grupları açık, uyarı ve bilgi grupları kapalı gelir; açık hata ya da uyarı varken bilgi bölümü kapalıdır.
+  Negatif ölçüler tipografik eksiyle (`−0,2 mm`) yazılır
+- Otomatik düzeltme satırlarında tetikleyen bulgunun ölçüsü (`neden: 3 mm < 5,5 mm`), döngü bu bilgiyi verdiğinde
+- **Eşleşmeyen muafiyetler**: hiçbir bulguya bağlanmayan muafiyetler gerekçesiyle listelenir ve **Kaldır** ile silinir;
+  yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz
 
 **Otomatik ve Kilitli parametreler:** otomatik alanları döngü belirler; alana yazılan değer kilitlenir ve döngü dokunmaz
 (kilit düğmesiyle yeniden otomatiğe döner). Süreç ya da malzeme değişince kilitli değerler korunur. Alanlar satır içinde
-doğrulanır; geçersiz ya da aralık dışı değer uygulanmaz.
+doğrulanır; geçersiz ya da aralık dışı değer uygulanmaz. CNC'de **Freze takım çapı** (0,5–12 mm) atölyedeki en küçük parmak
+frezeyi alır: boşsa kural dosyasının değeri (yer tutucuda), yazılırsa kilitli; geri al / yinele, proje dosyası ve
+"Tüm kilitleri kaldır" bu değeri de kapsar.
 
 **Güncellik ve çıktı kapısı:** durum makinesi `idle → designing → reviewing → building → built | build-error | invalid`.
 Muaf tutulmamış hata varsa katı model kendiliğinden oluşturulmaz (bilerek "Hatalara rağmen oluştur" seçilebilir);
-model tasarımla güncel değilse indirme düğmeleri gerekçesiyle kapalıdır, eski dosya sessizce sunulmaz. Engelli tasarımda
+model tasarımla güncel değilse indirme düğmeleri gerekçesiyle kapalıdır, eski dosya sessizce sunulmaz. Üretime uygun olmayan tasarımda
 indirmeden önce açık hatalar listelenip onay istenir. Alttaki durum çubuğu akışı özetler:
 `Tasarım ✓ · İnceleme: 2 tur, 1 otomatik düzeltme · Katı model ✓ 1,4 s · Son inceleme ✓`.
 
