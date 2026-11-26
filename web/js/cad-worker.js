@@ -20,6 +20,7 @@ import {
   getOC,
   cast,
 } from 'https://cdn.jsdelivr.net/npm/replicad@1.2.1/+esm';
+import { bossRoot, bottomEdge, EAR_EMBED } from './treat.js';
 
 // Teknik resim görünüşleri. replicad'de kamera yönü nesneden İZLEYİCİYE doğrudur;
 // xAxis kağıtta sağ, yön × xAxis kağıtta yukarı olacak şekilde seçildi (aynalanma yok).
@@ -130,7 +131,12 @@ function panelHoleShape(h) {
   return s;
 }
 
+/** İşlemsiz (eski) üretim: üç parça ayrı fonksiyonlarda, böylece işlemli üretimde yalnız düşen parça yeniden kurulur */
 function buildEnclosure(g) {
+  return { base: legacyBase(g), lid: legacyLid(g), clip: g.din ? buildClip(g.din) : null };
+}
+
+function legacyBase(g) {
   const [cx, cy] = g.center;
   const hBase = g.cavTop - g.z0;
 
@@ -224,9 +230,15 @@ function buildEnclosure(g) {
     const innerRing = roundedSlab(gr.L - gr.width, gr.W - gr.width, Math.max(gr.r - gr.width / 2, 0.1), cx, cy, z, gr.depth + 1);
     base = base.cut(outerRing.cut(innerRing));
   }
+  return base;
+}
 
+/** outline: kapak dış hattı (işlemli gövde açılıysa ağız hattı; yoksa gövde dış hattı) */
+function legacyLid(g, outline = g.outer) {
+  const [cx, cy] = g.center;
+  const up = [0, 0, 1];
   // Kapak: düz plaka + kenarlara konumlandırma dili + PCB'ye inen vida boruları
-  let lid = roundedSlab(g.outer.L, g.outer.W, g.outer.r, cx, cy, g.cavTop, g.lidT);
+  let lid = roundedSlab(outline.L, outline.W, outline.r, cx, cy, g.cavTop, g.lidT);
   // Kart kenarı tutucu: kapaktan inen baskı dilleri (kapak kapanınca kartı üstten sıkıştırır)
   for (const pr of g.edgePressers || []) lid = lid.fuse(makeBox(pr.min, pr.max));
   for (const bar of g.lipBars) {
@@ -254,7 +266,7 @@ function buildEnclosure(g) {
   // Panel elemanları kapakta: rakor / basınç elemanı / özel delik, ışık borusu delikleri ve iç lamba
   for (const sp of (g.panelSpots || []).filter((x) => x.part === 'lid')) lid = lid.cut(makeCylinder(sp.r, sp.len, sp.p, up));
   for (const h of (g.panelHoles || []).filter((x) => x.part === 'lid')) lid = lid.cut(panelHoleShape(h));
-  return { base, lid, clip: g.din ? buildClip(g.din) : null };
+  return lid;
 }
 
 /**
@@ -290,34 +302,112 @@ const DEG = Math.PI / 180;
 const tanD = (deg) => Math.tan((deg || 0) * DEG);
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const S2 = Math.SQRT1_2;
-const EAR_EMBED = 0.8; // kulak duvara bu kadar gömülür (eski geometriyle aynı)
-const RAIL_CHANNEL_HALF = 12.5; // EN 60715 TS35: flanşlar arası kanal 25 mm (mount.js RAIL.channel)
+const RAIL_CHANNEL_HALF = 12.5; // EN 60715 TS35: flanşlar arası kanal 25 mm (mount.js RAIL.channel); geometry.din.channel varsa o
 const numTr = (v) => String(Math.round(v * 100) / 100).replace('.', ',');
+/** Bağlantı yöntemi → Türkçe ad (işlem raporu ve notlarda İngilizce kimlik görünmesin) */
+const METHOD_TR = { insert: 'ısıl insert', tapped: 'kılavuz', helicoil: 'Helicoil', self_tap: 'diş açan vida', clearance: 'geçiş deliği', nut: 'somun', standoff: 'aralayıcı' };
+const methodTr = (m) => METHOD_TR[m] || 'delik';
 
-function errText(err) {
-  if (err && err.message) return err.message;
-  if (typeof err === 'number') return 'OCCT istisnası';
-  return String(err);
+/**
+ * Çekirdek hatasını Türkçe kısa nedene çevirir (ham ileti konsola yazılır; işlem raporuna İngilizce metin girmez).
+ * Bu dosyanın kendi attığı Türkçe hatalar olduğu gibi kalır.
+ */
+function errTr(err) {
+  const m = err && err.message ? String(err.message) : typeof err === 'number' ? `OCCT #${err}` : String(err ?? '');
+  if (/[çğıöşüÇĞİÖŞÜ]/.test(m)) return m;
+  if (m) console.warn('[cad-worker]', m);
+  if (/no edge/i.test(m)) return 'kenar bulunamadı';
+  if (/fillet|chamfer/i.test(m)) return 'çekirdek radyüs/pah işlemini kuramadı';
+  if (/loft|sweep|revol|extru/i.test(m)) return 'çekirdek katıyı kuramadı';
+  if (/bool|fuse|cut|common|algo/i.test(m)) return 'çekirdek Boole işlemini kuramadı';
+  return 'CAD çekirdeği hatası';
 }
 
-/** İşlem raporu: aynı parça+anahtar birleştirilir (count), ok hepsi tam uygulandıysa true */
+/*
+ * İşlem raporu — sözleşme A (sürüm 2). Her satır:
+ *   { part, key, feature, kind, size, applied, unit, ok, limited, count, rule, note, dv? }
+ *   ok && !limited → tam ölçüde uygulandı (applied = size); ok && limited → küçültülmüş ölçüde (0 < applied < size);
+ *   !ok → hiç uygulanmadı (applied 0, yüz düz bırakıldı). kind 'info' bilgi satırıdır (işlem sayılmaz);
+ *   kind 'boolean': size istenen, applied başarılı özellik sayısı, limited: bazıları işlemsiz geometriye düştü;
+ *   kind 'build': parça düzeyi durum (ok:false → parça eski, işlemsiz yöntemle kuruldu).
+ * Aynı parça + anahtar + sonuç (tam / sınırlı / uygulanamadı) birleştirilir (count). Bir anahtarda farklı sonuçlar
+ * varsa ilk sonuç anahtarı korur, diğerleri "<anahtar>.limited" / "<anahtar>.failed" anahtarıyla ayrı satırdır.
+ */
+const KINDS = ['chamfer', 'fillet', 'draft', 'countersink', 'dogbone', 'leadin', 'boolean', 'build', 'info'];
+const unitOf = (kind) => (kind === 'draft' ? '°' : kind === 'boolean' || kind === 'build' ? 'adet' : 'mm');
+const isTreatKind = (k) => k !== 'boolean' && k !== 'build' && k !== 'info';
+
+function normEntry(e) {
+  const kind = KINDS.includes(e.kind) ? e.kind : 'info';
+  const size = r3(Number.isFinite(e.size) ? e.size : 0);
+  let applied = Number.isFinite(e.applied) ? r3(e.applied) : null;
+  let ok;
+  let limited = false;
+  if (kind === 'info') { ok = true; applied = applied ?? size; }
+  else if (kind === 'boolean') { applied = applied ?? 0; ok = applied >= size; limited = !!e.limited; }
+  else if (kind === 'build') { ok = !!e.ok; applied = ok ? size : 0; }
+  else {
+    applied = e.ok === false ? 0 : applied ?? size;
+    if (!(applied > 0)) { ok = false; applied = 0; }
+    else if (applied < size) { ok = true; limited = true; }
+    else { ok = true; applied = size; }
+  }
+  const out = { part: e.part, key: e.key, feature: e.feature, kind, size, applied, unit: e.unit || unitOf(kind), ok, limited,
+    count: e.count || 1, rule: e.rule || (kind === 'boolean' || kind === 'build' ? 'GEO-BUILD' : 'GEO-TREAT'), note: e.note || '' };
+  // dv: işlemin hacim etkisi (mm³; yalnız kenar işlemlerinde ölçülür) — denetimde beklenen değerle karşılaştırmak için
+  if (Number.isFinite(e.dv) && ok) out.dv = Math.round(e.dv * 10) / 10;
+  return out;
+}
+
 function makeReport() {
-  const map = new Map();
+  let raw = [];
   return {
-    add(e) {
-      const k = `${e.part}|${e.key}`;
-      const prev = map.get(k);
-      const entry = { part: e.part, key: e.key, feature: e.feature, kind: e.kind, size: r3(e.size || 0), ok: !!e.ok, applied: r3(e.applied || 0), count: 1, note: e.note || '' };
-      // dv: işlemin hacim etkisi (mm³; yalnız kenar işlemlerinde ölçülür) — denetimde beklenen değerle karşılaştırmak için
-      if (Number.isFinite(e.dv)) entry.dv = Math.round(e.dv * 10) / 10;
-      if (!prev) { map.set(k, entry); return; }
-      prev.count += 1;
-      prev.ok = prev.ok && entry.ok;
-      prev.applied = Math.min(prev.applied, entry.applied);
-      if (Number.isFinite(entry.dv)) prev.dv = Math.round(((prev.dv || 0) + entry.dv) * 10) / 10;
-      if (entry.note && !prev.note.includes(entry.note)) prev.note = prev.note ? `${prev.note}; ${entry.note}` : entry.note;
+    add(e) { raw.push(normEntry(e)); },
+    /** Belirtilen anahtarlardaki işlemler uygulanmamış sayılır (ör. işlemli kabuk kurulamadı) */
+    fail(part, keys, note) {
+      for (const r of raw) {
+        if (r.part !== part || !keys.includes(r.key) || !isTreatKind(r.kind)) continue;
+        Object.assign(r, { ok: false, limited: false, applied: 0, note });
+        delete r.dv;
+      }
     },
-    list: () => [...map.values()],
+    /** Parça eski yöntemle kurulduysa: işlemler uygulanmadı, bilgi ve Boole satırları geçersiz */
+    failPart(part, note) {
+      raw = raw.filter((r) => r.part !== part || isTreatKind(r.kind));
+      this.fail(part, [...new Set(raw.filter((r) => r.part === part).map((r) => r.key))], note);
+    },
+    list() {
+      const groups = new Map();
+      for (const r of raw) {
+        const gk = `${r.part}|${r.key}`;
+        if (!groups.has(gk)) groups.set(gk, new Map());
+        const m = groups.get(gk);
+        const st = isTreatKind(r.kind) ? (!r.ok ? 'failed' : r.limited ? 'limited' : 'full') : 'all';
+        const p = m.get(st);
+        if (!p) { m.set(st, { ...r }); continue; }
+        p.count += r.count;
+        if (st === 'full') { p.size = Math.min(p.size, r.size); p.applied = p.size; }
+        else if (st === 'limited') { p.size = Math.max(p.size, r.size); p.applied = Math.min(p.applied, r.applied); }
+        else if (st === 'failed') p.size = Math.max(p.size, r.size);
+        else if (r.kind === 'boolean') { p.size = r3(p.size + r.size); p.applied = r3(p.applied + r.applied); p.ok = p.applied >= p.size; p.limited = p.limited || r.limited; }
+        else if (r.kind === 'build') p.ok = p.ok && r.ok;
+        else { p.size = Math.max(p.size, r.size); p.applied = Math.max(p.applied, r.applied); }
+        if (Number.isFinite(r.dv)) p.dv = Math.round(((p.dv || 0) + r.dv) * 10) / 10;
+        if (r.note && !p.note.includes(r.note)) p.note = p.note ? `${p.note}; ${r.note}` : r.note;
+      }
+      const out = [];
+      for (const m of groups.values()) {
+        let first = true;
+        for (const st of ['all', 'full', 'limited', 'failed']) {
+          const e = m.get(st);
+          if (!e) continue;
+          if (!first) e.key = `${e.key}.${st}`;
+          first = false;
+          out.push(e);
+        }
+      }
+      return out;
+    },
   };
 }
 
@@ -361,28 +451,36 @@ function edgeLadder(shape, kind, size, weightOf, { geom = true } = {}) {
       const fn = (e) => { const w = weightOf(e); return w ? w * r : null; };
       const s = k === 'fillet' ? shape.fillet(fn) : shape.chamfer(fn);
       if (validSolid(s, { v0, sign: -1, geom })) return { shape: s, factor: f, kind: k, note: '', dv: measureVolume(s) - v0 };
-      note = 'geçersiz katı';
+      note = 'işlem sonrası katı geçersiz';
     } catch (err) {
-      note = errText(err);
-      if (/no edge/i.test(note)) return { shape, factor: 0, kind, note: 'kenar bulunamadı' };
+      note = errTr(err);
+      if (note === 'kenar bulunamadı') return { shape, factor: 0, kind, note };
     }
   }
-  return { shape, factor: 0, kind, note: note || 'uygulanamadı' };
+  return { shape, factor: 0, kind, note: note || 'çekirdek işlemi kuramadı' };
 }
 
-function recordLadder(rep, part, key, feature, kind, size, res, extra = '') {
+/**
+ * Basamaklı işlemin sonucunu yaz. size: kenara uygulanmak istenen ölçü; want: istenen (politika) ölçü —
+ * geometri sınırı yüzünden size < want ise satır "sınırlı" olur (note nedenini söyler). as: rapordaki tür (ör. 'leadin').
+ */
+function recordLadder(rep, part, key, feature, kind, size, res, { note = '', want = size, rule, as } = {}) {
   const applied = res.factor ? size * res.factor : 0;
-  const ok = res.factor === 1 && res.kind === kind;
-  const parts = [extra];
-  if (!ok) parts.push(res.factor ? `${res.kind !== kind ? 'pah olarak ' : ''}${numTr(applied)} mm'ye küçültüldü` : `uygulanamadı (${res.note})`);
-  rep.add({ part, key, feature, kind, size, ok, applied, note: parts.filter(Boolean).join('; '), dv: res.factor ? res.dv : undefined });
+  const parts = [note];
+  if (res.factor && res.kind !== kind) parts.push(`radyüs yerine ${numTr(applied)} mm pah uygulandı (çekirdek radyüsü kuramadı)`);
+  else if (res.factor && res.factor < 1) parts.push(`çekirdek tam ölçüyü kuramadı; ${numTr(applied)} mm'ye küçültüldü`);
+  if (!res.factor) parts.push(res.note);
+  rep.add({ part, key, feature, kind: as || kind, size: want, applied, rule, note: parts.filter(Boolean).join('; '), dv: res.factor ? res.dv : undefined });
 }
 
 /** Tek kenar zinciri işlemi: kenar seçimi + basamaklı uygulama + kayıt */
-function treatEdges(rep, part, key, feature, kind, size, shape, weightOf, extra = '') {
-  if (!(size > 0.02)) return shape;
+function treatEdges(rep, part, key, feature, kind, size, shape, weightOf, opts = {}) {
+  if (!(size > 0.02)) {
+    if ((opts.want || 0) > 0.02) rep.add({ part, key, feature, kind, size: opts.want, ok: false, rule: opts.rule, note: opts.note || 'yer yok' });
+    return shape;
+  }
   const res = edgeLadder(shape, kind, size, weightOf);
-  recordLadder(rep, part, key, feature, kind, size, res, extra);
+  recordLadder(rep, part, key, feature, kind, size, res, opts);
   return res.shape;
 }
 
@@ -392,7 +490,7 @@ function tryMake(fn) {
     const s = fn();
     return s && s.wrapped && !s.wrapped.IsNull() ? { shape: s, err: '' } : { shape: null, err: 'boş katı' };
   } catch (err) {
-    return { shape: null, err: errText(err) };
+    return { shape: null, err: errTr(err) };
   }
 }
 
@@ -409,7 +507,7 @@ function multiBool(op, shape, tools) {
     b.SetTools(T);
     b.SetFuzzyValue(1e-5);
     b.Build();
-    if (b.HasErrors()) throw new Error(`${op} başarısız`);
+    if (b.HasErrors()) throw new Error(`toplu Boole işlemi (${op === 'cut' ? 'kesme' : 'ekleme'}) başarısız`);
     b.SimplifyResult(true, true, 1e-3);
     return cast(b.Shape());
   } finally {
@@ -420,27 +518,47 @@ function multiBool(op, shape, tools) {
 }
 
 /**
- * Özellik listesini topluca ekle/çıkar. items: [{ key, feature, shape (işlemli ya da null), plain: () => Shape, treats: [...] }]
- * Toplu boolean başarısızsa tek tek: önce işlemli, olmazsa işlemsiz araç; o da olmazsa özellik atlanır.
- * Her öğenin işlemleri (treats) son duruma göre kaydedilir.
+ * Özellik listesini topluca ekle/çıkar.
+ * items: [{ key, feature, shape (işlemli araç ya da null), err, plain: () => Shape | null, treatOnly?, treats: [...] }]
+ *   treatOnly: öğe yalnızca bir kenar işlemidir (giriş havşası, port pahı; plain → null): kurulamazsa işlem
+ *   "uygulanamadı" yazılır, özellik eksik sayılmaz ve Boole özetine girmez.
+ *   treats: [{ key, feature, kind, size (istenen), applied? (uygulanan; yoksa size), rule, unit?, note? }]
+ * Toplu Boole işlemi başarısızsa tek tek: önce işlemli, olmazsa işlemsiz araç; o da olmazsa özellik atlanır.
+ * Her öğenin işlemleri son duruma göre kaydedilir.
  */
 function applyBatch(rep, part, op, shape, items, tag = '') {
   if (!items.length) return shape;
   const sign = op === 'cut' ? -1 : 1;
   const label = (op === 'cut' ? 'kesme' : 'ekleme') + (tag ? ` · ${tag}` : '');
-  const bkey = `bool.${op}${tag ? `.${tag}` : ''}`;
+  const bkey = `bool.${op}${tag ? `.${{ yarık: 'slot', delik: 'hole' }[tag] || 'more'}` : ''}`; // anahtar ASCII kalsın
   const tools = items.map((it) => it.shape || null);
+  const plainOf = items.map((it) => {
+    let memo;
+    return () => (memo === undefined ? (memo = tryMake(it.plain)) : memo);
+  });
+  const optional = items.map((it) => !!it.treatOnly);
   const finish = (used) => {
     items.forEach((it, i) => {
+      const done = used[i] === 'treated';
       for (const t of it.treats || []) {
-        // t.applied / t.limited: geometri yüzünden kaynak değerinin altında kalan işlem (uygulandı ama tam değil)
-        const done = used[i] === 'treated';
-        const ok = done && !t.limited;
-        rep.add({ part, key: t.key, feature: t.feature, kind: t.kind, size: t.size, ok, applied: done ? t.applied ?? t.size : 0,
-          note: done ? t.note || '' : used[i] === 'plain' ? `işlemsiz geometriye düşüldü${it.err ? ` (${it.err})` : ''}` : 'özellik eklenemedi' });
+        if (t.kind === 'info' && !done) continue; // işlemsiz geometride bilgi satırı (kaydırma, gömme) geçersiz
+        const why = used[i] === 'plain' ? `işlemli özellik kurulamadı, işlemsiz geometri kullanıldı${it.err ? ` (${it.err})` : ''}`
+          : optional[i] ? `işlem aracı ${it.err ? `kurulamadı (${it.err})` : 'Boole işleminde başarısız'}` : 'özellik modele eklenemedi';
+        rep.add({ part, key: t.key, feature: t.feature, kind: t.kind, size: t.size, applied: done ? t.applied ?? t.size : 0, ok: done ? undefined : false,
+          unit: t.unit, rule: t.rule, note: done ? t.note || '' : why });
       }
-      if (used[i] === 'none') rep.add({ part, key: `${it.key}.bool`, feature: it.feature, kind: 'boolean', size: 1, ok: false, applied: 0, note: `${label} başarısız: özellik atlandı` });
+      if (used[i] === 'none' && !optional[i]) {
+        rep.add({ part, key: `${it.key}.bool`, feature: it.feature, kind: 'boolean', size: 1, applied: 0, rule: 'GEO-BUILD', note: `${label} başarısız; özellik modelde yok` });
+      }
     });
+  };
+  const summary = (used, how) => {
+    const req = items.filter((_, i) => !optional[i]).length;
+    if (!req) return;
+    const okN = used.filter((u, i) => !optional[i] && u !== 'none').length;
+    const fellBack = used.filter((u, i) => !optional[i] && u === 'plain' && ((items[i].treats || []).length || items[i].err)).length;
+    rep.add({ part, key: bkey, feature: `özellik ${label} (${how})`, kind: 'boolean', size: req, applied: okN, limited: fellBack > 0, rule: 'GEO-BUILD',
+      note: [how === 'tek tek' ? 'toplu Boole işlemi başarısız; özellikler tek tek uygulandı' : '', fellBack ? `${fellBack} özellik işlemsiz geometriyle` : ''].filter(Boolean).join('; ') });
   };
   // 1) toplu: işlemli araçlar (yoksa işlemsiz)
   const v0 = measureVolume(shape);
@@ -449,26 +567,27 @@ function applyBatch(rep, part, op, shape, items, tag = '') {
   for (let i = 0; i < items.length; i++) {
     let t = tools[i];
     used[i] = t ? 'treated' : 'plain';
-    if (!t) t = tryMake(items[i].plain).shape;
+    if (!t) t = plainOf[i]().shape;
     if (!t) used[i] = 'none';
     else batch.push(t);
   }
   try {
-    const r = multiBool(op, shape, batch);
-    if (validSolid(r, { v0, sign })) {
-      rep.add({ part, key: bkey, feature: `özellik ${label} (toplu)`, kind: 'boolean', size: items.length, ok: true, applied: batch.length, note: '' });
-      finish(used);
-      return r;
+    if (batch.length) {
+      const r = multiBool(op, shape, batch);
+      if (validSolid(r, { v0, sign })) {
+        summary(used, 'toplu');
+        finish(used);
+        return r;
+      }
     }
   } catch (err) { /* tek tek denenecek */ }
+  if (!batch.length) { summary(used, 'toplu'); finish(used); return shape; }
   // 2) tek tek
   let cur = shape;
-  let n = 0;
   for (let i = 0; i < items.length; i++) {
-    const it = items[i];
     used[i] = 'none';
     for (const variant of ['treated', 'plain']) {
-      const t = variant === 'treated' ? tools[i] : tryMake(it.plain).shape;
+      const t = variant === 'treated' ? tools[i] : plainOf[i]().shape;
       if (!t) continue;
       try {
         const vc = measureVolume(cur);
@@ -476,10 +595,8 @@ function applyBatch(rep, part, op, shape, items, tag = '') {
         if (validSolid(r, { v0: vc, sign })) { cur = r; used[i] = variant; break; }
       } catch (err) { /* sonraki seçenek */ }
     }
-    if (used[i] !== 'none') n++;
   }
-  rep.add({ part, key: bkey, feature: `özellik ${label} (tek tek)`, kind: 'boolean', size: items.length, ok: n === items.length, applied: n,
-    note: 'toplu boolean başarısız, özellikler tek tek uygulandı' });
+  summary(used, 'tek tek');
   finish(used);
   return cur;
 }
@@ -506,32 +623,23 @@ function sdfRR(x, y, cx, cy, L, W, r) {
 function bossSolid({ x, y, zRoot, zTip, rTip, draftDeg = 0, rootR = 0, tipC = 0, embed = 0.5 }) {
   const s = Math.sign(zTip - zRoot) || 1;
   const h = Math.abs(zTip - zRoot);
-  const ta = tanD(draftDeg);
-  const al = Math.atan(ta);
-  const rRoot = rTip + h * ta;
+  const gr = bossRoot({ h, rTip, draftDeg, rootR }); // treat.js: kök izi (büyüme) hesabıyla aynı profil
+  const ta = gr.ta;
   const Z = (dz) => zRoot + s * dz;
   const P = (r, dz) => [r, Z(dz)];
-  const rf = Math.min(rootR, 0.45 * h);
-  const c = Math.min(tipC, 0.45 * h, 0.45 * rTip);
+  const c = bossTip(tipC, h, rTip);
   let pen;
-  if (rf > 0.02) {
-    const sa = Math.sin(al);
-    const ca = Math.cos(al);
-    const t = (rf * (1 - sa)) / ca;
-    const T1 = [rRoot - t * sa, t * ca];
-    const F = [T1[0] + rf * ca, T1[1] + rf * sa];
-    const d = 10 * DEG;
-    const E = [F[0] - rf * Math.sin(d), F[1] - rf * Math.cos(d)];
-    const am = (Math.PI + al + 1.5 * Math.PI - d) / 2;
-    const M = [F[0] + rf * Math.cos(am), F[1] + rf * Math.sin(am)];
-    pen = draw(P(0, -embed)).lineTo(P(E[0], -embed)).lineTo(P(E[0], E[1])).threePointsArcTo(P(T1[0], T1[1]), P(M[0], M[1]));
+  if (gr.rf > 0.02) {
+    pen = draw(P(0, -embed)).lineTo(P(gr.E[0], -embed)).lineTo(P(gr.E[0], gr.E[1])).threePointsArcTo(P(gr.T1[0], gr.T1[1]), P(gr.M[0], gr.M[1]));
   } else {
-    pen = draw(P(0, -embed)).lineTo(P(rRoot + embed * ta, -embed));
+    pen = draw(P(0, -embed)).lineTo(P(gr.rRoot + embed * ta, -embed));
   }
   if (c > 0.02) pen = pen.lineTo(P(rTip + c * ta, h - c)).lineTo(P(rTip + c * ta - c, h));
   else pen = pen.lineTo(P(rTip, h));
   return pen.lineTo(P(0, h)).close().sketchOnPlane('XZ', [x, y, 0]).revolve([0, 0, 1], { origin: [x, y, 0] });
 }
+/** bossSolid'in gerçekten uyguladığı uç pahı (boy ve yarıçapın %45'i ile sınırlı) */
+const bossTip = (tipC, h, rTip) => Math.min(tipC, 0.45 * h, 0.45 * rTip);
 
 /**
  * Köşe boss'u 2B dış hattı (dünya XY): duvara gömülü dolgu + boss dairesi + iki duvar birleşiminde içbükey radyüs rc
@@ -583,18 +691,23 @@ function earSolid(ear, rc) {
   return pen.close().sketchOnPlane('XY', ear.z0).extrude(ear.t);
 }
 
-/** Kart kenarı alt desteği: duvar birleşiminde plan radyüsü rc (CNC), duvara gömme payı emb */
-function padSolid(pd, rc, emb) {
+/** Kart kenarı alt desteği yerleşimi: duvar yüzü (edgehold.js 0,3 mm gömme), duvardan içe genişlik U, uygulanabilir radyüs */
+function padGeom(pd, rc = 0) {
   const axis = pd.edge[1] === 'X' ? 0 : 1;
   const dir = pd.edge[0] === '-' ? -1 : 1;
   const along = 1 - axis;
   const wall = dir < 0 ? pd.min[axis] + 0.3 : pd.max[axis] - 0.3;
   const inner = dir < 0 ? pd.max[axis] : pd.min[axis];
   const U = Math.abs(inner - wall);
+  return { axis, dir, along, wall, U, r: Math.min(rc, U - 0.2) };
+}
+
+/** Kart kenarı alt desteği: duvar birleşiminde plan radyüsü rc (CNC), duvara gömme payı emb */
+function padSolid(pd, rc, emb) {
+  const { axis, dir, along, wall, U, r } = padGeom(pd, rc);
   const toW = (u, v) => { const p = [0, 0]; p[axis] = wall - dir * u; p[along] = v; return p; };
   const v0 = pd.min[along];
   const v1 = pd.max[along];
-  const r = Math.min(rc, U - 0.2);
   const k = r * (1 - S2);
   let pen;
   if (r > 0.05) {
@@ -681,14 +794,21 @@ function lipSolid(bar, g, o) {
   return drawing.sketchOnPlane('XZ', [0, bar.max[1], 0]).extrude(bar.max[1] - bar.min[1]);
 }
 
-/** Altıgen somun cebi CNC'de köşe boşaltmalı (dogbone, takım yarıçapı) */
+/**
+ * Altıgen somun cebi CNC'de köşe boşaltmalı (takım yarıçapında daire ile köşe boşaltması).
+ * Boşaltma her köşede kenardan 2/√3·r yer; altıgen kenarı s/√3 olduğundan r < s/4 olmalı.
+ * Altı köşenin hepsi boşaltılmadıysa (eğri sayısı 12 değil) hata atar: çağıran düz altıgene düşer.
+ */
 function hexPocketDogbone(st, r) {
   const p = st.nutPocket;
   const R = p.s / Math.sqrt(3);
   const pt = (i) => [st.x + R * Math.cos((Math.PI / 3) * i), st.y + R * Math.sin((Math.PI / 3) * i)];
   let pen = draw(pt(0));
   for (let i = 1; i < 6; i++) pen = pen.lineTo(pt(i)).customCorner(r, 'dogbone');
-  return pen.closeWithCustomCorner(r, 'dogbone').sketchOnPlane('XY', p.z0).extrude(p.z1 - p.z0);
+  const dr = pen.closeWithCustomCorner(r, 'dogbone');
+  const n = dr.blueprint?.curves?.length;
+  if (n !== 12) throw new Error(`köşe boşaltması altı köşenin hepsine sığmadı (${n ?? '?'} eğri)`);
+  return dr.sketchOnPlane('XY', p.z0).extrude(p.z1 - p.z0);
 }
 
 /** Enjeksiyonda üstten açık çentik: yan yüzler çekme yönünde açılı (yamuk), alt köşeler r; dış uç taslak payı kadar uzatılmış */
@@ -748,11 +868,17 @@ function grooveTool(gr, cx, cy, zBot, zTop, { ta = 0, brk = 0, shift = 0, bottom
   return tool;
 }
 
-function cone(t, zTop) {
-  return countersinkCone({ x: t.x, y: t.y, holeD: t.holeD, countersink: t.countersink }, zTop);
-}
-
 /* ---------- Gövde ---------- */
+
+/** Basamaklı kenar işlemi sonucundan applyBatch işlem satırı (öğe kurulamazsa applyBatch "uygulanamadı" yazar) */
+function ladderTreat(key, feature, kind, want, size, res, rule, note = '') {
+  const applied = res && res.factor ? size * res.factor : 0;
+  const parts = [note];
+  if (res && res.factor && res.kind !== kind) parts.push(`radyüs yerine ${numTr(applied)} mm pah uygulandı`);
+  else if (res && res.factor && res.factor < 1) parts.push(`çekirdek tam ölçüyü kuramadı; ${numTr(applied)} mm'ye küçültüldü`);
+  if (res && !res.factor) parts.push(res.note);
+  return { key, feature, kind, size: want, applied, rule, note: parts.filter(Boolean).join('; ') };
+}
 
 function buildBaseTreated(g, T, rep, st) {
   const B = T.base;
@@ -763,12 +889,12 @@ function buildBaseTreated(g, T, rep, st) {
   const hBase = g.cavTop - g.z0;
   const ta = tanD(B.draftDeg);
   const cav = g.cavity;
+  const tool = B.toolD || 3;
   const plainOuter = () => roundedSlab(g.outer.L, g.outer.W, g.outer.r, cx, cy, g.z0, hBase);
   const plainPocket = () => roundedSlab(cav.L, cav.W, cav.r, cx, cy, floorTop, hBase);
-  // Politika geometri yüzünden kaynak değerine ulaşamadıysa (ör. cep köşe radyüsü küçük) raporda görünsün
-  for (const l of B.limited || []) rep.add({ part: P, key: `${l.key}.limit`, feature: l.feature, kind: l.kind, size: l.want, ok: false, applied: l.got, note: l.note });
+  const shellKeys = []; // kabuk işlemsiz kurulursa geçersiz kalan satırlar
 
-  // 1) Dış blok: enjeksiyonda z0'da anma ölçüsü, ağza doğru büyüyen loft (paralel draft, IM-16)
+  // 1) Dış blok: enjeksiyonda z0'da anma ölçüsü, ağza doğru büyüyen loft (paralel çıkma açısı, IM-16)
   let outer = null;
   let outerDraft = 0;
   if (B.draftDeg > 0) {
@@ -778,24 +904,17 @@ function buildBaseTreated(g, T, rep, st) {
       { L: g.outer.L + 2 * gT, W: g.outer.W + 2 * gT, r: g.outer.r + gT, z: g.cavTop },
     ], cx, cy));
     if (m.shape && validSolid(m.shape)) { outer = m.shape; outerDraft = B.draftDeg; }
-    rep.add({ part: P, key: 'draft.outer', feature: 'dış duvar çıkma açısı', kind: 'draft', size: B.draftDeg, ok: !!outer, applied: outer ? B.draftDeg : 0,
-      note: outer ? `ağızda her yanda +${numTr(gT)} mm` : `uygulanamadı (${m.err || 'geçersiz katı'})` });
+    rep.add({ part: P, key: 'draft.outer', feature: 'dış duvar çıkma açısı', kind: 'draft', size: B.draftDeg, applied: outer ? B.draftDeg : 0, rule: 'INJ-DRAFT',
+      // Büyüme 3 haneye yuvarlanıp 2 haneyle yazılır: teknik resimdeki (treat.rim.grow) değerle aynı
+      note: outer ? `taban altında anma ölçüsü, ağızda her yanda +${numTr(r3(gT))} mm` : `açılı dış blok kurulamadı (${m.err || 'işlem sonrası katı geçersiz'})` });
+    shellKeys.push('draft.outer');
   }
   if (!outer) outer = plainOuter();
-  // Alt dış kenar: FDM tabla pahı / CNC çapak kırma / enjeksiyon radyüsü (IM-08)
-  const bottom = B.bedChamfer > 0 ? ['chamfer', B.bedChamfer, 'bed', 'dış alt kenar (tabla pahı)']
-    : B.outerEdgeBreak > 0 ? ['chamfer', B.outerEdgeBreak, 'outer.bottom', 'dış alt kenar (çapak kırma)']
-      : B.outerBottomFillet > 0 ? ['fillet', B.outerBottomFillet, 'outer.bottom', 'dış alt kenar radyüsü'] : null;
-  if (bottom) {
-    let size = bottom[1];
-    let extra = '';
-    if ((g.ears || []).length && size > EAR_EMBED - 0.1) { size = EAR_EMBED - 0.1; extra = `kulak kökü ${numTr(EAR_EMBED)} mm gömülü olduğundan ${numTr(size)} mm ile sınırlandı`; }
-    size = Math.min(size, 0.45 * g.floor + (bottom[0] === 'fillet' ? g.floor : 0));
-    outer = treatEdges(rep, P, bottom[2], bottom[3], bottom[0], size, outer, (e) => (inZ(edgePts(e), g.z0) ? 1 : null), extra);
-    if (size < 0.9 * bottom[1]) {
-      rep.add({ part: P, key: `${bottom[2]}.limit`, feature: bottom[3], kind: bottom[0], size: bottom[1], ok: false, applied: r3(size),
-        note: extra || `taban kalınlığı nedeniyle ${numTr(size)} mm ile sınırlandı` });
-    }
+  // Alt dış kenar: FDM tabla pahı / CNC çapak kırma / enjeksiyon r_o = r_i + t (ölçü ve sınırlar treat.js bottomEdge)
+  const be = bottomEdge(B, g.floor, (g.ears || []).length > 0);
+  if (be) {
+    outer = treatEdges(rep, P, be.key, be.feature, be.kind, be.size, outer, (e) => (inZ(edgePts(e), g.z0) ? 1 : null), { want: be.want, note: be.note, rule: be.rule });
+    shellKeys.push(be.key);
   }
 
   // 2) Cep: taban seviyesinde anma ölçüsü, yukarı büyür (PCB boşluğu hiçbir yükseklikte azalmaz)
@@ -809,20 +928,31 @@ function buildBaseTreated(g, T, rep, st) {
       { L: cav.L + 2 * gP, W: cav.W + 2 * gP, r: cav.r + gP, z: zPt },
     ], cx, cy));
     if (m.shape && validSolid(m.shape)) { pocket = m.shape; pocketGrow = (g.cavTop - floorTop) * ta; }
-    rep.add({ part: P, key: 'draft.pocket', feature: 'cep (iç duvar) çıkma açısı', kind: 'draft', size: B.draftDeg, ok: !!pocket, applied: pocket ? B.draftDeg : 0,
-      note: pocket ? `taban seviyesinde anma ölçüsü, ağızda her yanda +${numTr(pocketGrow)} mm` : `uygulanamadı (${m.err || 'geçersiz katı'})` });
+    rep.add({ part: P, key: 'draft.pocket', feature: 'cep (iç duvar) çıkma açısı', kind: 'draft', size: B.draftDeg, applied: pocket ? B.draftDeg : 0, rule: 'INJ-DRAFT',
+      note: pocket ? `taban seviyesinde anma ölçüsü, ağızda her yanda +${numTr(r3(pocketGrow))} mm` : `açılı cep kurulamadı (${m.err || 'işlem sonrası katı geçersiz'})` });
+    shellKeys.push('draft.pocket');
   }
   if (!pocket) pocket = plainPocket();
-  if (B.floorFillet > 0) {
-    pocket = treatEdges(rep, P, 'floor', 'taban–duvar iç köşesi', 'fillet', B.floorFillet, pocket, (e) => (inZ(edgePts(e), floorTop) ? 1 : null));
+  // Taban–duvar iç köşesi: politika cep köşe radyüsüyle sınırladıysa (treat.js limited) istenen ölçü want olarak yazılır
+  const floorLim = (B.limited || []).find((l) => l.key === 'floor');
+  if (B.floorFillet > 0 || floorLim) {
+    pocket = treatEdges(rep, P, 'floor', 'taban–duvar iç köşesi radyüsü', 'fillet', B.floorFillet, pocket, (e) => (inZ(edgePts(e), floorTop) ? 1 : null),
+      { want: floorLim ? Math.max(floorLim.want, B.floorFillet) : B.floorFillet, note: floorLim ? floorLim.note : '', rule: 'GEO-FILLET-INNER' });
+    shellKeys.push('floor');
+  }
+  for (const l of (B.limited || []).filter((x) => x.key !== 'floor')) {
+    rep.add({ part: P, key: l.key, feature: l.feature, kind: l.kind, size: l.want, applied: l.got, rule: l.rule, note: l.note });
   }
 
   let base;
   try {
     base = outer.cut(pocket);
-    if (!validSolid(base)) throw new Error('geçersiz katı');
+    if (!validSolid(base)) throw new Error('işlemli kabuk geçersiz');
   } catch (err) {
-    rep.add({ part: P, key: 'core', feature: 'gövde kabuğu', kind: 'boolean', size: 1, ok: false, applied: 0, note: `işlemli kabuk kurulamadı, işlemsiz kabuğa düşüldü (${errText(err)})` });
+    const why = errTr(err);
+    rep.fail(P, shellKeys, `işlemli kabuk kurulamadı (${why}); bu yüzeyler işlemsiz`);
+    rep.add({ part: P, key: 'core', feature: 'gövde kabuğu (dış blok − cep)', kind: 'boolean', size: 1, applied: 1, limited: true, rule: 'GEO-BUILD',
+      note: `işlemli kabuk kurulamadı (${why}); işlemsiz kabuk kullanıldı` });
     base = plainOuter().cut(plainPocket());
     outerDraft = 0;
     pocketGrow = 0;
@@ -848,11 +978,12 @@ function buildBaseTreated(g, T, rep, st) {
       return k === 'in' ? B.rimLeadIn / big || null : k === 'out' ? B.rimOuterBreak / big || null : null;
     });
     base = res.shape;
-    if (B.rimLeadIn > 0) recordLadder(rep, P, 'rim.in', 'ağız iç kenarı (giriş pahı)', 'chamfer', B.rimLeadIn, res);
-    if (B.rimOuterBreak > 0) recordLadder(rep, P, 'rim.out', 'ağız dış kenarı (çapak kırma)', 'chamfer', B.rimOuterBreak, res);
+    if (B.rimLeadIn > 0) recordLadder(rep, P, 'rim.in', 'ağız iç kenarı giriş pahı', 'chamfer', B.rimLeadIn, res, { rule: 'GEO-LEADIN', as: 'leadin' });
+    if (B.rimOuterBreak > 0) recordLadder(rep, P, 'rim.out', 'ağız dış kenarı çapak kırma', 'chamfer', B.rimOuterBreak, res, { rule: 'GEO-EDGE-BREAK' });
   }
   if (B.process === 'injection') {
-    rep.add({ part: P, key: 'parting', feature: 'ayırma çizgisi (ağız dış kenarı)', kind: 'sharp', size: 0, ok: true, applied: 0, note: 'keskin bırakıldı (IM-38)' });
+    rep.add({ part: P, key: 'parting', feature: 'ayırma çizgisi ağız dış kenarında (keskin kenar)', kind: 'info', size: 1, unit: 'adet', rule: 'INJ-DRAFT',
+      note: 'ayırma çizgisi keskin kenarda; çıkma açısı bu çizgiden ayrılır' });
   }
 
   // 4) Eklenen özellikler (tek toplu füzyon)
@@ -861,23 +992,37 @@ function buildBaseTreated(g, T, rep, st) {
   for (const s of standoffs) {
     if (s.integral === false) continue;
     const plain = () => makeCylinder(s.od / 2, s.z1 - s.z0 + 0.5, [s.x, s.y, s.z0 - 0.5], up);
-    const tipC = Math.min(B.bossTipChamfer, 0.4 * (s.od - s.holeD) / 2);
+    const h = s.z1 - s.z0;
+    const bw = (s.od - s.holeD) / 2;
+    const tipC = Math.min(B.bossTipChamfer, 0.4 * bw);
+    const tipA = bossTip(tipC, h, s.od / 2);
+    const rf = bossRoot({ h, rTip: s.od / 2, draftDeg: B.bossDraftDeg, rootR: B.bossRootFillet }).rf;
     const treats = [];
-    if (B.bossRootFillet > 0) treats.push({ key: 'standoff.root', feature: 'standoff kökü radyüsü', kind: 'fillet', size: B.bossRootFillet });
-    if (tipC > 0.02) treats.push({ key: 'standoff.tip', feature: 'standoff ucu pahı', kind: 'chamfer', size: tipC });
-    if (B.bossDraftDeg > 0) treats.push({ key: 'standoff.draft', feature: 'standoff çıkma açısı', kind: 'draft', size: B.bossDraftDeg });
+    if (B.bossRootFillet > 0) {
+      treats.push({ key: 'standoff.root', feature: 'standoff kökü radyüsü', kind: 'fillet', size: B.bossRootFillet, applied: rf, rule: 'GEO-BOSS',
+        note: rf < B.bossRootFillet - 1e-3 ? `standoff boyu ${numTr(h)} mm olduğundan ${rf > 0 ? `R${numTr(rf)} ile sınırlandı` : 'uygulanmadı'}` : '' });
+    }
+    if (B.bossTipChamfer > 0) {
+      treats.push({ key: 'standoff.tip', feature: 'standoff ucu pahı', kind: 'chamfer', size: B.bossTipChamfer, applied: tipA > 0.02 ? tipA : 0, rule: 'GEO-BOSS',
+        note: tipA < B.bossTipChamfer - 1e-3 ? `boss et kalınlığı ${numTr(bw)} mm olduğundan ${tipA > 0.02 ? `${numTr(tipA)} mm ile sınırlandı` : 'pah uygulanmadı'}` : '' });
+    }
+    if (B.bossDraftDeg > 0) treats.push({ key: 'standoff.draft', feature: 'standoff dış yüzü çıkma açısı', kind: 'draft', size: B.bossDraftDeg, rule: 'GEO-BOSS', note: 'uçta anma çapı, köke doğru büyür' });
     const m = treats.length ? tryMake(() => bossSolid({ x: s.x, y: s.y, zRoot: s.z0, zTip: s.z1, rTip: s.od / 2, draftDeg: B.bossDraftDeg, rootR: B.bossRootFillet, tipC, embed: 0.5 })) : { shape: null, err: '' };
     adds.push({ key: 'standoff', feature: 'standoff', shape: m.shape, err: m.err, plain, treats });
   }
   const injEmbed = (zTopFeature) => (st.pocketGrow ? Math.max(0, zTopFeature - floorTop) * tanD(st.baseDraft) + 0.05 : 0);
   for (const pd of g.edgePads || []) {
     const plain = () => makeBox(pd.min, pd.max);
-    const rc = B.process === 'cnc' ? B.concaveMinR : 0;
+    const rcWant = B.process === 'cnc' ? B.concaveMinR : 0;
     const emb = 0.3 + injEmbed(pd.max[2]);
     const treats = [];
-    if (rc > 0) treats.push({ key: 'pad.concave', feature: 'kart desteği–duvar iç köşesi', kind: 'fillet', size: rc });
-    if (emb > 0.3 + 1e-6) treats.push({ key: 'pad.embed', feature: 'kart desteği (açılı duvara gömme)', kind: 'embed', size: r3(emb) });
-    const m = treats.length && pd.edge ? tryMake(() => padSolid(pd, rc, emb)) : { shape: null, err: '' };
+    if (rcWant > 0 && pd.edge) {
+      const ra = padGeom(pd, rcWant).r;
+      treats.push({ key: 'pad.concave', feature: 'kart desteği–duvar iç köşesi radyüsü', kind: 'fillet', size: rcWant, applied: ra > 0.05 ? ra : 0, rule: 'GEO-FILLET-INNER',
+        note: ra < rcWant - 1e-3 ? `destek genişliği nedeniyle ${ra > 0.05 ? `R${numTr(ra)} ile sınırlandı` : 'uygulanmadı'}` : '' });
+    }
+    if (emb > 0.3 + 1e-6) treats.push({ key: 'pad.embed', feature: 'kart desteği açılı duvara gömüldü', kind: 'info', size: emb, unit: 'mm', rule: 'INJ-DRAFT', note: 'duvar açısı kadar derine gömüldü' });
+    const m = treats.length && pd.edge ? tryMake(() => padSolid(pd, rcWant, emb)) : { shape: null, err: '' };
     adds.push({ key: 'pad', feature: 'kart desteği', shape: m.shape, err: m.err, plain, treats });
   }
   // Köşe boss'ları: 2B dış hat, iki duvar birleşiminde içbükey radyüs; enjeksiyonda kesitler arası loft (açılı duvarı izler)
@@ -904,7 +1049,9 @@ function buildBaseTreated(g, T, rep, st) {
       if (alongX && Math.abs((my > 0 ? b.min[1] : b.max[1]) - wy) < 3) clearU = Math.min(clearU, mx > 0 ? b.min[0] - wx : wx - b.max[0]);
       if (!alongX && Math.abs((mx > 0 ? b.min[0] : b.max[0]) - wx) < 3) clearV = Math.min(clearV, my > 0 ? b.min[1] - wy : wy - b.max[1]);
     }
-    const need = Math.max(B.concaveMinR, 0.5);
+    // İstenen radyüs: tasarım (design.js) verdiyse o, yoksa süreç politikası (treat.js concaveMinR)
+    const needGeo = Number.isFinite(c.concaveR) ? c.concaveR : Number.isFinite(g.cornerConcaveR) ? g.cornerConcaveR : null;
+    const need = Math.max(needGeo ?? B.concaveMinR, 0.5);
     const tangentAt = (rc) => R + Math.sqrt(Math.max(0, (RbRoot + rc) ** 2 - (R - rc) ** 2));
     let rc = Math.min(need, 0.9 * R);
     const lim = Math.min(clearU, clearV) - 0.3;
@@ -914,19 +1061,21 @@ function buildBaseTreated(g, T, rep, st) {
       for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2; if (tangentAt(mid) <= lim) lo = mid; else hi = mid; }
       rc = lo;
     }
-    const treats = [];
+    if (rc <= 0.05) rc = 0;
     let note = '';
-    if (rc < need - 1e-3) note = `kapak dili ucu nedeniyle ${numTr(rc)} mm ile sınırlandı${B.process === 'cnc' ? '; takım burada daha büyük radyüs bırakır' : ''}`;
-    if (rc > 0.05) treats.push({ key: 'corner.concave', feature: "köşe boss'u–duvar birleşimi (içbükey radyüs)", kind: 'fillet', size: r3(need), applied: r3(rc), limited: rc < 0.9 * need, note });
-    if (st.pocketGrow && tb > 0) treats.push({ key: 'corner.draft', feature: "köşe boss'u çıkma açısı", kind: 'draft', size: B.bossDraftDeg });
+    if (rc < need - 1e-3) {
+      const why = rc < Math.min(need, 0.9 * R) - 1e-3 ? 'kapak dili ucu nedeniyle' : "boss yarıçapı nedeniyle";
+      note = `${why} ${rc > 0 ? `R${numTr(rc)} ile sınırlandı` : 'birleşim radyüsüne yer yok'}${B.process === 'cnc' ? `; Ø${numTr(tool)} freze bu köşede R${numTr(tool / 2)} altına inemez, kapak dili ucu köşeden uzaklaştırılmalı` : ''}`;
+    }
+    const treats = [{ key: 'corner.concave', feature: "köşe boss'u–duvar birleşimi (içbükey radyüs)", kind: 'fillet', size: need, applied: rc, rule: 'GEO-CORNER-CONCAVE', note }];
+    if (st.pocketGrow && tb > 0) treats.push({ key: 'corner.draft', feature: "köşe boss'u çıkma açısı", kind: 'draft', size: B.bossDraftDeg, rule: 'GEO-BOSS' });
     const e = 0.4;
-    const m = rc > 0.05 ? tryMake(() => {
+    const m = rc > 0 ? tryMake(() => {
       if (!st.pocketGrow) return cornerOutline(c, 0, R, rc, e).sketchOnPlane('XY', za).extrude(zb - za);
       const lower = cornerOutline(c, (za - floorTop) * tw, RbRoot, rc, e).sketchOnPlane('XY', za);
       const upper = cornerOutline(c, (zb - floorTop) * tw, R, rc, e).sketchOnPlane('XY', zb);
       return lower.loftWith(upper, { ruled: true });
-    }) : { shape: null, err: '' };
-    if (rc <= 0.05) rep.add({ part: P, key: 'corner.concave', feature: "köşe boss'u–duvar birleşimi (içbükey radyüs)", kind: 'fillet', size: need, ok: false, applied: 0, note: 'yer yok (kapak dili ucu)' });
+    }) : { shape: null, err: 'birleşim radyüsüne yer yok' };
     adds.push({ key: 'corner', feature: "köşe boss'u", shape: m.shape, err: m.err, plain, treats });
   }
   // Montaj kulakları: 2B dış hat + duvar birleşiminde plan radyüsü; tabla/çapak pahı ilkel üstünde (gömülü uç hariç)
@@ -941,25 +1090,43 @@ function buildBaseTreated(g, T, rep, st) {
       max[ear.along] = ear.a + ear.w / 2;
       return makeBox(min, max).fuse(makeCylinder(ear.w / 2, ear.t, [c[0], c[1], ear.z0], up));
     };
-    const rc = Math.min(Math.max(B.concaveMinR, 0.5), ear.e - 0.5);
-    const treats = [{ key: 'ear.concave', feature: 'kulak–duvar birleşimi (plan radyüsü)', kind: 'fillet', size: r3(rc) }];
+    // Plan radyüsü duvarın düz kısmında bitmeli: dış köşe radyüsüne taşarsa radyüs kökü duvarın dışında kalır (çıkıntı)
+    const rcWant = Math.max(B.concaveMinR, 0.5);
+    const straight = (ear.along === 0 ? g.outer.L : g.outer.W) / 2 - g.outer.r;
+    const room = straight - (Math.abs(ear.a - g.center[ear.along]) + ear.w / 2);
+    let rc = Math.min(rcWant, ear.e - 0.5);
+    let why = rc < rcWant - 1e-3 ? `kulak çıkıntısı nedeniyle R${numTr(rc)} ile sınırlandı` : '';
+    if (room < rc) {
+      rc = Math.max(0, room);
+      why = rc > 0.05 ? `radyüs duvarın düz kısmında kalsın (dış köşe radyüsüne taşmasın) diye R${numTr(rc)} ile sınırlandı`
+        : 'kulak duvarın düz kısmının ucunda; radyüs dış köşe radyüsüne taşacağı için uygulanmadı';
+    }
+    if (rc <= 0.05) rc = 0;
+    const treats = [{ key: 'ear.concave', feature: 'kulak–duvar birleşimi (plan radyüsü)', kind: 'fillet', size: rcWant, applied: rc, rule: 'GEO-FILLET-INNER', note: why }];
+    const bot = B.bedChamfer > 0 ? B.bedChamfer : B.outerEdgeBreak;
+    const botSize = Math.min(bot, ear.t / 3);
+    const topSize = Math.min(B.outerEdgeBreak, ear.t / 3);
+    let botRes = null;
+    let topRes = null;
+    const outside = (q) => ear.dir * (q.m[ear.axis] - ear.wallOut) > 0.01;
     const m = tryMake(() => {
       let s = earSolid(ear, rc);
-      const outside = (q) => ear.dir * (q.m[ear.axis] - ear.wallOut) > 0.01;
-      const bot = B.bedChamfer > 0 ? B.bedChamfer : B.outerEdgeBreak;
-      if (bot > 0) {
-        const res = edgeLadder(s, 'chamfer', Math.min(bot, ear.t / 3), (e) => { const q = edgePts(e); return inZ(q, ear.z0) && outside(q) ? 1 : null; });
-        recordLadder(rep, P, 'ear.bottom', B.bedChamfer > 0 ? 'kulak alt kenarı (tabla pahı)' : 'kulak alt kenarı (çapak kırma)', 'chamfer', Math.min(bot, ear.t / 3), res);
-        s = res.shape;
-      }
-      if (B.outerEdgeBreak > 0) {
-        const res = edgeLadder(s, 'chamfer', Math.min(B.outerEdgeBreak, ear.t / 3), (e) => { const q = edgePts(e); return inZ(q, ear.z0 + ear.t) && outside(q) ? 1 : null; });
-        recordLadder(rep, P, 'ear.top', 'kulak üst kenarı (çapak kırma)', 'chamfer', Math.min(B.outerEdgeBreak, ear.t / 3), res);
-        s = res.shape;
-      }
+      if (bot > 0) { botRes = edgeLadder(s, 'chamfer', botSize, (e) => { const q = edgePts(e); return inZ(q, ear.z0) && outside(q) ? 1 : null; }); s = botRes.shape; }
+      if (B.outerEdgeBreak > 0) { topRes = edgeLadder(s, 'chamfer', topSize, (e) => { const q = edgePts(e); return inZ(q, ear.z0 + ear.t) && outside(q) ? 1 : null; }); s = topRes.shape; }
       return s;
     });
-    if (B.process === 'injection') rep.add({ part: P, key: 'ear.draft', feature: 'kulak çıkma açısı', kind: 'draft', size: B.draftDeg, ok: false, applied: 0, note: 'kulak, ağız ayırma çizgisine göre ters açı (yan maça ya da kademeli ayırma çizgisi gerekir); açı uygulanmadı' });
+    if (bot > 0) {
+      treats.push(ladderTreat('ear.bottom', B.bedChamfer > 0 ? 'kulak alt kenarı tabla pahı' : 'kulak alt kenarı çapak kırma', 'chamfer', bot, botSize, botRes,
+        B.bedChamfer > 0 ? 'GEO-EDGE-BED' : 'GEO-EDGE-BREAK', botSize < bot - 1e-3 ? `kulak kalınlığı nedeniyle ${numTr(botSize)} mm ile sınırlandı` : ''));
+    }
+    if (B.outerEdgeBreak > 0) {
+      treats.push(ladderTreat('ear.top', 'kulak üst kenarı çapak kırma', 'chamfer', B.outerEdgeBreak, topSize, topRes, 'GEO-EDGE-BREAK',
+        topSize < B.outerEdgeBreak - 1e-3 ? `kulak kalınlığı nedeniyle ${numTr(topSize)} mm ile sınırlandı` : ''));
+    }
+    if (B.process === 'injection') {
+      rep.add({ part: P, key: 'ear.draft', feature: 'kulak yüzleri çıkma açısı', kind: 'draft', size: B.draftDeg || 1, ok: false, rule: 'INJ-SIDE-ACTION',
+        note: 'kulak çekme yönüne göre ters açıda (üstündeki kalıp çeliği çıkışı engeller): yan maça ya da kademeli ayırma çizgisi gerekir; kulak yüzlerine açı verilmedi' });
+    }
     adds.push({ key: 'ear', feature: 'montaj kulağı', shape: m.shape, err: m.err, plain, treats });
   }
   base = applyBatch(rep, P, 'fuse', base, adds);
@@ -967,22 +1134,31 @@ function buildBaseTreated(g, T, rep, st) {
   // 5) Kesen araçlar (tek toplu kesim)
   const cuts = [];
   const plainTool = (key, feature, fn) => cuts.push({ key, feature, shape: null, plain: fn, treats: [] });
+  const entryTool = (key, feature, method, x, y, holeD, en, zTop) => {
+    const m = tryMake(() => countersinkCone({ x, y, holeD, countersink: en }, zTop));
+    cuts.push({ key, feature: `${feature} girişi`, shape: m.shape, err: m.err, plain: () => null, treatOnly: true,
+      treats: [{ key, feature: `${feature} girişi (${methodTr(method)})`, kind: 'countersink', size: en.depth, rule: 'GEO-HOLE-ENTRY', note: `90° havşa, üst çap Ø${numTr(en.dTop)}` }] });
+  };
   const hs = T.holes || {};
   standoffs.forEach((s, i) => {
     plainTool('hole.standoff', 'standoff deliği', () => makeCylinder(s.holeD / 2, s.depth + 0.5, [s.x, s.y, s.z1 - s.depth], up));
     if (s.countersink) plainTool('csk.helicoil', 'Helicoil havşası', () => countersinkCone({ x: s.x, y: s.y, holeD: s.holeD, countersink: s.countersink }, s.z1));
     const en = hs.standoffs?.[i]?.entry;
-    if (en) {
-      const m = tryMake(() => countersinkCone({ x: s.x, y: s.y, holeD: s.holeD, countersink: en }, s.z1));
-      cuts.push({ key: 'entry.standoff', feature: 'standoff deliği girişi', shape: m.shape, err: m.err, plain: () => null,
-        treats: [{ key: 'entry.standoff', feature: `standoff deliği girişi (${hs.standoffs[i].method})`, kind: 'countersink', size: en.depth, note: `90° Ø${numTr(en.dTop)}` }] });
-    }
+    if (en) entryTool('entry.standoff', 'standoff deliği', hs.standoffs[i].method, s.x, s.y, s.holeD, en, s.z1);
     if (s.nutPocket) {
       const plain = () => nutPocketShape(s);
       if (s.nutPocket.shape === 'hex' && B.nutDogbone > 0) {
-        const m = tryMake(() => hexPocketDogbone(s, B.nutDogbone));
-        cuts.push({ key: 'nut', feature: 'somun cebi', shape: m.shape, err: m.err, plain,
-          treats: [{ key: 'nut.dogbone', feature: 'somun cebi köşe boşaltması (dogbone)', kind: 'dogbone', size: B.nutDogbone }] });
+        // Köşe boşaltması: r = min(takım yarıçapı, s/4 − 0,02); s/4'ten büyük takım altıgen köşeye giremez
+        const sAF = s.nutPocket.s;
+        const r = r3(Math.min(B.nutDogbone, sAF / 4 - 0.02));
+        const toolMax = Math.floor(2 * r * 20) / 20;
+        const note = r < B.nutDogbone - 1e-3
+          ? `SW ${numTr(sAF)} altıgen cepte Ø${numTr(2 * B.nutDogbone)} freze köşeye girmez; R${numTr(r)} boşaltma modellendi, köşe boşaltması için Ø${numTr(toolMax)} mm veya daha küçük freze gerekir`
+          : '';
+        const m = r >= 0.3 ? tryMake(() => hexPocketDogbone(s, r))
+          : { shape: null, err: `köşe boşaltmasına yer yok; Ø${numTr(Math.max(0, toolMax))} mm veya daha küçük freze gerekir` };
+        cuts.push({ key: 'nut', feature: 'altıgen somun cebi', shape: m.shape, err: m.err, plain,
+          treats: [{ key: 'nut.dogbone', feature: 'somun cebi köşe boşaltması', kind: 'dogbone', size: B.nutDogbone, applied: r, rule: 'GEO-DOGBONE', note }] });
       } else plainTool('nut', 'somun cebi', plain);
     }
     if (s.bottomCountersink) {
@@ -998,33 +1174,33 @@ function buildBaseTreated(g, T, rep, st) {
     plainTool('hole.corner', "köşe boss'u deliği", () => makeCylinder(c.holeD / 2, c.depth + 0.5, [c.x, c.y, c.z1 - c.depth], up));
     if (c.countersink) plainTool('csk.helicoil', 'Helicoil havşası', () => countersinkCone({ x: c.x, y: c.y, holeD: c.holeD, countersink: c.countersink }, c.z1));
     const en = hs.corners?.[i]?.entry;
-    if (en) {
-      const m = tryMake(() => countersinkCone({ x: c.x, y: c.y, holeD: c.holeD, countersink: en }, c.z1));
-      cuts.push({ key: 'entry.corner', feature: "köşe boss'u deliği girişi", shape: m.shape, err: m.err, plain: () => null,
-        treats: [{ key: 'entry.corner', feature: `köşe boss'u deliği girişi (${hs.corners[i].method})`, kind: 'countersink', size: en.depth, note: `90° Ø${numTr(en.dTop)}` }] });
-    }
+    if (en) entryTool('entry.corner', "köşe boss'u deliği", hs.corners[i].method, c.x, c.y, c.holeD, en, c.z1);
   });
   // Port açıklıkları: enjeksiyonda dış uç açılı duvar payı kadar uzar, çentik yanları açılı; CNC'de dış kenara pah
   const outerExt = outerGrow + 0.5;
   for (const c of g.cutouts || []) {
     const mid = (c.n0 + c.n1) / 2;
     const dir = mid > g.center[c.axis] ? 1 : -1;
-    const outerPlane = dir > 0 ? c.n1 - 1 : c.n0 + 1;
+    // Dış duvar düzlemi: tasarım verdiyse o; yoksa design.js'in 1 mm taşırma payından
+    const outerPlane = Number.isFinite(c.outerPlane) ? c.outerPlane : dir > 0 ? c.n1 - 1 : c.n0 + 1;
     const ext = outerGrow > 0 ? { ...c, n0: dir < 0 ? c.n0 - outerExt : c.n0, n1: dir > 0 ? c.n1 + outerExt : c.n1 } : c;
     const plain = () => cutoutPrism(ext);
     const isNotch = c.z1 > g.cavTop;
     if (st.baseDraft && isNotch) {
       const m = tryMake(() => notchDrafted(c, tanD(st.baseDraft), ext.n0, ext.n1));
       cuts.push({ key: 'cutout', feature: 'port çentiği', shape: m.shape, err: m.err, plain,
-        treats: [{ key: 'cutout.draft', feature: 'port çentiği yan yüz çıkma açısı', kind: 'draft', size: st.baseDraft }] });
+        treats: [{ key: 'cutout.draft', feature: 'port çentiği yan yüz çıkma açısı', kind: 'draft', size: st.baseDraft, rule: 'INJ-DRAFT' }] });
     } else {
-      plainTool('cutout', 'port açıklığı', plain);
-      if (st.baseDraft && !isNotch) rep.add({ part: P, key: 'cutout.window', feature: 'yan duvar penceresi', kind: 'draft', size: 0, ok: true, applied: 0, note: 'kapalı pencere kalıpta yan maça ister (IM-36); çekme yönünde açı gerekmez' });
+      plainTool('cutout', isNotch ? 'port çentiği' : 'port penceresi', plain);
+    }
+    if (B.process === 'injection' && !isNotch) {
+      rep.add({ part: P, key: 'cutout.window', feature: 'yan duvar penceresi (kalıpta yan maça)', kind: 'info', size: 1, unit: 'adet', rule: 'INJ-SIDE-ACTION',
+        note: 'kapalı pencere çekme yönüne dik: kalıpta yan maça ister; pencere yüzlerine çekme yönünde açı gerekmez' });
     }
     if (B.cutoutBreak > 0) {
       const m = tryMake(() => cutoutCollar(c, outerPlane, dir, B.cutoutBreak));
-      cuts.push({ key: 'cutout.break', feature: 'port açıklığı dış kenarı', shape: m.shape, err: m.err, plain: () => null,
-        treats: [{ key: 'cutout.break', feature: 'port açıklığı dış kenarı (çapak kırma)', kind: 'chamfer', size: B.cutoutBreak }] });
+      cuts.push({ key: 'cutout.break', feature: 'port açıklığı dış kenarı', shape: m.shape, err: m.err, plain: () => null, treatOnly: true,
+        treats: [{ key: 'cutout.break', feature: 'port açıklığı dış kenarı çapak kırma', kind: 'chamfer', size: B.cutoutBreak, rule: 'GEO-EDGE-BREAK' }] });
     }
   }
   (g.ears || []).forEach((ear, i) => {
@@ -1040,11 +1216,7 @@ function buildBaseTreated(g, T, rep, st) {
     } else {
       plainTool('hole.ear', 'kulak deliği', () => makeCylinder(r, h, [ear.hx, ear.hy, zc], up));
       const en = hs.ears?.[i]?.entry;
-      if (en) {
-        const m = tryMake(() => countersinkCone({ x: ear.hx, y: ear.hy, holeD: ear.d, countersink: en }, ear.z0 + ear.t));
-        cuts.push({ key: 'entry.ear', feature: 'kulak deliği girişi', shape: m.shape, err: m.err, plain: () => null,
-          treats: [{ key: 'entry.ear', feature: 'kulak deliği girişi (çapak kırma)', kind: 'countersink', size: en.depth }] });
-      }
+      if (en) entryTool('entry.ear', 'kulak deliği', 'clearance', ear.hx, ear.hy, ear.d, en, ear.z0 + ear.t);
     }
   });
   for (const mh of g.mountHoles || []) plainTool('hole.mount', 'taban montaj deliği', () => makeCylinder(mh.d / 2, g.floor + 1, [mh.x, mh.y, g.z0 - 0.5], up));
@@ -1091,16 +1263,16 @@ function buildBaseTreated(g, T, rep, st) {
     };
     const shift = st.baseDraft ? (pocketGrow + outerGrow) / 2 : 0;
     const ta2 = st.baseDraft ? tanD(st.baseDraft) : 0;
-    const treats = [];
-    if (B.grooveEdgeBreak > 0) treats.push({ key: 'groove.break', feature: 'conta kanalı üst kenarları', kind: 'chamfer', size: B.grooveEdgeBreak });
-    if (ta2 > 0) treats.push({ key: 'groove.draft', feature: 'conta kanalı yan yüz açısı (Parker 0–5°)', kind: 'draft', size: st.baseDraft });
-    if (shift > 0) treats.push({ key: 'groove.shift', feature: 'conta kanalı orta çizgisi (açılı duvar)', kind: 'offset', size: r3(shift) });
     const m = tryMake(() => grooveTool(gr, cx, cy, z, g.cavTop, { ta: ta2, brk: B.grooveEdgeBreak, shift, bottomR: B.grooveBottomR }));
+    const treats = [];
     if (B.grooveBottomR > 0) {
       const ap = m.shape ? m.shape.__bottomR || 0 : 0;
-      rep.add({ part: P, key: 'groove.bottom', feature: 'conta kanalı dip radyüsü', kind: 'fillet', size: B.grooveBottomR, ok: ap >= B.grooveBottomR - 1e-6, applied: ap,
-        note: m.shape ? (ap >= B.grooveBottomR - 1e-6 ? '' : `uygulanamadı (${m.shape.__bottomNote || ''})`) : `uygulanamadı (${m.err})` });
+      treats.push({ key: 'groove.bottom', feature: 'conta kanalı dip radyüsü', kind: 'fillet', size: B.grooveBottomR, applied: ap, rule: 'GEO-GROOVE',
+        note: ap > 0 ? (ap < B.grooveBottomR - 1e-3 ? 'çekirdek tam ölçüyü kuramadı' : '') : m.shape?.__bottomNote || '' });
     }
+    if (B.grooveEdgeBreak > 0) treats.push({ key: 'groove.break', feature: 'conta kanalı üst kenarları kırma', kind: 'chamfer', size: B.grooveEdgeBreak, rule: 'GEO-GROOVE' });
+    if (ta2 > 0) treats.push({ key: 'groove.draft', feature: 'conta kanalı yan yüz açısı (Parker 0–5°)', kind: 'draft', size: st.baseDraft, rule: 'GEO-GROOVE' });
+    if (shift > 0) treats.push({ key: 'groove.shift', feature: 'conta kanalı orta çizgisi açılı duvarla kaydırıldı', kind: 'info', size: shift, unit: 'mm', rule: 'GEO-GROOVE' });
     cuts.push({ key: 'groove', feature: 'conta kanalı', shape: m.shape, err: m.err, plain, treats });
   }
   base = applyBatch(rep, P, 'cut', base, cuts.filter((c) => c.shape || c.plain));
@@ -1126,18 +1298,32 @@ function buildLidTreated(g, T, rep, st) {
       { L: rim.L - 2 * gT, W: rim.W - 2 * gT, r: Math.max(rim.r - gT, 0.05), z: g.zTop },
     ], cx, cy));
     if (m.shape && validSolid(m.shape)) lid = m.shape;
-    rep.add({ part: P, key: 'draft.plate', feature: 'kapak yan yüzü çıkma açısı', kind: 'draft', size: L.draftDeg, ok: !!lid, applied: lid ? L.draftDeg : 0,
-      note: lid ? 'ayırma çizgisi kapak alt dış kenarında, gövde ağız hattıyla aynı' : `uygulanamadı (${m.err || 'geçersiz katı'})` });
+    rep.add({ part: P, key: 'draft.plate', feature: 'kapak yan yüzü çıkma açısı', kind: 'draft', size: L.draftDeg, applied: lid ? L.draftDeg : 0, rule: 'INJ-DRAFT',
+      note: lid ? 'ayırma çizgisi kapak alt dış kenarında, gövde ağız hattıyla aynı' : `açılı plaka kurulamadı (${m.err || 'işlem sonrası katı geçersiz'})` });
   }
   if (!lid) lid = plainPlate();
-  if (st.rim.L > g.outer.L + 1e-6) rep.add({ part: P, key: 'outline', feature: 'kapak dış hattı = gövde ağız hattı', kind: 'offset', size: r3((st.rim.L - g.outer.L) / 2), ok: true, applied: r3((st.rim.L - g.outer.L) / 2), note: 'gövdenin açılı dış duvarına göre büyütüldü' });
+  if (st.rim.L > g.outer.L + 1e-6) {
+    rep.add({ part: P, key: 'outline', feature: 'kapak dış hattı gövde ağız hattına eşitlendi', kind: 'info', size: (st.rim.L - g.outer.L) / 2, unit: 'mm', rule: 'INJ-DRAFT',
+      note: 'gövdenin açılı dış duvarı ağızda büyüdüğü için her yanda büyütüldü' });
+  }
   // Üst dış kenar: FDM tabla pahı (dış yüz tablada) / CNC çapak kırma / enjeksiyon kozmetik radyüs
-  const top = L.bedChamfer > 0 ? ['chamfer', L.bedChamfer, 'bed', 'kapak üst dış kenarı (tabla pahı)']
-    : L.outerEdgeBreak > 0 ? ['chamfer', L.outerEdgeBreak, 'outer.top', 'kapak üst dış kenarı (çapak kırma)']
-      : L.outerTopFillet > 0 ? ['fillet', L.outerTopFillet, 'outer.top', 'kapak üst dış kenarı (kozmetik radyüs)'] : null;
-  if (top) lid = treatEdges(rep, P, top[2], top[3], top[0], Math.min(top[1], 0.45 * lidT + (top[0] === 'fillet' ? 0.3 * lidT : 0)), lid, (e) => (inZ(edgePts(e), g.zTop) ? 1 : null));
-  if (L.outerEdgeBreak > 0) lid = treatEdges(rep, P, 'outer.bottom', 'kapak alt dış kenarı (çapak kırma)', 'chamfer', Math.min(L.outerEdgeBreak, 0.3 * lidT), lid, (e) => (inZ(edgePts(e), g.cavTop) ? 1 : null));
-  if (L.process === 'injection') rep.add({ part: P, key: 'parting', feature: 'ayırma çizgisi (kapak alt dış kenarı)', kind: 'sharp', size: 0, ok: true, applied: 0, note: 'keskin bırakıldı (IM-38)' });
+  const top = L.bedChamfer > 0 ? ['chamfer', L.bedChamfer, 'bed', 'kapak üst dış kenarı tabla pahı', 'GEO-EDGE-BED']
+    : L.outerEdgeBreak > 0 ? ['chamfer', L.outerEdgeBreak, 'outer.top', 'kapak üst dış kenarı çapak kırma', 'GEO-EDGE-BREAK']
+      : L.outerTopFillet > 0 ? ['fillet', L.outerTopFillet, 'outer.top', 'kapak üst dış kenarı kozmetik radyüs', 'GEO-FILLET-OUTER'] : null;
+  if (top) {
+    const size = Math.min(top[1], 0.45 * lidT + (top[0] === 'fillet' ? 0.3 * lidT : 0));
+    lid = treatEdges(rep, P, top[2], top[3], top[0], size, lid, (e) => (inZ(edgePts(e), g.zTop) ? 1 : null),
+      { want: top[1], rule: top[4], note: size < top[1] - 1e-3 ? `kapak kalınlığı ${numTr(lidT)} mm olduğundan ${numTr(size)} mm ile sınırlandı` : '' });
+  }
+  if (L.outerEdgeBreak > 0) {
+    const size = Math.min(L.outerEdgeBreak, 0.3 * lidT);
+    lid = treatEdges(rep, P, 'outer.bottom', 'kapak alt dış kenarı çapak kırma', 'chamfer', size, lid, (e) => (inZ(edgePts(e), g.cavTop) ? 1 : null),
+      { want: L.outerEdgeBreak, rule: 'GEO-EDGE-BREAK', note: size < L.outerEdgeBreak - 1e-3 ? `kapak kalınlığı ${numTr(lidT)} mm olduğundan ${numTr(size)} mm ile sınırlandı` : '' });
+  }
+  if (L.process === 'injection') {
+    rep.add({ part: P, key: 'parting', feature: 'ayırma çizgisi kapak alt dış kenarında (keskin kenar)', kind: 'info', size: 1, unit: 'adet', rule: 'INJ-DRAFT',
+      note: 'ayırma çizgisi keskin kenarda; gövde ağız hattıyla aynı' });
+  }
 
   const adds = [];
   for (const pr of g.edgePressers || []) adds.push({ key: 'presser', feature: 'kart baskı dili', shape: null, plain: () => makeBox(pr.min, pr.max), treats: [] });
@@ -1150,9 +1336,15 @@ function buildLidTreated(g, T, rep, st) {
     const lipT = Math.min(bar.max[0] - bar.min[0], bar.max[1] - bar.min[1]);
     let ao = L.lipDraftDeg;
     let ai = L.lipDraftDeg;
+    let draftNote = '';
     // Uç kalınlığı kökün %60'ından aşağı inmesin
     const thin = depth * (tanD(ao) + tanD(ai));
-    if (thin > 0.4 * lipT) { const k = (0.4 * lipT) / thin; ao = Math.atan(tanD(ao) * k) / DEG; ai = Math.atan(tanD(ai) * k) / DEG; }
+    if (thin > 0.4 * lipT) {
+      const k = (0.4 * lipT) / thin;
+      ao = Math.atan(tanD(ao) * k) / DEG;
+      ai = Math.atan(tanD(ai) * k) / DEG;
+      draftNote = `dil ucu kökün %60'ından ince kalmasın diye ${numTr(ao)}°'ye düşürüldü (dil ${numTr(lipT)} mm, boy ${numTr(depth)} mm)`;
+    }
     const shift = st.pocketGrow - depth * Math.max(0, tB - tanD(ao));
     const gapRoot = fit + depth * Math.max(0, tB - tanD(ao));
     // Kök radyüsü dil boyunun %40'ını ve dil kalınlığını geçmez; dış yüzde gövde ağzındaki boşluk + giriş pahı kadar
@@ -1160,20 +1352,44 @@ function buildLidTreated(g, T, rep, st) {
     const ro = Math.max(0, Math.min(ri, gapRoot + (B.rimLeadIn || 0) - 0.05));
     const c = Math.min(L.lipTipChamfer, 0.4 * (lipT - depth * (tanD(ao) + tanD(ai))), 0.4 * depth);
     const treats = [];
-    if (ri > 0) treats.push({ key: 'lip.root', feature: 'kapak dili kökü radyüsü (iç / dış)', kind: 'fillet', size: ri, note: ro < ri - 1e-6 ? `dış yüzde ${numTr(ro)} mm (gövde ağzına boşluk)` : '' });
-    if (c > 0.02) treats.push({ key: 'lip.tip', feature: 'kapak dili ucu (giriş pahı)', kind: 'chamfer', size: r3(c) });
-    if (ao > 0) treats.push({ key: 'lip.draft', feature: 'kapak dili çıkma açısı', kind: 'draft', size: r3(ao) });
-    if (shift > 1e-4) treats.push({ key: 'lip.shift', feature: 'kapak dili (açılı cebe göre dışa kaydırma)', kind: 'offset', size: r3(shift) });
+    if (L.lipRootFillet > 0) {
+      treats.push({ key: 'lip.root', feature: 'kapak dili kökü radyüsü (iç yüz)', kind: 'fillet', size: L.lipRootFillet, applied: ri > 0.02 ? ri : 0, rule: 'GEO-FILLET-INNER',
+        note: ri < L.lipRootFillet - 1e-3 ? `dil boyu ${numTr(depth)} mm / kalınlığı ${numTr(lipT)} mm olduğundan ${ri > 0.02 ? `R${numTr(ri)} ile sınırlandı` : 'uygulanmadı'}` : '' });
+      // Dış yüz kökü gövde ağzındaki boşluk + giriş pahı kadar olabilir. Enjeksiyonda kök radyüsü kaynağa bağlı en az
+      // değerdir (IM-24 0,25·T): eksik kalırsa sınırlı yazılır. FDM'de 0,5 mm tasarım tercihi olduğundan istenen ölçü
+      // zaten "en çok boşluk kadar"dır.
+      const roWant = L.process === 'injection' ? L.lipRootFillet : Math.min(L.lipRootFillet, ro);
+      if (roWant > 0.02) {
+        treats.push({ key: 'lip.root.out', feature: 'kapak dili kökü radyüsü (dış yüz)', kind: 'fillet', size: roWant, applied: ro > 0.02 ? ro : 0, rule: 'GEO-FILLET-INNER',
+          note: ro < roWant - 1e-3 ? `gövde ağzıyla boşluk ${numTr(gapRoot)} mm ve giriş pahı nedeniyle ${ro > 0.02 ? `R${numTr(ro)} ile sınırlandı` : 'uygulanmadı'}` : '' });
+      }
+    }
+    if (L.lipTipChamfer > 0) {
+      treats.push({ key: 'lip.tip', feature: 'kapak dili ucu giriş pahı', kind: 'leadin', size: L.lipTipChamfer, applied: c > 0.02 ? c : 0, rule: 'GEO-LEADIN',
+        note: c < L.lipTipChamfer - 1e-3 ? `dil ucu kalınlığı nedeniyle ${c > 0.02 ? `${numTr(c)} mm ile sınırlandı` : 'uygulanmadı'}` : '' });
+    }
+    if (L.lipDraftDeg > 0) treats.push({ key: 'lip.draft', feature: 'kapak dili çıkma açısı (iki uzun yüz)', kind: 'draft', size: L.lipDraftDeg, applied: ao, rule: 'INJ-DRAFT', note: draftNote });
+    if (shift > 1e-4) treats.push({ key: 'lip.shift', feature: 'kapak dili açılı cebe göre dışa kaydırıldı', kind: 'info', size: shift, unit: 'mm', rule: 'INJ-DRAFT' });
     const m = treats.length ? tryMake(() => lipSolid(bar, g, { soRoot: shift, ao, ai, ri, ro, c, emb: 0.3 })) : { shape: null, err: '' };
     adds.push({ key: 'lip', feature: 'kapak dili', shape: m.shape, err: m.err, plain, treats });
   }
   for (const t of g.lidTubes || []) {
     const plain = () => makeCylinder(t.od / 2, t.z1 - t.z0 + 0.5, [t.x, t.y, t.z0], up);
-    const tipC = Math.min(L.bossTipChamfer, 0.4 * (t.od - t.holeD) / 2);
+    const h = Math.abs(t.z1 - t.z0);
+    const bw = (t.od - t.holeD) / 2;
+    const tipC = Math.min(L.bossTipChamfer, 0.4 * bw);
+    const tipA = bossTip(tipC, h, t.od / 2);
+    const rf = bossRoot({ h, rTip: t.od / 2, draftDeg: L.bossDraftDeg, rootR: L.tubeRootFillet }).rf;
     const treats = [];
-    if (L.tubeRootFillet > 0) treats.push({ key: 'tube.root', feature: 'kapak borusu kökü radyüsü', kind: 'fillet', size: L.tubeRootFillet });
-    if (tipC > 0.02) treats.push({ key: 'tube.tip', feature: 'kapak borusu ucu pahı', kind: 'chamfer', size: r3(tipC) });
-    if (L.bossDraftDeg > 0) treats.push({ key: 'tube.draft', feature: 'kapak borusu çıkma açısı', kind: 'draft', size: L.bossDraftDeg });
+    if (L.tubeRootFillet > 0) {
+      treats.push({ key: 'tube.root', feature: 'kapak borusu kökü radyüsü', kind: 'fillet', size: L.tubeRootFillet, applied: rf, rule: 'GEO-BOSS',
+        note: rf < L.tubeRootFillet - 1e-3 ? `boru boyu ${numTr(h)} mm olduğundan ${rf > 0 ? `R${numTr(rf)} ile sınırlandı` : 'uygulanmadı'}` : '' });
+    }
+    if (L.bossTipChamfer > 0) {
+      treats.push({ key: 'tube.tip', feature: 'kapak borusu ucu pahı', kind: 'chamfer', size: L.bossTipChamfer, applied: tipA > 0.02 ? tipA : 0, rule: 'GEO-BOSS',
+        note: tipA < L.bossTipChamfer - 1e-3 ? `boru et kalınlığı ${numTr(bw)} mm olduğundan ${tipA > 0.02 ? `${numTr(tipA)} mm ile sınırlandı` : 'pah uygulanmadı'}` : '' });
+    }
+    if (L.bossDraftDeg > 0) treats.push({ key: 'tube.draft', feature: 'kapak borusu çıkma açısı', kind: 'draft', size: L.bossDraftDeg, rule: 'GEO-BOSS', note: 'uçta anma çapı, köke doğru büyür' });
     const m = treats.length ? tryMake(() => bossSolid({ x: t.x, y: t.y, zRoot: t.z1, zTip: t.z0, rTip: t.od / 2, draftDeg: L.bossDraftDeg, rootR: L.tubeRootFillet, tipC, embed: 0.5 })) : { shape: null, err: '' };
     adds.push({ key: 'tube', feature: 'kapak borusu', shape: m.shape, err: m.err, plain, treats });
   }
@@ -1187,14 +1403,15 @@ function buildLidTreated(g, T, rep, st) {
   const hs = T.holes || {};
   const entryCut = (key, feature, x, y, holeD, en) => {
     const m = tryMake(() => countersinkCone({ x, y, holeD, countersink: en }, g.zTop));
-    cuts.push({ key, feature, shape: m.shape, err: m.err, plain: () => null, treats: [{ key, feature: `${feature} (çapak kırma)`, kind: 'countersink', size: en.depth }] });
+    cuts.push({ key, feature: `${feature} girişi`, shape: m.shape, err: m.err, plain: () => null, treatOnly: true,
+      treats: [{ key, feature: `${feature} girişi çapak kırma (geçiş deliği)`, kind: 'countersink', size: en.depth, rule: 'GEO-HOLE-ENTRY', note: `90° havşa, üst çap Ø${numTr(en.dTop)}` }] });
   };
   (g.lidTubes || []).forEach((t, i) => {
     plainTool('hole.tube', 'kapak vida deliği', () => makeCylinder(t.holeD / 2, g.zTop - t.z0 + 1, [t.x, t.y, t.z0 - 0.5], up));
     if (t.countersink) plainTool('csk.tube', 'havşa', () => countersinkCone(t, g.zTop));
     if (t.counterbore) plainTool('cbore.tube', 'gömme oyuk', () => makeCylinder(t.counterbore.d / 2, t.counterbore.depth + 0.5, [t.x, t.y, g.zTop - t.counterbore.depth], up));
     const en = hs.lidTubes?.[i]?.entry;
-    if (en) entryCut('entry.tube', 'kapak vida deliği girişi', t.x, t.y, t.holeD, en);
+    if (en) entryCut('entry.tube', 'kapak vida deliği', t.x, t.y, t.holeD, en);
   });
   (g.lidHoles || []).forEach((hh, i) => {
     const zb = g.cavTop - (hh.pad ? hh.pad.h : 0) - 0.5;
@@ -1202,7 +1419,7 @@ function buildLidTreated(g, T, rep, st) {
     if (hh.countersink) plainTool('csk.lid', 'havşa', () => countersinkCone({ x: hh.x, y: hh.y, holeD: hh.holeD, countersink: hh.countersink }, g.zTop));
     if (hh.counterbore) plainTool('cbore.lid', 'gömme oyuk', () => makeCylinder(hh.counterbore.d / 2, hh.counterbore.depth + 0.5, [hh.x, hh.y, g.zTop - hh.counterbore.depth], up));
     const en = hs.lidHoles?.[i]?.entry;
-    if (en) entryCut('entry.lid', 'köşe vidası deliği girişi', hh.x, hh.y, hh.holeD, en);
+    if (en) entryCut('entry.lid', 'köşe vidası deliği', hh.x, hh.y, hh.holeD, en);
   });
   for (const sp of (g.panelSpots || []).filter((x) => x.part === 'lid')) plainTool('panel.spot', 'panel lambası', () => makeCylinder(sp.r, sp.len, sp.p, up));
   for (const h of (g.panelHoles || []).filter((x) => x.part === 'lid')) plainTool('panel.hole', 'panel deliği', () => panelHoleShape(h));
@@ -1233,8 +1450,13 @@ function buildClipTreated(dn, T, rep) {
   for (const p of dn.profile.slice(1)) pen = pen.lineTo(p);
   let clip = pen.close().sketchOnPlane('YZ', [-dn.L / 2, 0, 0]).extrude(dn.L);
   // Üst yüz (kutuya oturan, FDM'de tablaya gelen) kenarları
-  const topOp = C.bedChamfer > 0 ? [C.bedChamfer, 'bed', 'klips üst yüz kenarı (tabla pahı)'] : C.outerEdgeBreak > 0 ? [C.outerEdgeBreak, 'outer.top', 'klips üst yüz kenarı (çapak kırma)'] : null;
-  if (topOp) clip = treatEdges(rep, P, topOp[1], topOp[2], 'chamfer', Math.min(topOp[0], 0.3 * dn.t), clip, (e) => (inZ(edgePts(e), 0) ? 1 : null));
+  const topOp = C.bedChamfer > 0 ? [C.bedChamfer, 'bed', 'klips üst yüz kenarı tabla pahı', 'GEO-EDGE-BED']
+    : C.outerEdgeBreak > 0 ? [C.outerEdgeBreak, 'outer.top', 'klips üst yüz kenarı çapak kırma', 'GEO-EDGE-BREAK'] : null;
+  if (topOp) {
+    const size = Math.min(topOp[0], 0.3 * dn.t);
+    clip = treatEdges(rep, P, topOp[1], topOp[2], 'chamfer', size, clip, (e) => (inZ(edgePts(e), 0) ? 1 : null),
+      { want: topOp[0], rule: topOp[3], note: size < topOp[0] - 1e-3 ? `klips plakası ${numTr(dn.t)} mm olduğundan ${numTr(size)} mm ile sınırlandı` : '' });
+  }
   const lc = dn.latchCut;
   const cuts = [{ key: 'latchcut', feature: 'kilit kancası boşluğu', shape: null, plain: () => makeBox([lc.u0, lc.v0, lc.z0], [lc.u1, lc.v1, lc.z1]), treats: [] }];
   const slotW = dn.slots[0] ? dn.slots[0].v1 - dn.slots[0].v0 : 1.5;
@@ -1242,17 +1464,29 @@ function buildClipTreated(dn, T, rep) {
   for (const s of dn.slots) {
     const m = tryMake(() => keyholeSlot(s, R, slotW));
     cuts.push({ key: 'slot', feature: 'kilit dili yarığı', shape: m.shape, err: m.err, plain: () => makeBox([s.u0, s.v0, s.z0], [s.u1, s.v1, s.z1]),
-      treats: [{ key: 'latch.root', feature: 'kilit dili kökü (yuvarlak yarık ucu)', kind: 'fillet', size: r3(R), note: `R ≥ 0,5·t (t ${numTr(dn.t)} mm)` }] });
+      treats: [{ key: 'latch.root', feature: 'kilit dili kökü (yuvarlak yarık ucu)', kind: 'fillet', size: R, rule: 'GEO-FILLET-INNER',
+        note: `R ≥ 0,5·t (t ${numTr(dn.t)} mm)${R > C.latchRootR + 1e-3 ? `; yarık genişliğinin yarısı R${numTr(R)}` : ''}` }] });
   }
   clip = applyBatch(rep, P, 'cut', clip, cuts, 'yarık');
   const adds = [];
+  const chHalf = Number.isFinite(dn.channel) ? dn.channel / 2 : RAIL_CHANNEL_HALF;
   for (const b of dn.bosses) {
     const plain = () => makeCylinder(dn.bossD / 2, -dn.tp + 0.5 - dn.bossZ, [b.u, b.v, dn.bossZ], up);
-    const rootR = Math.max(0, Math.min(C.bossRootFillet, RAIL_CHANNEL_HALF - 0.1 - (Math.abs(b.v) + dn.bossD / 2)));
-    const tipC = Math.min(C.bossTipChamfer, 0.4 * (dn.bossD - dn.holeD) / 2);
+    const h = Math.abs(dn.bossZ + dn.tp);
+    const rootR = Math.max(0, Math.min(C.bossRootFillet, chHalf - 0.1 - (Math.abs(b.v) + dn.bossD / 2)));
+    const rf = bossRoot({ h, rTip: dn.bossD / 2, rootR }).rf;
+    const bw = (dn.bossD - dn.holeD) / 2;
+    const tipC = Math.min(C.bossTipChamfer, 0.4 * bw);
+    const tipA = bossTip(tipC, h, dn.bossD / 2);
     const treats = [];
-    if (C.bossRootFillet > 0) treats.push({ key: 'boss.root', feature: "klips boss'u kökü", kind: 'fillet', size: C.bossRootFillet, applied: r3(rootR), limited: rootR < 0.9 * C.bossRootFillet, note: rootR < C.bossRootFillet - 1e-6 ? 'ray kanalı (TS35) nedeniyle küçültüldü' : '' });
-    if (tipC > 0.02) treats.push({ key: 'boss.tip', feature: "klips boss'u ucu pahı", kind: 'chamfer', size: r3(tipC) });
+    if (C.bossRootFillet > 0) {
+      treats.push({ key: 'boss.root', feature: "klips boss'u kökü radyüsü", kind: 'fillet', size: C.bossRootFillet, applied: rf, rule: 'GEO-BOSS',
+        note: rf < C.bossRootFillet - 1e-3 ? `ray kanalı (TS35) ve boss boyu nedeniyle ${rf > 0 ? `R${numTr(rf)} ile sınırlandı` : 'uygulanmadı'}` : '' });
+    }
+    if (C.bossTipChamfer > 0) {
+      treats.push({ key: 'boss.tip', feature: "klips boss'u ucu pahı", kind: 'chamfer', size: C.bossTipChamfer, applied: tipA > 0.02 ? tipA : 0, rule: 'GEO-BOSS',
+        note: tipA < C.bossTipChamfer - 1e-3 ? `boss et kalınlığı nedeniyle ${tipA > 0.02 ? `${numTr(tipA)} mm ile sınırlandı` : 'pah uygulanmadı'}` : '' });
+    }
     const m = treats.length ? tryMake(() => bossSolid({ x: b.u, y: b.v, zRoot: -dn.tp, zTip: dn.bossZ, rTip: dn.bossD / 2, rootR, tipC, embed: 0.5 })) : { shape: null, err: '' };
     adds.push({ key: 'boss', feature: "klips boss'u", shape: m.shape, err: m.err, plain, treats });
   }
@@ -1263,8 +1497,8 @@ function buildClipTreated(dn, T, rep) {
     holes.push({ key: 'hole.clip', feature: 'klips vida deliği', shape: null, plain: () => makeCylinder(dn.holeD / 2, dn.depth + 0.5, [b.u, b.v, -dn.depth], up), treats: [] });
     if (en) {
       const m = tryMake(() => countersinkCone({ x: b.u, y: b.v, holeD: dn.holeD, countersink: en }, 0));
-      holes.push({ key: 'entry.clip', feature: 'klips deliği girişi', shape: m.shape, err: m.err, plain: () => null,
-        treats: [{ key: 'entry.clip', feature: `klips deliği girişi (${T.holes.clip.method})`, kind: 'countersink', size: en.depth }] });
+      holes.push({ key: 'entry.clip', feature: 'klips deliği girişi', shape: m.shape, err: m.err, plain: () => null, treatOnly: true,
+        treats: [{ key: 'entry.clip', feature: `klips deliği girişi (${methodTr(T.holes.clip.method)})`, kind: 'countersink', size: en.depth, rule: 'GEO-HOLE-ENTRY', note: `90° havşa, üst çap Ø${numTr(en.dTop)}` }] });
     }
   }
   clip = applyBatch(rep, P, 'cut', clip, holes, 'delik');
@@ -1272,43 +1506,48 @@ function buildClipTreated(dn, T, rep) {
   return clip.translate([dn.center[0], dn.center[1], dn.z0]);
 }
 
-/** İşlemli üretim: gövde, kapak, klips + işlem raporu. Beklenmedik hata olursa işlemsiz üretime düşer. */
+/**
+ * İşlemli üretim: gövde, kapak, klips + işlem raporu. Bir parçanın işlemli kurulumu beklenmedik hata verirse
+ * yalnız o parça eski (işlemsiz) yöntemle kurulur ve raporda 'build' satırıyla belirtilir.
+ */
 function buildTreated(g) {
   const T = g.treat;
   const rep = makeReport();
   const st = { rim: { L: g.outer.L, W: g.outer.W, r: g.outer.r }, pocketGrow: 0, baseDraft: 0 };
-  const legacy = () => buildEnclosure(g);
   let base;
   let lid;
   let clip = null;
   try {
     base = buildBaseTreated(g, T, rep, st);
   } catch (err) {
-    rep.add({ part: 'base', key: 'all', feature: 'gövde (tüm işlemler)', kind: 'build', size: 1, ok: false, applied: 0, note: `işlemsiz gövdeye düşüldü (${errText(err)})` });
+    const why = errTr(err);
+    rep.failPart('base', 'işlemli gövde kurulamadı; gövde işlemsiz kuruldu');
+    rep.add({ part: 'base', key: 'build', feature: 'gövde katı modeli', kind: 'build', size: 1, ok: false, rule: 'GEO-BUILD',
+      note: `işlemli gövde kurulamadı (${why}); gövde kenar işlemleri ve çıkma açısı olmadan kuruldu` });
     st.rim = { L: g.outer.L, W: g.outer.W, r: g.outer.r };
     st.pocketGrow = 0;
     st.baseDraft = 0;
-    base = null;
+    base = legacyBase(g);
   }
   try {
     lid = buildLidTreated(g, T, rep, st);
   } catch (err) {
-    rep.add({ part: 'lid', key: 'all', feature: 'kapak (tüm işlemler)', kind: 'build', size: 1, ok: false, applied: 0, note: `işlemsiz kapağa düşüldü (${errText(err)})` });
-    lid = null;
+    const why = errTr(err);
+    rep.failPart('lid', 'işlemli kapak kurulamadı; kapak işlemsiz kuruldu');
+    rep.add({ part: 'lid', key: 'build', feature: 'kapak katı modeli', kind: 'build', size: 1, ok: false, rule: 'GEO-BUILD',
+      note: `işlemli kapak kurulamadı (${why}); kapak kenar işlemleri olmadan, gövde ağız hattıyla kuruldu` });
+    lid = legacyLid(g, st.rim);
   }
   if (g.din) {
     try {
       clip = T.clip ? buildClipTreated(g.din, T, rep) : buildClip(g.din);
     } catch (err) {
-      rep.add({ part: 'clip', key: 'all', feature: 'DIN klipsi (tüm işlemler)', kind: 'build', size: 1, ok: false, applied: 0, note: `işlemsiz klipse düşüldü (${errText(err)})` });
-      clip = null;
+      const why = errTr(err);
+      rep.failPart('clip', 'işlemli DIN klipsi kurulamadı; klips işlemsiz kuruldu');
+      rep.add({ part: 'clip', key: 'build', feature: 'DIN klipsi katı modeli', kind: 'build', size: 1, ok: false, rule: 'GEO-BUILD',
+        note: `işlemli klips kurulamadı (${why}); klips kenar işlemleri olmadan kuruldu` });
+      clip = buildClip(g.din);
     }
-  }
-  if (!base || !lid || (g.din && !clip)) {
-    const old = legacy();
-    base = base || old.base;
-    lid = lid || old.lid;
-    if (g.din) clip = clip || old.clip;
   }
   return { base, lid, clip, treatReport: rep.list() };
 }

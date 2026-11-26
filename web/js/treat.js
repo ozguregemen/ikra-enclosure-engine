@@ -9,43 +9,53 @@
  *   FDM-58  gövde tabanı tablada, kapak dış yüzü tablada, DIN klipsi üst yüzü tablada basılır.
  *   IM-38   enjeksiyonda ayırma çizgisi ağız kenarında, keskin kenarda; gövde +Z, kapak −Z yönünde kalıptan çıkar.
  *
- * Sabitlerin yanındaki kimlikler araştırma kataloğundaki kurallardır; bağlantılar TREAT_SOURCES'ta.
+ * Kullanıcıya giden metinlerde ve işlem raporunda yalnızca kural kataloğu kimlikleri (dfm/catalog.js, GEO-*, INJ-*)
+ * kullanılır. Sabitlerin yanındaki FDM-xx / IM-xx / CNC-xx kimlikleri araştırma notlarındaki kaynak kurallarıdır
+ * (yalnızca kod açıklaması). Kaynakta sayı olmayan değerler "tasarım tercihi" olarak işaretlidir.
  */
 
-/** Kural kimliği → kaynak (kenar işlemi notlarında ve işlem raporunda gösterilir) */
-export const TREAT_SOURCES = {
-  'FDM-08': 'UltiMaker, How to design for FFF (s.13) — https://ultimaker.com/wp-content/uploads/2024/06/How-to-design-for-FFF-1.pdf',
-  'FDM-09': 'Hubs, How to design parts for FDM — https://www.hubs.com/knowledge-base/how-design-parts-fdm-3d-printing/',
-  'FDM-10': 'Prusa, Elephant foot compensation — https://help.prusa3d.com/article/elephant-foot-compensation_114487',
-  'FDM-11': 'Prusa, Modeling with 3D printing in mind — https://help.prusa3d.com/article/modeling-with-3d-printing-in-mind_164135',
-  'FDM-12': 'Hubs, How to design parts for FDM — https://www.hubs.com/knowledge-base/how-design-parts-fdm-3d-printing/',
-  'FDM-14': 'Stratasys Direct, FDM Design Guide — https://www.stratasys.com/siteassets/sdm/content---website-storage/design-guides/dg_sdm_fdm_0725a.pdf',
-  'FDM-27': 'CNC Kitchen, Heat-set insert tips — https://www.cnckitchen.com/blog/tipps-amp-tricks-fr-gewindeeinstze-im-3d-druck-3awey',
-  'FDM-41': 'Hubs, How to design parts for FDM — https://www.hubs.com/knowledge-base/how-design-parts-fdm-3d-printing/',
-  'FDM-47': 'Prusa, Modeling with 3D printing in mind — https://help.prusa3d.com/article/modeling-with-3d-printing-in-mind_164135',
-  'FDM-53': 'Bayer/Covestro, Snap-Fit Joints for Plastics — https://fab.cba.mit.edu/classes/S62.12/people/vernelle.noel/Plastic_Snap_fit_design.pdf',
-  'FDM-55': 'Hubs, Snap-fit joints for 3D printing — https://hubs.com/knowledge-base/how-design-snap-fit-joints-3d-printing',
-  'FDM-58': 'UltiMaker, How to design for FFF — https://ultimaker.com/wp-content/uploads/2024/06/How-to-design-for-FFF-1.pdf',
-  'IM-07': 'DuPont General Design Principles (Module I) / Ticona TDM-1 §8.10 — https://academic.sun.ac.za/mad/catalogs/dfmguidelines/dupontgeneraldesignprinciples.pdf',
-  'IM-08': 'Ticona/Celanese TDM-1 §8.10 — https://res.cloudinary.com/engineering-com/image/upload/v1639229518/tips/Designing_With_Plastics_-_Ticona_Brochure_vghwzt.pdf',
-  'IM-10': 'Protolabs, Draft angle guidelines — https://protolabs.com/resources/design-tips/improving-part-moldability-with-draft/',
-  'IM-11': 'Protolabs, Draft angle guidelines (derinlik × et tablosu) — https://protolabs.com/resources/design-tips/improving-part-moldability-with-draft/',
-  'IM-12': 'Protolabs, Designing for Mouldability Vol. 1 — https://www.protolabs.com/media/949709/dfm1-english.pdf',
-  'IM-16': 'Ticona/Celanese TDM-1 §8.6 (paralel draft) — https://res.cloudinary.com/engineering-com/image/upload/v1639229518/tips/Designing_With_Plastics_-_Ticona_Brochure_vghwzt.pdf',
-  'IM-21': 'Ticona/Celanese TDM-1 §8.7.1 — https://res.cloudinary.com/engineering-com/image/upload/v1639229518/tips/Designing_With_Plastics_-_Ticona_Brochure_vghwzt.pdf',
-  'IM-24': 'Bonenberger, The First Snap-Fit Handbook §4.5 — https://s3.amazonaws.com/gc-p/files/128686/The%20First%20Snap-Fit%20Handbook%202E_Bonenberger.pdf',
-  'IM-28': 'Avient, ESCR Design Guide (Bosses) — https://avient.com/sites/default/files/2022-08/Environmental Stress Cracking Resistance _ESCR_ Design Guide %281%29.pdf',
-  'IM-30': 'Böllhoff/EJOT DELTA PT, self-tapping fasteners — https://media.boellhoff.com/files/pdf13/8705-self-tapping-fasteners-en.pdf',
-  'IM-38': 'Fictiv, Enclosure design for injection molding — https://www.fictiv.com/articles/enclosure-design-for-injection-molding',
-  'IM-39': 'DuPont General Design Principles, Fig. 10.56 — https://academic.sun.ac.za/mad/catalogs/dfmguidelines/dupontgeneraldesignprinciples.pdf',
-  'CNC-03': 'Xometry, Optimizing internal corner radii — https://www.xometry.com/resources/machining/cnc-machining-optimizing-internal-corner-radii/',
-  'CNC-09': 'Hubs, How to design parts for CNC machining — https://www.hubs.com/knowledge-base/how-design-parts-cnc-machining/',
-  'CNC-26': 'NASA JSC-67701 §9.6a — https://standards.nasa.gov/system/files/tmp/JSC-67701_JSC_Fabrication_Tolerances_and_Practices_Basic_DCN001_Final.pdf',
-  'CNC-32': 'NASA JSC-67701 §7.1 — https://standards.nasa.gov/system/files/tmp/JSC-67701_JSC_Fabrication_Tolerances_and_Practices_Basic_DCN001_Final.pdf',
-  'CNC-33': 'Protolabs, Fillets vs. chamfers — https://www.protolabs.com/resources/blog/fillets-and-chamfers/',
-  'CNC-34': 'ISO 13715:2017 (önizleme) — https://qualityforum.zeiss.com/migration/images/1125_cad718ab03258942de4de01b28242c05.pdf',
-  'CNC-35': 'Xometry, Chamfers and fillets cost — https://www.xometry.com/blog/the-machining-costs-you-should-consider-when-designing-with-chamfers-and-fillets',
-  'ENC-SEAL-02': 'Parker O-Ring Handbook ORD 5700, Chart 4-3 — https://nfc.arizona.edu/sites/default/files/2022-02/parker_o-ring_handbook.pdf',
+/**
+ * Katalog kuralı → dayandığı kaynaklar (kenar işlemleri). Katalog (dfm/catalog.js) bu kuralları kaydeder;
+ * buradaki liste politika ile kaynağın eşleşmesini belgeler. Araştırma kimlikleri yalnızca açıklamadadır.
+ */
+const SRC = {
+  ultimaker: { title: 'How to design for FFF 3D printing, UltiMaker', url: 'https://ultimaker.com/wp-content/uploads/2024/06/How-to-design-for-FFF-1.pdf' },
+  hubsFdm: { title: 'How to design parts for FDM 3D printing, Hubs (Protolabs Network)', url: 'https://www.hubs.com/knowledge-base/how-design-parts-fdm-3d-printing/' },
+  prusaFoot: { title: 'Elephant foot compensation, Prusa Research', url: 'https://help.prusa3d.com/article/elephant-foot-compensation_114487' },
+  prusaModel: { title: 'Modeling with 3D printing in mind, Prusa Research', url: 'https://help.prusa3d.com/article/modeling-with-3d-printing-in-mind_164135' },
+  hubsKey: { title: 'Key design considerations for 3D printing, Hubs (Protolabs Network)', url: 'https://www.hubs.com/knowledge-base/key-design-considerations-3d-printing/' },
+  cncKitchen: { title: 'Tips & Tricks for Heat-Set Inserts used in 3D printing, CNC Kitchen', url: 'https://www.cnckitchen.com/blog/tipps-amp-tricks-fr-gewindeeinstze-im-3d-druck-3awey' },
+  bayerSnap: { title: 'Snap-Fit Joints for Plastics - A Design Guide, Bayer MaterialScience (Covestro)', url: 'https://fab.cba.mit.edu/classes/S62.12/people/vernelle.noel/Plastic_Snap_fit_design.pdf' },
+  hubsSnap: { title: 'How to design snap-fit joints for 3D printing, Hubs (Protolabs Network)', url: 'https://hubs.com/knowledge-base/how-design-snap-fit-joints-3d-printing' },
+  dupont: { title: 'General Design Principles for DuPont Engineering Polymers, Module I, DuPont', url: 'https://academic.sun.ac.za/mad/catalogs/dfmguidelines/dupontgeneraldesignprinciples.pdf' },
+  ticona: { title: 'Designing With Plastic: The Fundamentals (TDM-1), Ticona/Celanese', url: 'https://res.cloudinary.com/engineering-com/image/upload/v1639229518/tips/Designing_With_Plastics_-_Ticona_Brochure_vghwzt.pdf' },
+  protolabsDraft: { title: 'Draft Angle Guidelines for Injection Molding, Protolabs', url: 'https://protolabs.com/resources/design-tips/improving-part-moldability-with-draft/' },
+  protolabsDfm1: { title: 'Designing for Mouldability, Volume 1, Protolabs', url: 'https://www.protolabs.com/media/949709/dfm1-english.pdf' },
+  bonenberger: { title: 'The First Snap-Fit Handbook, 2nd ed., Bonenberger (Hanser)', url: 'https://s3.amazonaws.com/gc-p/files/128686/The%20First%20Snap-Fit%20Handbook%202E_Bonenberger.pdf' },
+  avient: { title: 'ESCR Design Guide (Bosses), Avient', url: 'https://avient.com/sites/default/files/2022-08/Environmental%20Stress%20Cracking%20Resistance%20_ESCR_%20Design%20Guide%20%281%29.pdf' },
+  boellhoff: { title: 'Self-tapping fasteners (EJOT DELTA PT), Böllhoff', url: 'https://media.boellhoff.com/files/pdf13/8705-self-tapping-fasteners-en.pdf' },
+  fictiv: { title: 'Enclosure design for injection molding, Fictiv', url: 'https://www.fictiv.com/articles/enclosure-design-for-injection-molding' },
+  xometryCorner: { title: 'CNC Machining: Optimizing Internal Corner Radii, Xometry', url: 'https://www.xometry.com/resources/machining/cnc-machining-optimizing-internal-corner-radii/' },
+  hubsCnc: { title: 'How to design parts for CNC machining, Hubs (Protolabs Network)', url: 'https://www.hubs.com/knowledge-base/how-design-parts-cnc-machining/' },
+  nasa: { title: 'JSC-67701 JSC Fabrication Tolerances and Practices, NASA', url: 'https://standards.nasa.gov/system/files/tmp/JSC-67701_JSC_Fabrication_Tolerances_and_Practices_Basic_DCN001_Final.pdf' },
+  protolabsEdge: { title: 'Fillets vs. chamfers, Protolabs', url: 'https://www.protolabs.com/resources/blog/fillets-and-chamfers/' },
+  iso13715: { title: 'ISO 13715:2017 Technical product documentation - Edges of undefined shape', url: 'https://qualityforum.zeiss.com/migration/images/1125_cad718ab03258942de4de01b28242c05.pdf' },
+  xometryEdge: { title: 'The machining costs you should consider when designing with chamfers and fillets, Xometry', url: 'https://www.xometry.com/blog/the-machining-costs-you-should-consider-when-designing-with-chamfers-and-fillets' },
+  parker: { title: 'Parker O-Ring Handbook ORD 5700', url: 'https://nfc.arizona.edu/sites/default/files/2022-02/parker_o-ring_handbook.pdf' },
+};
+export const TREAT_RULE_SOURCES = {
+  'GEO-EDGE-BED': [SRC.ultimaker, SRC.hubsFdm, SRC.prusaFoot], // FDM-08/09/10/58
+  'GEO-EDGE-BREAK': [SRC.nasa, SRC.protolabsEdge, SRC.iso13715, SRC.xometryEdge], // CNC-32/33/34/35
+  'GEO-FILLET-INNER': [SRC.dupont, SRC.hubsKey, SRC.bonenberger, SRC.xometryCorner, SRC.bayerSnap, SRC.hubsSnap], // IM-07, FDM-56, IM-24, CNC-03, FDM-53/55
+  'GEO-FILLET-OUTER': [SRC.ticona, SRC.fictiv], // IM-08, IM-38
+  'GEO-LEADIN': [SRC.prusaModel, SRC.dupont], // FDM-47, IM-39
+  'GEO-HOLE-ENTRY': [SRC.nasa, SRC.boellhoff, SRC.avient, SRC.cncKitchen], // CNC-26, IM-30, IM-28, FDM-27
+  'GEO-BOSS': [SRC.avient, SRC.ticona, SRC.hubsFdm], // IM-28, IM-21, FDM-41
+  'GEO-DOGBONE': [SRC.xometryCorner, SRC.hubsCnc], // CNC-03, CNC-09
+  'GEO-GROOVE': [SRC.parker], // ENC-SEAL-02
+  'GEO-CORNER-CONCAVE': [SRC.dupont, SRC.xometryCorner, SRC.hubsFdm], // IM-07, CNC-03, FDM-12
+  'INJ-DRAFT': [SRC.protolabsDraft, SRC.protolabsDfm1, SRC.ticona, SRC.bonenberger, SRC.fictiv], // IM-10/11/12/16, IM-24, IM-38
+  'INJ-SIDE-ACTION': [SRC.protolabsDfm1], // IM-36
 };
 
 /* ---------- Süreçten bağımsız sabitler ---------- */
@@ -55,10 +65,12 @@ export const TREAT_SOURCES = {
 const FDM_BED_CHAMFER = 0.5;
 // FDM-47: birbirine geçen kenarlara giriş pahı (ağız iç kenarı, kapak dili ucu). Kaynakta ölçü yok: 0,3 mm ≈ 0,75 × nozul.
 const FDM_LEAD_IN = 0.3;
-// FDM-14 (Stratasys, düzeltilmiş): iç birleşimlerde radyüs gerilme yığılmasını azaltır; FDM-56: düz tabanlarda keskin iç köşe yerine radyüs.
-// Taban–duvar iç köşesi yukarı bakan oluk olduğu için desteksiz basılır. 0,5–1 mm aralığı, üst sınır cep köşe radyüsü − 0,05.
+// FDM-56 (Hubs): düz tabanlarda keskin iç köşe yerine radyüs (kaynak ölçü vermez); FDM-14 (Stratasys) yalnız
+// R_dış = R_iç + t ilişkisini verir. Taban–duvar iç köşesi yukarı bakan oluk olduğu için desteksiz basılır.
+// 0,5–1 mm aralığı TASARIM TERCİHİDİR; üst sınır cep köşe radyüsü − 0,05.
+const FDM_FLOOR_FILLET_MIN = 0.5;
 const FDM_FLOOR_FILLET_MAX = 1.0;
-// FDM-41/FDM-14: ince direk/boss köklerine radyüs. Ölçü kaynakta yok: 0,5 mm.
+// FDM-41: ince direk/boss köklerine radyüs. Ölçü kaynakta yok: 0,5 mm tasarım tercihi.
 const FDM_ROOT_FILLET = 0.5;
 // FDM-12: dikey iç köşeler nozul çapı kadar yuvarlak basılır; en az nozul çapı ya da 0,5 mm.
 const FDM_CONCAVE_MIN = 0.5;
@@ -70,7 +82,8 @@ const SNAP_ROOT_MIN = 0.38;
 const CNC_EDGE_BREAK = 0.3;
 // CNC-03 (Xometry/Ensinger): iç dikey köşe ≈ 1,3 × takım yarıçapı (takım yarıçapına eşit köşe titreşim yapar).
 const CNC_CORNER_FACTOR = 1.3;
-// CNC-26 (NASA JSC-67701 §9.6a): kılavuz çekilecek her delik 80–120° havşalanır; 90° havşa Ø = diş dış çapı + 0,2.
+// CNC-26 (NASA JSC-67701 §9.6a): kılavuz çekilecek her delik 80–120° havşalanır (kaynak çap vermez).
+// Modelde 90°; üst çap = diş dış çapı + 0,2 mm TASARIM TERCİHİDİR.
 const TAP_CSK_OVER_MAJOR = 0.2;
 
 // IM-07 (DuPont/Ticona): iç köşe r_i = 0,5·t, gerilme taşıyan yerde ≥ 0,5 mm, hiçbir yerde < 0,13 mm.
@@ -83,10 +96,14 @@ const IM_BOSS_TIP = 0.3;
 // IM-24/IM-39 (Bonenberger; DuPont): kapak dili de çıkıntı gibi: kök radyüsü 0,25–0,5·T, çıkma açısı ≥ 2°, giriş pahı.
 const IM_LIP_DRAFT = 2;
 const IM_LIP_ROOT_FACTOR = 0.25;
-// IM-30 (Böllhoff/EJOT DELTA PT): sac vidası ön deliği girişinde Ø1,05·d boşaltma; IM-28 45° giriş pahı ile birlikte havşa olarak modellenir.
+// IM-30 (Böllhoff/EJOT DELTA PT): diş açan vida ön deliği girişinde Ø1,05·d boşaltma (kaynakta düz havşa/oyuk, derinlik yok).
+// Modelde 90° havşa, üst çap 1,05·d: havşa biçimi TASARIM TERCİHİ (IM-28 45° giriş pahıyla birleştirilir).
 const SELF_TAP_RELIEF = 1.05;
-// IM-38: kozmetik kenar ayırma çizgisinden uzakta tutulur; kapak üst dış kenarı radyüslü (ölçü tasarım seçimi ≤ 1 mm).
+// IM-38: kozmetik kenar ayırma çizgisinden uzakta tutulur; kapak üst dış kenarı radyüslü (≤ 1 mm tasarım tercihi).
 const IM_LID_TOP_FILLET_MAX = 1.0;
+// Kulak kökü dış duvara bu kadar gömülür (cad-worker kulak geometrisi); alt dış kenar işlemi bunu aşamaz.
+export const EAR_EMBED = 0.8;
+const DEG = Math.PI / 180;
 // Rakam yuvarlama: gereksiz küsurlar raporu kirletmesin
 const r2 = (v) => Math.round(v * 100) / 100;
 
@@ -133,10 +150,64 @@ export function majorDiameter(size) {
 
 /** Cep/boss köşe yuvarlatma için: cep köşe radyüsünü geçmeyen (torus bozulmasın) radyüs */
 const capBelow = (v, limit) => Math.max(0, Math.min(v, limit - 0.05));
+const numTr = (v) => String(r2(v)).replace('.', ',');
+
+/**
+ * Dikey iç köşelerde (köşe boss'u–duvar, kart desteği–duvar, kulak–duvar) istenen en küçük plan radyüsü:
+ * FDM nozul çapı / 0,5 mm (FDM-12), enjeksiyon r_i = 0,5·t ≥ 0,5 mm (IM-07), CNC 1,3 × takım yarıçapı (CNC-03).
+ * design.js (kapak dili ucu konumu) ve cad-worker aynı değeri kullansın diye dışa açıktır.
+ */
+export function concaveMinR(rules, wall) {
+  const pp = rules?.process_params || {};
+  if (rules?.process === 'fdm') return Math.max(FDM_CONCAVE_MIN, pp.nozzle_diameter || 0.4);
+  if (rules?.process === 'injection') return Math.max(IM_INNER_R_FACTOR * wall, IM_INNER_R_MIN);
+  if (rules?.process === 'cnc') return r2(CNC_CORNER_FACTOR * (pp.tool_diameter || 3) / 2);
+  return 0;
+}
+
+/**
+ * Dönel boss / boru kök geometrisi (cad-worker bossSolid profili ve kök izi hesabı için tek kaynak).
+ * Kök radyüsü taban düzlemine teğet olmadan 10° önce biter (boolean enine kesişsin). Yerel (r, dz) koordinatları.
+ * Dönüş: { ta, rRoot, rf, T1, E, M } — E[0] kökün düzlemdeki izinin yarıçapıdır (rf yoksa rRoot).
+ */
+export function bossRoot({ h, rTip, draftDeg = 0, rootR = 0 }) {
+  const ta = Math.tan((draftDeg || 0) * DEG);
+  const al = Math.atan(ta);
+  const rRoot = rTip + h * ta;
+  const rf = Math.min(rootR, 0.45 * h);
+  if (!(rf > 0.02)) return { ta, rRoot, rf: 0, T1: null, E: [rRoot, 0], M: null };
+  const sa = Math.sin(al);
+  const ca = Math.cos(al);
+  const t = (rf * (1 - sa)) / ca;
+  const T1 = [rRoot - t * sa, t * ca];
+  const F = [T1[0] + rf * ca, T1[1] + rf * sa];
+  const d = 10 * DEG;
+  const E = [F[0] - rf * Math.sin(d), F[1] - rf * Math.cos(d)];
+  const am = (Math.PI + al + 1.5 * Math.PI - d) / 2;
+  const M = [F[0] + rf * Math.cos(am), F[1] + rf * Math.sin(am)];
+  return { ta, rRoot, rf, T1, E, M };
+}
+
+/**
+ * Gövde alt dış kenarı işlemi (FDM tabla pahı / CNC çapak kırma / enjeksiyon r_o): istenen ve uygulanabilir ölçü.
+ * Taban kalınlığı (pah ≤ 0,45·taban; radyüs ≤ 1,45·taban) ve kulak kökü gömmesi (EAR_EMBED − 0,1) sınırlar.
+ * Dönüş: { kind, key, feature, rule, want, size, note } ya da null
+ */
+export function bottomEdge(P, floor, hasEars) {
+  const b = P.bedChamfer > 0 ? { kind: 'chamfer', want: P.bedChamfer, key: 'bed', feature: 'dış alt kenar (tabla pahı)', rule: 'GEO-EDGE-BED' }
+    : P.outerEdgeBreak > 0 ? { kind: 'chamfer', want: P.outerEdgeBreak, key: 'outer.bottom', feature: 'dış alt kenar (çapak kırma)', rule: 'GEO-EDGE-BREAK' }
+      : P.outerBottomFillet > 0 ? { kind: 'fillet', want: P.outerBottomFillet, key: 'outer.bottom', feature: 'dış alt kenar radyüsü (r_o = r_i + t)', rule: 'GEO-FILLET-OUTER' } : null;
+  if (!b) return null;
+  let size = b.want;
+  let note = '';
+  if (hasEars && size > EAR_EMBED - 0.1) { size = EAR_EMBED - 0.1; note = `kulak kökü duvara ${numTr(EAR_EMBED)} mm gömülü olduğundan ${numTr(size)} mm ile sınırlandı`; }
+  const cap = 0.45 * floor + (b.kind === 'fillet' ? floor : 0);
+  if (size > cap) { size = cap; note = `taban kalınlığı ${numTr(floor)} mm olduğundan ${numTr(size)} mm ile sınırlandı`; }
+  return { ...b, size: Math.floor(size * 1000 + 1e-9) / 1000, note }; // aşağı yuvarlanır: sınır aşılmasın
+}
 
 function partPolicy(process, rules, ctx) {
   const { wall, floor, rIn, rOut, lidT, depth } = ctx;
-  const nozzle = rules.process_params?.nozzle_diameter || 0.4;
   const tool = rules.process_params?.tool_diameter || 3;
   const P = {
     process,
@@ -163,15 +234,17 @@ function partPolicy(process, rules, ctx) {
     grooveBottomR: 0,
     grooveEdgeBreak: 0,
     latchRootR: 0,
-    // Geometri yüzünden kaynak değerine ulaşılamayan işlemler: { key, feature, kind, want, got, note } (işlem raporuna yazılır)
+    // Geometri yüzünden istenen değere ulaşılamayan işlemler: { key, feature, kind, want, got, rule, note }.
+    // cad-worker aynı anahtarlı işlem satırını istenen (want) ve uygulanan ölçüyle "sınırlı" olarak yazar.
     limited: [],
+    // Politika alanı → katalog kuralı (dfm/catalog.js, işlem raporundaki rule alanıyla aynı)
     src: {},
   };
   // %10'a kadar eksik (köşe torusu için bırakılan 0,05 mm pay) sınırlama sayılmaz
-  const limitFloor = (want, got, rule) => {
+  const limitFloor = (want, got, what) => {
     if (got < 0.9 * want - 1e-6) {
-      P.limited.push({ key: 'floor', feature: 'taban–duvar iç köşesi', kind: 'fillet', want: r2(want), got: r2(got),
-        note: `cep köşe radyüsü R${String(r2(rIn)).replace('.', ',')} olduğundan ${got > 0 ? `R${String(r2(got)).replace('.', ',')} ile sınırlandı` : 'uygulanamadı'}; ${rule} için köşe radyüsü en az R${String(r2(want + 0.05)).replace('.', ',')} olmalı` });
+      P.limited.push({ key: 'floor', feature: 'taban–duvar iç köşesi', kind: 'fillet', want: r2(want), got: r2(got), rule: 'GEO-FILLET-INNER',
+        note: `cep köşe radyüsü R${numTr(rIn)} olduğundan ${got > 0 ? `R${numTr(got)} ile sınırlandı` : 'uygulanamadı'}; ${what} için cep köşe radyüsü en az R${numTr(want + 0.05)} olmalı` });
     }
   };
   if (process === 'fdm') {
@@ -181,15 +254,15 @@ function partPolicy(process, rules, ctx) {
     P.lipRootFillet = FDM_ROOT_FILLET;
     const ff = capBelow(FDM_FLOOR_FILLET_MAX, rIn);
     P.floorFillet = ff >= 0.2 ? r2(ff) : 0;
-    limitFloor(0.5, P.floorFillet, 'FDM-14 (0,5–1 mm)');
+    limitFloor(FDM_FLOOR_FILLET_MIN, P.floorFillet, `taban–duvar iç köşesi radyüsü (tasarım tercihi ${numTr(FDM_FLOOR_FILLET_MIN)}–${numTr(FDM_FLOOR_FILLET_MAX)} mm)`);
     P.bossRootFillet = FDM_ROOT_FILLET;
     P.tubeRootFillet = FDM_ROOT_FILLET;
     // FDM-27: ısıl insert deliği düz, girişte pah yok. Kılavuz: CNC-26 (diş açılacak her delik havşalanır).
     P.holeEntry = { insert: 0, tapped: TAP_CSK_OVER_MAJOR, selfTap: 0, clearance: 0 };
-    P.concaveMinR = Math.max(FDM_CONCAVE_MIN, nozzle);
+    P.concaveMinR = concaveMinR(rules, wall);
     P.src = {
-      bedChamfer: ['FDM-08', 'FDM-09', 'FDM-10', 'FDM-58'], rimLeadIn: ['FDM-47'], lipTipChamfer: ['FDM-47'], floorFillet: ['FDM-14'],
-      bossRootFillet: ['FDM-41', 'FDM-14'], holeEntry: ['FDM-27', 'CNC-26'], concaveMinR: ['FDM-12'], latchRootR: ['FDM-53', 'FDM-55'],
+      bedChamfer: 'GEO-EDGE-BED', rimLeadIn: 'GEO-LEADIN', lipTipChamfer: 'GEO-LEADIN', floorFillet: 'GEO-FILLET-INNER', lipRootFillet: 'GEO-FILLET-INNER',
+      bossRootFillet: 'GEO-BOSS', tubeRootFillet: 'GEO-BOSS', holeEntry: 'GEO-HOLE-ENTRY', concaveMinR: 'GEO-CORNER-CONCAVE', latchRootR: 'GEO-FILLET-INNER',
     };
   } else if (process === 'injection') {
     P.pull = [0, 0, 1];
@@ -198,7 +271,7 @@ function partPolicy(process, rules, ctx) {
     const riWant = Math.max(IM_INNER_R_FACTOR * wall, IM_INNER_R_MIN);
     const ri = capBelow(riWant, rIn);
     P.floorFillet = ri >= 0.13 ? r2(ri) : 0;
-    limitFloor(riWant, P.floorFillet, 'IM-07 (r_i = 0,5·t, ≥ 0,5 mm)');
+    limitFloor(riWant, P.floorFillet, 'iç köşe radyüsü r_i = 0,5·t (en az 0,5 mm)');
     // IM-08: dış radyüs = iç radyüs + et (aynı merkezden; et köşede de üniform)
     P.outerBottomFillet = r2(capBelow(P.floorFillet + floor, rOut));
     P.rimLeadIn = Math.min(0.3, wall / 4); // ağız iç kenarı maça tarafında kalır; giriş pahı kalıplanabilir (IM-39)
@@ -211,12 +284,12 @@ function partPolicy(process, rules, ctx) {
     P.tubeRootFillet = r2(Math.max(IM_BOSS_ROOT_FACTOR * lidT, 0.13));
     P.outerTopFillet = r2(Math.max(0, Math.min(IM_LID_TOP_FILLET_MAX, lidT - 0.5)));
     P.holeEntry = { insert: 0, tapped: TAP_CSK_OVER_MAJOR, selfTap: SELF_TAP_RELIEF, clearance: 0 };
-    P.concaveMinR = Math.max(IM_INNER_R_FACTOR * wall, IM_INNER_R_MIN);
+    P.concaveMinR = concaveMinR(rules, wall);
     P.src = {
-      draftDeg: ['IM-10', 'IM-11', 'IM-12', 'IM-16'], floorFillet: ['IM-07'], outerBottomFillet: ['IM-08'], rimOuterBreak: ['IM-38'],
-      rimLeadIn: ['IM-39'], lipTipChamfer: ['IM-39'], lipRootFillet: ['IM-24'], lipDraftDeg: ['IM-24', 'IM-39'],
-      bossRootFillet: ['IM-28', 'IM-21'], bossTipChamfer: ['IM-28'], bossDraftDeg: ['IM-28'], outerTopFillet: ['IM-38'],
-      holeEntry: ['IM-28', 'IM-30', 'CNC-26'], concaveMinR: ['IM-07'], latchRootR: ['FDM-53'],
+      draftDeg: 'INJ-DRAFT', floorFillet: 'GEO-FILLET-INNER', outerBottomFillet: 'GEO-FILLET-OUTER', rimOuterBreak: 'INJ-DRAFT',
+      rimLeadIn: 'GEO-LEADIN', lipTipChamfer: 'GEO-LEADIN', lipRootFillet: 'GEO-FILLET-INNER', lipDraftDeg: 'INJ-DRAFT',
+      bossRootFillet: 'GEO-BOSS', bossTipChamfer: 'GEO-BOSS', bossDraftDeg: 'GEO-BOSS', tubeRootFillet: 'GEO-BOSS', outerTopFillet: 'GEO-FILLET-OUTER',
+      holeEntry: 'GEO-HOLE-ENTRY', concaveMinR: 'GEO-CORNER-CONCAVE', latchRootR: 'GEO-FILLET-INNER',
     };
   } else if (process === 'cnc') {
     P.outerEdgeBreak = CNC_EDGE_BREAK;
@@ -226,12 +299,13 @@ function partPolicy(process, rules, ctx) {
     P.bossTipChamfer = CNC_EDGE_BREAK;
     P.floorFillet = 0; // CNC-09: düz parmak freze; taban radyüsü gerekmedikçe kullanılmaz
     P.holeEntry = { insert: CNC_EDGE_BREAK, tapped: TAP_CSK_OVER_MAJOR, selfTap: SELF_TAP_RELIEF, clearance: CNC_EDGE_BREAK };
-    P.concaveMinR = r2(CNC_CORNER_FACTOR * tool / 2);
+    P.concaveMinR = concaveMinR(rules, wall);
+    P.toolD = tool;
     P.nutDogbone = r2(tool / 2);
     P.cutoutBreak = CNC_EDGE_BREAK;
     P.src = {
-      outerEdgeBreak: ['CNC-32', 'CNC-33', 'CNC-34', 'CNC-35'], rimLeadIn: ['CNC-32'], floorFillet: ['CNC-09'],
-      holeEntry: ['CNC-26', 'CNC-32'], concaveMinR: ['CNC-03'], latchRootR: ['FDM-53'],
+      outerEdgeBreak: 'GEO-EDGE-BREAK', rimOuterBreak: 'GEO-EDGE-BREAK', rimLeadIn: 'GEO-LEADIN', lipTipChamfer: 'GEO-LEADIN', bossTipChamfer: 'GEO-BOSS',
+      cutoutBreak: 'GEO-EDGE-BREAK', holeEntry: 'GEO-HOLE-ENTRY', concaveMinR: 'GEO-CORNER-CONCAVE', nutDogbone: 'GEO-DOGBONE', latchRootR: 'GEO-FILLET-INNER',
     };
   }
   return P;
@@ -259,7 +333,8 @@ function holeEntryFor(method, d, holeD, he, hasCountersink) {
 
 /**
  * design: computeDesign() çıktısı (ok olmalı), rules: gövde kuralları, lidRules: kapak kuralları (yoksa gövde).
- * Dönüş: { version, base, lid, clip, rim, holes } — her parça için PartTreat (yukarıdaki alanlar; 0 = yok).
+ * Dönüş: { version: 2, base, lid, clip, rim, pocketGrow, lipFit, holes, growth, rules } — her parça için PartTreat
+ * (yukarıdaki alanlar; 0 = yok). growth: işlemlerin anma ölçüsüne göre büyüttüğü izler (tasarım çakışma denetimi için).
  */
 export function treatmentFor(design, rules, lidRules = rules) {
   const g = design?.geometry;
@@ -293,7 +368,8 @@ export function treatmentFor(design, rules, lidRules = rules) {
     const cord = design.sealing?.cord_d;
     base.grooveBottomR = Math.min(grooveRadius(cord), g.groove.width / 2 - 0.05, g.groove.depth / 2);
     base.grooveEdgeBreak = base.process === 'fdm' ? 0 : 0.13;
-    base.src.groove = ['ENC-SEAL-02'];
+    base.src.grooveBottomR = 'GEO-GROOVE';
+    base.src.grooveEdgeBreak = 'GEO-GROOVE';
   }
 
   // Ağız seviyesinde gövde dış hattı: kapak dış hattı buna eşit olmalı (enjeksiyonda dış duvar yukarı doğru büyür)
@@ -335,6 +411,27 @@ export function treatmentFor(design, rules, lidRules = rules) {
     clip: g.din && clip ? { method: g.din.method, d: 3, entry: holeEntryFor(g.din.method, 3, g.din.holeD, clip.holeEntry, false) } : null,
   };
 
+  // İşlemlerin anma geometrisine göre büyüttüğü izler (tasarım çakışma denetimi için; mm, yarıçap/kenar başına):
+  //   standoffRoot / tubeRoot: kök izi yarıçapı − anma yarıçapı (çıkma açısı h·tanα + kök radyüsünün düzlemdeki izi), en büyüğü;
+  //   perStandoff / perTube: aynı değer delik sırasıyla; bottomFillet: alt dış kenar işleminin taban düzlemindeki içe girişi.
+  const gs = g.standoffs || [];
+  const perStandoff = (design.standoffs || []).map((s, i) => {
+    const q = gs[i] || s;
+    if (q.integral === false || !(q.od > 0) || !(q.z1 > q.z0)) return 0;
+    if (!(base.bossRootFillet > 0 || base.bossDraftDeg > 0)) return 0;
+    return r2(bossRoot({ h: q.z1 - q.z0, rTip: q.od / 2, draftDeg: base.bossDraftDeg, rootR: base.bossRootFillet }).E[0] - q.od / 2);
+  });
+  const perTube = (g.lidTubes || []).map((t) => (lid.tubeRootFillet > 0 || lid.bossDraftDeg > 0) && t.od > 0
+    ? r2(bossRoot({ h: Math.abs(t.z1 - t.z0), rTip: t.od / 2, draftDeg: lid.bossDraftDeg, rootR: lid.tubeRootFillet }).E[0] - t.od / 2) : 0);
+  const be = bottomEdge(base, floor, (g.ears || []).length > 0);
+  const growth = {
+    standoffRoot: Math.max(0, ...perStandoff),
+    tubeRoot: Math.max(0, ...perTube),
+    bottomFillet: be ? be.size : 0,
+    perStandoff,
+    perTube,
+  };
+
   // lipFit: kapak dili–cep boşluğu (dil kök radyüsü gövde ağzına çarpmasın diye sınırlanır)
-  return { version: 1, base, lid, clip, rim, pocketGrow, lipFit: p.fit ?? 0.2, holes, rules: { base: rules.id, lid: lr.id } };
+  return { version: 2, base, lid, clip, rim, pocketGrow, lipFit: p.fit ?? 0.2, holes, growth, rules: { base: rules.id, lid: lr.id } };
 }
