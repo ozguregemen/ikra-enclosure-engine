@@ -1,7 +1,8 @@
 /*
- * Teknik resim (M4).
+ * Teknik resim.
  * CAD işçisinin gizli çizgi kaldırmalı (HLR) izdüşümlerinden A4 yatay SVG paftaları üretir
- * (gövde + kapak) ve isteğe bağlı olarak PDF'e çevirir (jsPDF + svg2pdf.js, Türkçe için DejaVu Sans).
+ * (gövde + kapak + montaj; ctx.review verilirse DFM İnceleme Raporu paftaları) ve isteğe bağlı olarak
+ * PDF'e çevirir (jsPDF + svg2pdf.js, Türkçe için DejaVu Sans).
  * Koordinatlar gövdenin dış köşesine (0, 0, 0) göredir; tüm ölçüler mm.
  */
 
@@ -221,7 +222,7 @@ function fitNotes(out, x, y, width, title, items, yMax = 168) {
   return notes(out, x, y, width, title, items, size);
 }
 
-function titleBlock(out, info, part, sheetNo, sheetCount, scale) {
+function titleBlock(out, info, part, sheetNo, sheetCount, scale, caption = null) {
   const x = 167, y = 172, w = 120, h = 28;
   out.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#fff" stroke="#000" stroke-width="${STROKE_VISIBLE}"/>`);
   out.push(line(x, y + 8, x + w, y + 8), line(x, y + 15, x + w, y + 15), line(x, y + 22, x + w, y + 22));
@@ -232,13 +233,13 @@ function titleBlock(out, info, part, sheetNo, sheetCount, scale) {
   out.push(text(x + 72, y + 10.6, 'MALZEME', 1.8), text(x + 72, y + 14, info.material, 2.5));
   out.push(text(x + 2, y + 17.6, 'ÜRETİM YÖNTEMİ', 1.8), text(x + 2, y + 21, info.process, 2.5));
   out.push(text(x + 72, y + 17.6, 'KORUMA', 1.8), text(x + 72, y + 21, info.ip, 2.5));
-  const cells = [['ÖLÇEK', scaleText(scale)], ['BİRİM', 'mm'], ['TARİH', info.date], ['PAFTA', `${sheetNo} / ${sheetCount}`]];
+  const cells = [['ÖLÇEK', scale ? scaleText(scale) : '—'], ['BİRİM', 'mm'], ['TARİH', info.date], ['PAFTA', `${sheetNo} / ${sheetCount}`]];
   const cw = w / cells.length;
   cells.forEach(([k, v], i) => {
     if (i) out.push(line(x + cw * i, y + 22, x + cw * i, y + h));
     out.push(text(x + cw * i + 1.5, y + 24.4, k, 1.6), text(x + cw * i + 1.5, y + 27.2, v, 2.3, { bold: true }));
   });
-  out.push(text(x + w, y - 1.2, `Ikra ${info.version} · koordinatlar gövde dış köşesine (0,0,0) göre`, 1.7, { anchor: 'end' }));
+  out.push(text(x + w, y - 1.2, caption ?? `Ikra ${info.version} · koordinatlar gövde dış köşesine (0,0,0) göre`, 1.7, { anchor: 'end' }));
 }
 
 function sheetSvg(body) {
@@ -286,7 +287,9 @@ function toleranceNotes(rules, d = null) {
 
 /**
  * Kenar / çıkma açısı notları: geometry.treat (politika) ve treatReport (katı modelde gerçekten uygulanan) üzerinden.
- * Yalnızca modelde olan işlem yazılır; uygulanamayanlar ayrıca belirtilir. treat yoksa boş (eski notlar geçerli).
+ * Yalnızca modelde olan işlem yazılır (ölçüler uygulanan değerdir); uygulanamayanlar ayrıca belirtilir.
+ * treat yoksa boş (eski notlar geçerli). treatReport sözleşme A: ok/limited/applied, aynı anahtarın farklı sonuçları
+ * "<anahtar>.limited" / "<anahtar>.failed" satırlarındadır.
  */
 function edgeNotes(d, part) {
   const T = d?.geometry?.treat;
@@ -294,105 +297,156 @@ function edgeNotes(d, part) {
   if (!P) return [];
   const rep = (d.treatReport || []).filter((e) => e.part === part);
   const has = rep.length > 0;
-  // Uygulanan ölçü (rapor yoksa politika değeri)
-  const got = (key, fallback = 0) => {
-    const e = rep.find((x) => x.key === key);
-    if (!e) return has ? 0 : fallback;
-    return e.applied > 0 ? e.applied : 0;
+  const fam = (key) => rep.filter((x) => x.key === key || x.key === `${key}.limited` || x.key === `${key}.failed`);
+  // Uygulanan ölçü aralığı [en küçük, en büyük] (yalnız uygulananlar); rapor yoksa politika değeri
+  const span = (key, fallback = 0) => {
+    if (!has) return fallback > 0 ? [fallback, fallback] : null;
+    const es = fam(key).filter((e) => e.ok && e.applied > 0);
+    return es.length ? [Math.min(...es.map((e) => e.applied)), Math.max(...es.map((e) => e.applied))] : null;
   };
+  const got = (key, fallback = 0) => span(key, fallback)?.[0] || 0;
+  const rng = (s, fmt = d2) => (s[1] - s[0] > 0.005 ? `${fmt(s[0])}–${fmt(s[1])}` : fmt(s[0]));
+  const limitedOf = (key) => fam(key).find((e) => e.ok && e.limited);
   const n = [];
   const geo = d.geometry;
   const cnc = P.process === 'cnc';
   const fdm = P.process === 'fdm';
   const inj = P.process === 'injection';
+  const partName = { base: 'Gövde', lid: 'Kapak' }[part] || 'Parça';
+  // Parça işlemsiz (eski yöntemle) kurulduysa kenar notları geçersiz
+  if (rep.some((e) => e.kind === 'build' && !e.ok)) {
+    return [`${partName} kenar işlemleri ve çıkma açısı olmadan kurulmuştur (işlemli model kurulamadı); belirtilmeyen kenarlar keskindir, ayrıntı DFM incelemesinde.`];
+  }
+  const holes = T.holes || {};
+  const holeList = (holes.standoffs || []).concat(holes.corners || []);
   if (part === 'base') {
+    const intStandoffs = (geo.standoffs || []).filter((s) => s.integral !== false);
     if (inj) {
       const dr = got('draft.outer', P.draftDeg);
       const dp = got('draft.pocket', P.draftDeg);
       if (dr > 0 && dp > 0) {
         n.push(`Kalıp çıkma açısı ${d1(dr)}° modelde uygulanmıştır (çekme +Z): dış ve iç duvar paralel açılı, cep taban seviyesinde anma ölçüsünde; ayırma çizgisi ağız dış kenarında, keskin. Dış hat ağızda her yanda +${d2(T.rim.grow)} mm.`);
-      } else n.push(`Kalıp çıkma açısı ≥ ${d1(P.draftDeg)}° gerekir; modelde uygulanamadı (işlem raporu).`);
+      } else n.push(`Kalıp çıkma açısı en az ${d1(P.draftDeg)}° olmalı; modelde uygulanamadı (ayrıntı DFM incelemesinde).`);
       const ri = got('floor', P.floorFillet);
       const ro = got('outer.bottom', P.outerBottomFillet);
-      const roFull = ro >= P.outerBottomFillet - 0.06;
-      if (ri > 0 || ro > 0) n.push(`İç taban köşesi R${d2(ri)}${ro > 0 ? `, dış alt kenar R${d2(ro)} ${roFull ? '(iç radyüs + et, aynı merkez)' : `(IM-08 için R${d2(P.outerBottomFillet)} gerekir; sınırlandı)`}` : ''}.`);
-      const sr = got('standoff.root', P.bossRootFillet);
-      if ((geo.standoffs || []).some((s) => s.integral !== false) && sr > 0) n.push(`Boss'lar: dış yüz ${d1(P.bossDraftDeg)}° açılı, kök R${d2(sr)}, uçta ${d1(P.bossTipChamfer)}×45° pah.`);
-      if ((geo.ears || []).length || (geo.cutouts || []).some((c) => c.z1 <= geo.cavTop)) n.push('Kulaklar ve kapalı yan pencereler kalıpta yan maça ister; bunlarda çıkma açısı uygulanmamıştır.');
+      const roLim = limitedOf('outer.bottom');
+      if (ri > 0 || ro > 0) {
+        n.push(`İç taban köşesi R${d2(ri)}${ro > 0 ? `, dış alt kenar R${d2(ro)} ${roLim ? `(r_o = r_i + t için R${d2(roLim.size)} gerekirdi; ${roLim.note || 'sınırlandı'})` : '(iç radyüs + et, aynı merkezden)'}` : ''}.`);
+      }
+      const sr = span('standoff.root', P.bossRootFillet);
+      const stp = span('standoff.tip', P.bossTipChamfer);
+      if (intStandoffs.length && sr) n.push(`Boss'lar: dış yüz ${d1(P.bossDraftDeg)}° açılı, kök R${rng(sr)}${stp ? `, uçta ${rng(stp)}×45° pah` : ''}.`);
+      // Yalnız modelde bulunan çıkıntılar/pencereler (G8)
+      const hasEars = (geo.ears || []).length > 0;
+      const hasWin = (geo.cutouts || []).some((c) => c.z1 <= geo.cavTop);
+      if (hasEars || hasWin) {
+        const what = [hasEars ? 'montaj kulakları' : '', hasWin ? 'kapalı yan pencereler' : ''].filter(Boolean).join(' ve ');
+        n.push(`${what[0].toLocaleUpperCase('tr')}${what.slice(1)} kalıpta yan maça (ya da kademeli ayırma çizgisi) ister; bunlarda çıkma açısı uygulanmamıştır.`);
+      }
     } else if (cnc) {
-      const b = got('outer.bottom', P.outerEdgeBreak);
       const parts = [];
-      if (b > 0) parts.push('taban çevresi');
+      if (got('outer.bottom', P.outerEdgeBreak) > 0) parts.push('taban çevresi');
       if (got('rim.out', P.rimOuterBreak) > 0) parts.push('ağız dış kenarı');
       if (got('cutout.break', P.cutoutBreak) > 0) parts.push('port açıklıkları dış kenarı');
-      if (got('ear.bottom', P.outerEdgeBreak) > 0) parts.push('kulaklar');
+      if ((geo.ears || []).length && got('ear.bottom', P.outerEdgeBreak) > 0) parts.push('kulaklar');
       n.push(`Belirtilmeyen kenarlar ISO 13715 −${d1(P.outerEdgeBreak)} (çapaksız, kırma ≤ ${d1(P.outerEdgeBreak)} mm)${parts.length ? `; modelde ${d1(P.outerEdgeBreak)}×45° pah: ${parts.join(', ')}` : ''}.`);
     } else if (fdm) {
       const bc = got('bed', P.bedChamfer);
-      if (bc > 0) n.push(`Tabla kenarları ${d1(bc)}×45° pah (fil ayağı payı; tabla kenarında radyüs yok)${(geo.ears || []).length && got('ear.bottom', P.bedChamfer) > 0 ? '; kulak alt kenarları dahil' : ''}.`);
+      if (bc > 0) n.push(`Tabla kenarları ${d1(bc)}×45° pah (ilk katman taşması için, ölçü tasarım tercihi; tabla kenarında radyüs yok)${(geo.ears || []).length && got('ear.bottom', P.bedChamfer) > 0 ? '; kulak alt kenarları dahil' : ''}.`);
       const ff = got('floor', P.floorFillet);
-      if (ff > 0) n.push(`Taban–duvar iç köşesi R${d2(ff)} (yukarı bakan oluk, desteksiz).`);
+      if (ff > 0) n.push(`Taban–duvar iç köşesi R${d2(ff)} (yukarı bakan oluk, desteksiz basılır).`);
     }
     const li = got('rim.in', P.rimLeadIn);
     if (li > 0) n.push(`Ağız iç kenarında ${d1(li)}×45° giriş pahı (kapak dili için).`);
     if (cnc) {
       const pp = d.params || {};
+      const tool = P.toolD || 3;
       const radii = [`cep köşeleri R${d1(pp.rIn ?? geo.cavity.r)}`];
       const cr = got('corner.concave', 0);
       const pr = got('pad.concave', 0);
-      if (cr > 0) radii.push(`köşe boss'u–duvar birleşimi R${d2(cr)}`);
+      const er = got('ear.concave', 0);
+      if (cr > 0) radii.push(`köşe boss'u–duvar birleşimi R${d2(cr)}${cr < tool / 2 - 1e-3 ? ` (Ø${d1(tool)} freze R${d2(tool / 2)} bırakır; kapak dili ucuyla çakışma kontrol edilmeli)` : ''}`);
       if (pr > 0) radii.push(`kart desteği–duvar birleşimi R${d2(pr)}`);
-      if (got('ear.concave', 0) > 0) radii.push(`kulak–duvar birleşimi R${d2(got('ear.concave', 0))}`);
+      if (er > 0) radii.push(`kulak–duvar birleşimi R${d2(er)}`);
       if ((geo.cutouts || []).length) radii.push(`port köşeleri R${d1(Math.max(...geo.cutouts.map((c) => c.r)))}`);
       n.push(`İç dikey köşeler: ${radii.join(', ')}; taban–duvar iç köşesi keskin (düz parmak freze).`);
+      const nut = span('nut.dogbone', 0);
+      if (nut) {
+        const lim = limitedOf('nut.dogbone');
+        n.push(`Altıgen somun cepleri köşe boşaltmalı (R${rng(nut)})${lim ? `; Ø${d2(Math.floor(2 * nut[0] * 20) / 20)} mm veya daha küçük freze gerekir` : ''}.`);
+      }
     }
-    if (!inj && got('standoff.root', P.bossRootFillet) > 0) n.push(`Standoff kökleri R${d2(got('standoff.root', P.bossRootFillet))}${got('standoff.tip', P.bossTipChamfer) > 0 ? `, uçları ${d1(P.bossTipChamfer)}×45° pah` : ''}.`);
-    else if (cnc && got('standoff.tip', P.bossTipChamfer) > 0) n.push(`Standoff uçları ${d1(P.bossTipChamfer)}×45° pah.`);
-    const tap = (T.holes?.standoffs || []).concat(T.holes?.corners || []).filter((h) => h.entry && (h.method === 'tapped' || h.method === 'helicoil'));
-    if (tap.length && (got('entry.standoff', 1) > 0 || got('entry.corner', 1) > 0)) n.push('Kılavuz çekilecek delikler 90° havşalı (Ø = diş dış çapı + 0,2), NASA JSC-67701 §9.6a.');
-    const st = (T.holes?.standoffs || []).concat(T.holes?.corners || []).filter((h) => h.entry && h.method === 'self_tap');
-    if (st.length && (got('entry.standoff', 1) > 0 || got('entry.corner', 1) > 0)) n.push('Sac vidası ön deliklerinin girişi Ø1,05·d boşaltmalı 45° pah (EJOT DELTA PT).');
-    if (d.fasteningMethod === 'insert' && P.holeEntry.insert === 0) n.push('İnsert delikleri düz, girişte pah yok (insert üreticisi ölçüsü).');
+    if (!inj && intStandoffs.length) {
+      const sr = span('standoff.root', P.bossRootFillet);
+      const stp = span('standoff.tip', P.bossTipChamfer);
+      if (sr) n.push(`Standoff kökleri R${rng(sr)}${stp ? `, uçları ${rng(stp)}×45° pah` : ''}.`);
+      else if (stp) n.push(`Standoff uçları ${rng(stp)}×45° pah.`);
+    }
+    const entryDone = span('entry.standoff') || span('entry.corner');
+    const tap = holeList.filter((h) => h.entry && (h.method === 'tapped' || h.method === 'helicoil'));
+    if (tap.length && entryDone) n.push('Kılavuz çekilecek delik girişleri havşalı: NASA JSC-67701 §9.6a 80–120° ister; modelde 90°, üst çap = diş dış çapı + 0,2 mm (tasarım tercihi).');
+    const selfTap = holeList.filter((h) => h.entry && h.method === 'self_tap');
+    if (selfTap.length && entryDone) n.push('Diş açan vida ön deliklerinin girişinde 90° havşa, üst çap Ø1,05·d (EJOT DELTA PT boşaltma çapı; havşa biçimi tasarım tercihi).');
+    if (holeList.some((h) => h.entry && h.method === 'clearance') && span('entry.standoff')) n.push(`Geçiş delikleri girişte ${d1(P.holeEntry.clearance)}×45° kırık.`);
+    const ins = holeList.filter((h) => h.method === 'insert');
+    if (ins.length) {
+      n.push(P.holeEntry.insert > 0 && ins.some((h) => h.entry) && entryDone
+        ? `İnsert delik girişleri ${d1(P.holeEntry.insert)}×45° kırık.`
+        : 'İnsert delikleri düz, girişte pah yok (insert üreticisi ölçüsü).');
+    }
     if (P.grooveBottomR > 0 && geo.groove) {
       const gb = got('groove.bottom', P.grooveBottomR);
-      n.push(`Conta kanalı dip radyüsü R${d2(gb)}${got('groove.break', P.grooveEdgeBreak) > 0 ? `, üst kenarları ${d2(P.grooveEdgeBreak)} mm kırık` : ''} (Parker ORD 5700).`);
+      const gk = got('groove.break', P.grooveEdgeBreak);
+      if (gb > 0 || gk > 0) n.push(`Conta kanalı ${gb > 0 ? `dip radyüsü R${d2(gb)}` : 'dibi keskin'}${gk > 0 ? `, üst kenarları ${d2(gk)} mm kırık` : ''} (Parker ORD 5700).`);
     }
     if (T.clip && geo.din) {
-      const lr = (d.treatReport || []).find((e) => e.part === 'clip' && e.key === 'latch.root');
-      const v = lr ? lr.applied : T.clip.latchRootR;
-      const cbE = (d.treatReport || []).find((e) => e.part === 'clip' && e.key === 'bed');
-      const cb = cbE ? cbE.applied : T.clip.bedChamfer;
-      if (v > 0) n.push(`DIN klipsi: kilit dili kökü R${d2(v)} (≥ 0,5·t), yarık uçları yuvarlak${cb > 0 ? `; üst yüz (tabla) kenarları ${d2(cb)}×45° pah` : ''}.`);
+      const clipRep = (d.treatReport || []).filter((e) => e.part === 'clip');
+      const cf = (key) => clipRep.filter((e) => (e.key === key || e.key.startsWith(`${key}.`)) && e.ok && e.applied > 0).map((e) => e.applied);
+      const lr = has ? cf('latch.root') : [T.clip.latchRootR];
+      const cb = has ? cf('bed') : [T.clip.bedChamfer];
+      if (lr.length && lr[0] > 0) n.push(`DIN klipsi: kilit dili kökü R${d2(Math.min(...lr))} (≥ 0,5·t), yarık uçları yuvarlak${cb.length && cb[0] > 0 ? `; üst yüz (tabla) kenarları ${d2(Math.min(...cb))}×45° pah` : ''}.`);
     }
   } else if (part === 'lid') {
     if (inj) {
       const dr = got('draft.plate', P.draftDeg);
       n.push(dr > 0
         ? `Kalıp çıkma açısı ${d1(dr)}° (çekme −Z); ayırma çizgisi kapak alt dış kenarında, keskin; alt dış hat gövde ağız hattıyla aynı.`
-        : `Kalıp çıkma açısı ≥ ${d1(P.draftDeg)}° gerekir; modelde uygulanamadı (işlem raporu).`);
+        : `Kalıp çıkma açısı en az ${d1(P.draftDeg)}° olmalı; modelde uygulanamadı (ayrıntı DFM incelemesinde).`);
       const tf = got('outer.top', P.outerTopFillet);
       if (tf > 0) n.push(`Üst dış kenar R${d2(tf)} (kozmetik).`);
-      if (got('lip.draft', P.lipDraftDeg) > 0) n.push(`Kapak dili: ${d1(P.lipDraftDeg)}° çıkma açısı, kök R${d2(got('lip.root', P.lipRootFillet))}, uçta ${d1(got('lip.tip', P.lipTipChamfer))}×45° giriş pahı.`);
-      if (got('tube.root', P.tubeRootFillet) > 0) n.push(`Vida boruları: ${d1(P.bossDraftDeg)}° açılı, kök R${d2(got('tube.root', P.tubeRootFillet))}, uçta pah.`);
+      const ld = span('lip.draft', P.lipDraftDeg);
+      if (ld) {
+        const ri = span('lip.root', P.lipRootFillet);
+        const ro = span('lip.root.out', 0);
+        const lt = span('lip.tip', P.lipTipChamfer);
+        n.push(`Kapak dili: ${rng(ld, d1)}° çıkma açısı${ri ? `, kök R${rng(ri)}${ro ? ` (dış yüzde R${rng(ro)})` : ''}` : ''}${lt ? `, uçta ${rng(lt)}×45° giriş pahı` : ''}.`);
+      }
+      const tr = span('tube.root', P.tubeRootFillet);
+      const tt = span('tube.tip', P.bossTipChamfer);
+      if (tr) n.push(`Vida boruları: ${d1(P.bossDraftDeg)}° açılı, kök R${rng(tr)}${tt ? `, uçta ${rng(tt)}×45° pah` : ''}.`);
     } else {
       if (fdm && got('bed', P.bedChamfer) > 0) n.push(`Dış yüz tablada: üst dış kenar ${d1(got('bed', P.bedChamfer))}×45° pah (tabla kenarında radyüs yok).`);
       if (cnc) {
         const both = got('outer.top', P.outerEdgeBreak) > 0 && got('outer.bottom', P.outerEdgeBreak) > 0;
         n.push(`Belirtilmeyen kenarlar ISO 13715 −${d1(P.outerEdgeBreak)}${both ? `; üst ve alt dış kenarlar modelde ${d1(P.outerEdgeBreak)}×45° pah` : ''}.`);
       }
-      const lt = got('lip.tip', P.lipTipChamfer);
-      if (lt > 0) n.push(`Kapak dili ucunda ${d1(lt)}×45° giriş pahı${got('lip.root', P.lipRootFillet) > 0 ? `, kökte R${d2(got('lip.root', P.lipRootFillet))}` : ''}.`);
-      if (got('tube.root', P.tubeRootFillet) > 0) n.push(`Vida borusu kökleri R${d2(got('tube.root', P.tubeRootFillet))}.`);
-      const lidEntries = [...(T.holes?.lidTubes || []), ...(T.holes?.lidHoles || [])].some((h) => h.entry);
-      if (cnc && lidEntries && (got('entry.tube', 1) > 0 || got('entry.lid', 1) > 0)) n.push(`Geçiş delikleri girişte ${d1(P.holeEntry.clearance)}×45° kırık.`);
+      const lt = span('lip.tip', P.lipTipChamfer);
+      const lr = span('lip.root', P.lipRootFillet);
+      if (lt) n.push(`Kapak dili ucunda ${rng(lt)}×45° giriş pahı${lr ? `, kökte R${rng(lr)}` : ''}.`);
+      else if (lr) n.push(`Kapak dili kökünde R${rng(lr)}.`);
+      const tr = span('tube.root', P.tubeRootFillet);
+      const tt = span('tube.tip', P.bossTipChamfer);
+      if (tr || tt) n.push(`Vida boruları:${tr ? ` kök R${rng(tr)}` : ''}${tr && tt ? ',' : ''}${tt ? ` uçta ${rng(tt)}×45° pah` : ''}.`);
+      const lidEntries = [...(holes.lidTubes || []), ...(holes.lidHoles || [])].some((h) => h.entry);
+      if (cnc && lidEntries && (span('entry.tube') || span('entry.lid'))) n.push(`Geçiş delikleri girişte ${d1(P.holeEntry.clearance)}×45° kırık.`);
     }
   }
-  const failed = rep.filter((e) => !e.ok && e.kind !== 'boolean' && e.applied === 0 && !/yan maça/.test(e.note || '')).map((e) => e.feature);
-  if (failed.length) n.push(`Modelde uygulanamayan kenar işlemleri: ${[...new Set(failed)].slice(0, 4).join(', ')} (ayrıntı işlem raporunda).`);
+  const failed = rep.filter((e) => !e.ok && !['boolean', 'build', 'info'].includes(e.kind) && e.rule !== 'INJ-SIDE-ACTION').map((e) => e.feature);
+  if (failed.length) n.push(`Modelde uygulanamayan kenar işlemleri: ${[...new Set(failed)].slice(0, 4).join(', ')}${new Set(failed).size > 4 ? ' …' : ''} (ayrıntı DFM incelemesinde).`);
   return n;
 }
 
-const METHOD_NOTE = { insert: 'ısıl insert', tapped: 'kılavuz', self_tap: 'sac vidası ön deliği', helicoil: 'Helicoil (STI)', nut: 'geçiş + somun cebi', standoff: 'aralayıcı geçiş deliği' };
+const METHOD_NOTE = { insert: 'ısıl insert', tapped: 'kılavuz', self_tap: 'diş açan vida ön deliği', helicoil: 'Helicoil (STI)', nut: 'geçiş + somun cebi', standoff: 'aralayıcı geçiş deliği' };
 
 function baseSheet(ctx) {
   const { views, design: d, rules } = ctx;
@@ -480,7 +534,7 @@ function baseSheet(ctx) {
       p.style === 'notch' ? 'Çentik' : `Pencere${p.r > 0.01 ? ` R${d1(p.r)}` : ''}`]);
   });
 
-  // Panel elemanları (Toolbox Paket D) — ilgili duvar görünüşünde merkez işareti + balon
+  // Panel elemanları — ilgili duvar görünüşünde merkez işareti + balon
   const panelRows = [];
   wallPanel.forEach((it, i) => {
     const vk = SIDE_VIEW[it.face];
@@ -533,7 +587,7 @@ function baseSheet(ctx) {
   }
   if (rules.process === 'fdm') n.push('Baskı yönü: gövde ağzı yukarı; destek gerekmez.');
   const ins0 = d.standoffs[0]?.insert;
-  if (d.fasteningMethod === 'insert') n.push(`İnsertler${ins0 ? ` (${ins0.id})` : ''} havya ile dik bastırılır; yüzeyle aynı hizada bitmeli.`);
+  if (d.fasteningMethod === 'insert' && d.standoffs.length) n.push(`İnsertler${ins0 ? ` (${ins0.id})` : ''} havya ile dik bastırılır; yüzeyle aynı hizada bitmeli.`);
   if (d.fasteningMethod === 'helicoil' && ins0) n.push(`Helicoil yuvaları: Ø${d2(ins0.drill)} matkap, ${d.standoffs[0].screw} STI kılavuz, girişte 90° havşa Ø${d2(ins0.csk)}; burç yüzeyden 0,25–0,5·P içeride, tang kırılır.`);
   if (d.fasteningMethod === 'nut' && ins0) n.push(ins0.shape === 'hex' ? `Somun cepleri tabandan: ${ins0.code} ${d.standoffs[0].screw} için altıgen cep (SW + boşluk); somun vidayla yukarı çekilir.` : `Kare somun yuvaları standoff yanında, kavite tarafına açık (${ins0.code} ${d.standoffs[0].screw}).`);
   if (d.fasteningMethod === 'standoff' && ins0) n.push(`Hazır aralayıcılar ${d.standoffs[0].screw} × ${d2(ins0.L)} SW ${d2(ins0.sw)} tabandaki geçiş deliklerine ${ins0.ends === 'ff' ? 'alttan vidayla' : 'altta somunla'} bağlanır.`);
@@ -650,7 +704,7 @@ function assemblySheet(ctx) {
   const [cx, cy] = g.center;
   const rows = [
     { name: 'Gövde', qty: 1, std: '', material: ctx.info.material, at: [cx, cy - g.outer.W / 2, g.z0 + (g.cavTop - g.z0) * 0.45], lid: false },
-    { name: 'Kapak', qty: 1, std: '', material: ctx.info.material, at: [cx + g.outer.L * 0.3, cy, g.zTop], lid: true },
+    { name: 'Kapak', qty: 1, std: '', material: ctx.info.lidMaterial || ctx.info.material, at: [cx + g.outer.L * 0.3, cy, g.zTop], lid: true },
     ...(g.din ? [{ name: 'DIN ray klipsi', qty: 1, std: 'EN 60715 TS35', material: ctx.info.material, at: [cx, cy, g.z0 - g.din.tp - 2], clip: true }] : []),
     ...(d.parts || []).map((p) => ({
       name: p.name, qty: p.qty, std: [p.standard, p.size + (p.length ? '×' + d1(p.length) : '')].filter(Boolean).join(' '),
@@ -719,10 +773,221 @@ function assemblySheet(ctx) {
   return { title: 'Montaj', svg: sheetSvg(out), scale: s };
 }
 
+/* ---------- DFM İnceleme Raporu paftası (ctx.review, sözleşme C) ---------- */
+
+const LEVEL_TR = { error: 'HATA', warn: 'UYARI', info: 'BİLGİ', ok: 'UYGUN' };
+const LEVEL_FILL = { error: '#f4d3d3', warn: '#f9e7c0', info: '#dbe6f2', ok: '#d9eddc', waived: '#e4e4e4' };
+const STATUS_TR = {
+  ready: { head: 'ÜRETİME HAZIR', sub: 'Açık hata ve uyarı yok.', fill: '#d9eddc' },
+  advisories: { head: 'UYARILARLA HAZIR', sub: 'Hata yok; açık uyarılar üretim öncesi değerlendirilmeli.', fill: '#f9e7c0' },
+  blocked: { head: 'ENGELLİ', sub: 'Giderilmesi gereken hata var; tasarım bu hâliyle üretime verilmemeli.', fill: '#f4d3d3' },
+};
+const STOP_TR = {
+  converged: 'otomatik düzeltilebilecek bulgu kalmadı', 'needs-user': 'kalan bulgular kullanıcı kararı gerektiriyor',
+  stalled: 'kalan düzeltmeler tasarımı iyileştirmedi', oscillation: 'düzeltmeler önceki bir duruma döndürdü', 'max-iter': 'yineleme sınırına ulaşıldı',
+};
+const PART_TR = { base: 'Gövde', lid: 'Kapak', clip: 'DIN klipsi', all: 'Genel' };
+// design.js PARAM_FIELDS etiketleriyle aynı (yalnızca değişiklik metni yoksa kullanılır)
+const PARAM_TR = { wall: 'Et kalınlığı', pcbClearance: 'PCB–duvar boşluğu', topClearance: 'Bileşen üstü boşluk', standoffHeight: 'PCB altı yükseklik', cornerRadius: 'İç köşe radyüsü' };
+const OP_TR = { '>=': '≥', '<=': '≤', '>': '>', '<': '<', '==': '=', '=': '=' };
+const WHY_TR = { 'no-gain': 'tasarımı iyileştirmedi', oscillation: 'önceki bir duruma geri döndürdü' };
+const LIABILITY = 'Tasarım niyeti belirtilen kurallarla uyumludur; üretim öncesi üretici onayı gerekir.';
+const RV = { x0: 20, x1: 284, yMax: 166, size: 2.0 };
+
+/** Sözcük kaydırma (DejaVu Sans ortalama harf genişliği ≈ 0,55·boy); sığmayan uzun sözcük (bağlantı) bölünür */
+function wrapText(str, width, size, factor = 0.55) {
+  const maxChars = Math.max(6, Math.floor(width / (size * factor)));
+  const out = [];
+  for (const para of String(str ?? '').split('\n')) {
+    let cur = '';
+    for (let w of para.split(/\s+/).filter(Boolean)) {
+      while (w.length > maxChars) {
+        if (cur) { out.push(cur); cur = ''; }
+        out.push(w.slice(0, maxChars));
+        w = w.slice(maxChars);
+      }
+      const next = cur ? `${cur} ${w}` : w;
+      if (next.length > maxChars && cur) { out.push(cur); cur = w; } else cur = next;
+    }
+    if (cur) out.push(cur);
+  }
+  return out.length ? out : [''];
+}
+
+function measureText(fd) {
+  const u = fd.unit ? (fd.unit === '°' ? '°' : ` ${fd.unit}`) : '';
+  const m = Number.isFinite(fd.measured) ? `${d2(fd.measured)}${u}` : null;
+  const l = Number.isFinite(fd.limit) ? `${OP_TR[fd.op] || ''} ${d2(fd.limit)}${u}`.trim() : null;
+  if (m && l) return `${m}\ngerekli ${l}`;
+  return m || (l ? `gerekli ${l}` : '—');
+}
+
+/**
+ * İnceleme raporunu paftalara yerleştirir (antet hariç). Taşan tablo yeni paftada başlığıyla sürer.
+ * Dönüş: { pages: [string[]] }
+ */
+function layoutReview(ctx) {
+  const R = ctx.review || {};
+  const findings = Array.isArray(R.findings) ? R.findings : [];
+  const counts = { error: 0, warn: 0, info: 0, ok: 0, waived: 0 };
+  if (R.counts) Object.assign(counts, R.counts);
+  else for (const fd of findings) { if (fd.waived) counts.waived++; else if (fd.level in counts) counts[fd.level]++; }
+  const st = STATUS_TR[R.status] || STATUS_TR[counts.error ? 'blocked' : counts.warn ? 'advisories' : 'ready'];
+  const changes = Array.isArray(R.changes) ? R.changes : [];
+  const rejected = Array.isArray(R.rejected) ? R.rejected : [];
+  const W = RV.x1 - RV.x0;
+  const lh = RV.size * 1.32;
+  const pages = [];
+  let out;
+  let y;
+  const newPage = (cont) => {
+    out = [];
+    pages.push(out);
+    if (cont) {
+      out.push(text(RV.x0, 24, 'DFM İNCELEME RAPORU (devam)', 3.0, { bold: true }));
+      y = 31;
+    }
+  };
+
+  // --- Başlık ve karar ---
+  newPage(false);
+  out.push(text(RV.x0, 24, 'DFM İNCELEME RAPORU', 3.6, { bold: true }));
+  out.push(text(RV.x0, 28.6, 'Tasarım kaynaklı DFM kural kümesine göre incelendi; otomatik düzeltme döngüsünden geçen son tasarımın sonucudur.', 2.0));
+  out.push(`<rect x="${RV.x0}" y="32" width="150" height="17" fill="${st.fill}" stroke="#000" stroke-width="${STROKE_VISIBLE}"/>`);
+  out.push(text(RV.x0 + 3, 38.2, `KARAR: ${st.head}`, 3.4, { bold: true }));
+  out.push(text(RV.x0 + 3, 42.8, st.sub, 2.2));
+  const loopTxt = `Döngü: ${Number.isFinite(R.iterations) ? R.iterations : '—'} inceleme turu, ${changes.length} otomatik düzeltme${R.stop ? ` · durma nedeni: ${STOP_TR[R.stop] || R.stop}` : ''}`;
+  out.push(text(RV.x0 + 3, 46.8, loopTxt, 1.9));
+  const cells = [['Hata', counts.error, LEVEL_FILL.error], ['Uyarı', counts.warn, LEVEL_FILL.warn], ['Bilgi', counts.info, LEVEL_FILL.info], ['Uygun', counts.ok, LEVEL_FILL.ok], ['Muaf', counts.waived, LEVEL_FILL.waived]];
+  const cw = (RV.x1 - 176) / cells.length;
+  cells.forEach(([k, v, fill], i) => {
+    const x = 176 + i * cw;
+    out.push(`<rect x="${r3(x)}" y="32" width="${r3(cw)}" height="17" fill="${fill}" stroke="#000" stroke-width="${STROKE_THIN}"/>`);
+    out.push(text(x + cw / 2, 36.2, k.toLocaleUpperCase('tr'), 1.9, { anchor: 'middle', bold: true }));
+    out.push(text(x + cw / 2, 45.4, String(v ?? 0), 6, { anchor: 'middle', bold: true }));
+  });
+  const when = R.createdAt ? String(R.createdAt).replace('T', ' ').replace(/:\d\d(\.\d+)?Z?$/, '').replace(/Z$/, '') : ctx.info?.date || '';
+  out.push(text(RV.x0, 53.6, `Oluşturma: ${when}${R.appVersion ? ` · uygulama sürümü ${R.appVersion}` : ''} · proje ${ctx.info?.project || ''}`, 1.9));
+  y = 60;
+
+  // --- Kaynak numaraları (bulgulardaki kurallar) ---
+  const srcList = [];
+  const srcIdx = new Map();
+  const refsOf = (fd) => (Array.isArray(fd.src) ? fd.src : []).filter((s) => s && (s.title || s.url)).map((s) => {
+    const k = `${s.title}|${s.url}`;
+    if (!srcIdx.has(k)) { srcList.push(s); srcIdx.set(k, srcList.length); }
+    return srcIdx.get(k);
+  });
+
+  // --- Tablo yardımcıları ---
+  const section = (title, cols, rows, empty) => {
+    const head = () => {
+      out.push(text(RV.x0, y + 3.2, title, 2.6, { bold: true }));
+      y += 5;
+      if (!rows.length) return;
+      out.push(`<rect x="${RV.x0}" y="${r3(y)}" width="${W}" height="4.6" fill="#eef1f4" stroke="#000" stroke-width="${STROKE_THIN}"/>`);
+      let cx = RV.x0;
+      for (const c of cols) { out.push(text(cx + 1, y + 3.2, c.label, 1.9, { bold: true })); cx += c.w; }
+      y += 4.6;
+    };
+    const laid = rows.map((row) => {
+      const cl = cols.map((c, i) => {
+        const v = row.cells[i];
+        const parts = typeof v === 'object' && v ? v : { text: v };
+        const lines = [];
+        if (parts.title) for (const l of wrapText(parts.title, c.w - 2, RV.size, 0.6)) lines.push({ t: l, bold: true });
+        for (const l of wrapText(parts.text ?? '', c.w - 2, RV.size)) if (l || !lines.length) lines.push({ t: l, bold: !!parts.bold });
+        return lines;
+      });
+      return { row, cl, h: Math.max(...cl.map((l) => l.length)) * lh + 1.6 };
+    });
+    if (y + 5 + (rows.length ? 4.6 + laid[0].h : 6) > RV.yMax) newPage(true);
+    head();
+    if (!rows.length) { out.push(text(RV.x0 + 1, y + 2.6, empty, RV.size)); y += 9; return; }
+    for (const L of laid) {
+      if (y + L.h > RV.yMax) { newPage(true); head(); }
+      if (L.row.fill) out.push(`<rect x="${r3(RV.x0 + (L.row.fillAt || 0))}" y="${r3(y)}" width="${r3(L.row.fillW || W)}" height="${r3(L.h)}" fill="${L.row.fill}"/>`);
+      let cx = RV.x0;
+      cols.forEach((c, i) => {
+        L.cl[i].forEach((l, k) => out.push(text(cx + 1, y + 1 + lh * (k + 1) - 0.55, l.t, RV.size, { bold: l.bold })));
+        if (i) out.push(line(cx, y, cx, y + L.h));
+        cx += c.w;
+      });
+      out.push(line(RV.x0, y, RV.x0, y + L.h), line(RV.x1, y, RV.x1, y + L.h), line(RV.x0, y + L.h, RV.x1, y + L.h));
+      y += L.h;
+    }
+    y += 5;
+  };
+
+  // --- Otomatik düzeltmeler ---
+  section('OTOMATİK DÜZELTMELER', [{ label: 'No', w: 8 }, { label: 'Kural', w: 34 }, { label: 'Parametre', w: 34 }, { label: 'Değişim', w: 30 }, { label: 'Açıklama', w: W - 106 }],
+    changes.map((c, i) => ({ cells: [String(i + 1), c.rule || '—', PARAM_TR[c.key] || c.key || '—',
+      Number.isFinite(c.from) && Number.isFinite(c.to) ? `${d2(c.from)} → ${d2(c.to)} mm` : '—', { title: c.title || '', text: c.text || '' }] })),
+    'Otomatik düzeltme uygulanmadı.');
+  if (rejected.length) {
+    section('REDDEDİLEN DÜZELTMELER', [{ label: 'No', w: 8 }, { label: 'Kural', w: 34 }, { label: 'Parametre', w: 34 }, { label: 'Önerilen', w: 30 }, { label: 'Neden', w: W - 106 }],
+      rejected.map((c, i) => ({ cells: [String(i + 1), c.rule || '—', PARAM_TR[c.key] || c.key || '—',
+        Number.isFinite(c.from) && Number.isFinite(c.to) ? `${d2(c.from)} → ${d2(c.to)} mm` : '—', `Düzeltme denendi, uygulanmadı: ${WHY_TR[c.why] || c.why || ''}.`] })), '');
+  }
+
+  // --- Açık bulgular: hata, uyarı, bilgi; sonra muaf tutulanlar ---
+  const order = { error: 0, warn: 1, info: 2 };
+  const open = findings.filter((fd) => !fd.waived && fd.level in order).sort((a, b) => order[a.level] - order[b.level]);
+  const waived = findings.filter((fd) => fd.waived && fd.level !== 'ok');
+  const fcols = [{ label: 'No', w: 8 }, { label: 'Seviye', w: 15 }, { label: 'Kural', w: 36 }, { label: 'Parça', w: 16 }, { label: 'Bulgu', w: W - 115 }, { label: 'Ölçülen / sınır', w: 40 }];
+  const fRow = (fd, i, isWaived) => {
+    const refs = refsOf(fd);
+    return {
+      fill: LEVEL_FILL[isWaived ? 'waived' : fd.level], fillAt: 8, fillW: 15,
+      cells: [String(i + 1), { text: isWaived ? `MUAF (${(LEVEL_TR[fd.level] || '').toLocaleLowerCase('tr')})` : LEVEL_TR[fd.level] || fd.level, bold: true },
+        `${fd.rule || '—'}${refs.length ? ` [${refs.join(', ')}]` : ''}`, PART_TR[fd.part] || PART_TR.all,
+        { title: fd.title || '', text: `${fd.text || ''}${isWaived && (fd.reason || fd.waived?.reason) ? `\nMuafiyet gerekçesi: ${fd.reason || fd.waived.reason}` : ''}` }, measureText(fd)],
+    };
+  };
+  section('AÇIK BULGULAR', fcols, open.map((fd, i) => fRow(fd, i, false)), 'Açık bulgu yok.');
+  if (waived.length) section('MUAF TUTULAN BULGULAR', fcols, waived.map((fd, i) => fRow(fd, i, true)), '');
+  const okN = counts.ok || 0;
+  if (y + 6 > RV.yMax) newPage(true);
+  out.push(text(RV.x0, y, `Ayrıca ${okN} kontrol uygun bulundu (ayrıntı uygulamadaki inceleme listesinde).`, RV.size, { bold: true }));
+  y += 7;
+
+  // --- Kaynaklar ---
+  if (srcList.length) {
+    const lines = srcList.flatMap((s, i) => wrapText(`[${i + 1}] ${s.title || ''}${s.url ? ` — ${s.url}` : ''}`, W, 1.8).map((t, k) => (k ? `     ${t}` : t)));
+    if (y + 5 + 2 * 1.8 * 1.3 > RV.yMax) newPage(true);
+    out.push(text(RV.x0, y + 3.2, 'KAYNAKLAR', 2.6, { bold: true }));
+    y += 6;
+    for (const t of lines) {
+      if (y + 2.4 > RV.yMax) { newPage(true); out.push(text(RV.x0, y + 3.2, 'KAYNAKLAR (devam)', 2.6, { bold: true })); y += 6; }
+      out.push(text(RV.x0, y + 1.8, t, 1.8));
+      y += 1.8 * 1.3;
+    }
+  }
+  return { pages, hasSources: srcList.length > 0 };
+}
+
+/** Yerleşmiş rapor sayfalarına sorumluluk notu ve antet eklenir */
+function finishReview(ctx, report, firstNo) {
+  const n = report.pages.length;
+  return report.pages.map((out, i) => {
+    out.push(text(RV.x0, 177, 'SORUMLULUK NOTU', 2.4, { bold: true }));
+    wrapText(LIABILITY, 140, 2.2).forEach((l, k) => out.push(text(RV.x0, 181.4 + k * 2.9, l, 2.2)));
+    const legend = `HATA: üretim öncesi giderilmeli · UYARI: değerlendirilmeli · BİLGİ: bilgi amaçlı · MUAF: kullanıcı gerekçesiyle kabul edildi.${report.hasSources ? ' Köşeli ayraçtaki numaralar KAYNAKLAR listesine bakar.' : ''}`;
+    wrapText(legend, 140, 1.8).forEach((l, k) => out.push(text(RV.x0, 189.4 + k * 2.4, l, 1.8)));
+    titleBlock(out, ctx.info, 'DFM İNCELEME', firstNo + i, ctx.sheetCount, null, `Ikra ${ctx.info.version} · DFM inceleme raporu`);
+    return { title: n > 1 ? `DFM İnceleme Raporu ${i + 1}/${n}` : 'DFM İnceleme Raporu', svg: sheetSvg(out), scale: 1, kind: 'report' };
+  });
+}
+
 export function buildSheets(ctx) {
   const withAsm = !!ctx.views.assembly?.iso;
-  ctx.sheetCount = withAsm ? 3 : 2;
-  return [baseSheet(ctx), lidSheet(ctx), ...(withAsm ? [assemblySheet(ctx)] : [])];
+  const drawingCount = withAsm ? 3 : 2;
+  // ctx.review yoksa davranış öncekiyle aynı (2 ya da 3 pafta)
+  const report = ctx.review ? layoutReview(ctx) : null;
+  ctx.sheetCount = drawingCount + (report ? report.pages.length : 0);
+  const sheets = [baseSheet(ctx), lidSheet(ctx), ...(withAsm ? [assemblySheet(ctx)] : [])];
+  if (report) sheets.push(...finishReview(ctx, report, drawingCount + 1));
+  return sheets;
 }
 
 /* ---------- PDF ---------- */
