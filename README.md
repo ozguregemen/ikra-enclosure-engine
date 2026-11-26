@@ -63,7 +63,7 @@ indirmeden önce açık hatalar listelenip onay istenir. Alttaki durum çubuğu 
 "Geri al" düğmeli bildirimler, kaydedilmemiş tasarımda dosya değiştirmeden önce onay, açık / koyu / sistem teması,
 WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kullanım (aşama çubuğu ve seçim gruplarında ok tuşları).
 
-## Şu anki durum: V2.0 (kaynaklı DFM incelemesi ve düzeltme döngüsü + Toolbox + malzeme kütüphanesi + proje dosyası + kutunun sabitlenmesi + kapak malzemesi + kart kenarı tutucu + DIN ray klipsi)
+## Şu anki durum: V2.1 (kaynaklı DFM incelemesi ve düzeltme döngüsü + Toolbox: 18 vida tipi, Phillips / Pozidriv, eski DIN karşılıkları + malzeme kütüphanesi + proje dosyası + kutunun sabitlenmesi + kapak malzemesi + kart kenarı tutucu + DIN ray klipsi)
 
 **Analiz**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
@@ -112,19 +112,33 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
   diğer görünüşler, genel ölçüler, delik ve açıklık tabloları, süreç tolerans notları, bağlantı elemanları, antet;
   tarayıcıda önizleme ve Türkçe fontlu PDF (jsPDF + svg2pdf.js + DejaVu Sans)
 
-**Toolbox · vidalar (V1.1–V1.2)**
-- SolidWorks Toolbox benzeri standart bağlantı elemanı kütüphanesi: ISO › Cıvata ve vidalar, 13 tip:
+**Toolbox · vidalar (V1.1–V1.2, V2.1)**
+- SolidWorks Toolbox benzeri standart bağlantı elemanı kütüphanesi: ISO › Cıvata ve vidalar, 18 tip
+  (parantezde eski DIN karşılığı):
 
   | Grup | Tipler |
   |---|---|
-  | Yıldız (Phillips) | ISO 7045 bombe baş, ISO 7046-1 havşa baş |
-  | Düz (tornavida) | ISO 1207 silindir baş, ISO 1580 bombe baş, ISO 2009 havşa baş |
-  | İmbus | ISO 4762 silindir baş, ISO 7380-1 mercimek baş, ISO 10642 havşa baş |
+  | Yıldız (Phillips / Pozidriv) | ISO 7045 bombe baş (DIN 7985), ISO 7046-1 havşa baş (DIN 965), ISO 7047 bombeli havşa baş (DIN 966), ISO 7048 silindir baş (M2,5–M6), DIN 7985 yuvarlak silindir baş (geri çekilmiş, yerine ISO 7045), ISO 10644 bombe baş kombi vida, kaybolmaz düz pullu (M2,5–M6; DIN 6900-1) |
+  | Düz (tornavida) | ISO 1207 silindir baş (DIN 84), ISO 1580 bombe baş (DIN 85), ISO 2009 havşa baş (DIN 963) |
+  | İmbus | ISO 4762 silindir baş (DIN 912), ISO 7380-1 mercimek baş, ISO 10642 havşa baş (DIN 7991) |
   | Torx | ISO 14580 silindir baş, ISO 14583 bombe baş, ISO 14581 havşa baş |
-  | Sac vidası (ST) | ISO 7049 bombe baş, ISO 7050 havşa baş |
+  | Sac vidası (ST) | ISO 7049 bombe baş (DIN 7981), ISO 7050 havşa baş (DIN 7982), ISO 7051 bombeli havşa baş (DIN 7983) |
 
-- Vida tipi, boyut (M2–M4, sac vidasında ST2.2–ST4.2) ve boy seçimi; ölçülü önizleme çizimi (dk, k, L, diş,
+- Vida tipi, boyut (M2–M6, sac vidasında ST2.2–ST4.2) ve boy seçimi; ölçülü önizleme çizimi (dk, k, L, diş,
   tahrik izi) ve "ISO 7049 - ST2.9 × 13 - C - H" gibi tanım
+- Yıldız izi seçimi (V2.1): Phillips (H) ya da Pozidriv (Z); uç no. iki izde aynıdır (PH1 / PZ1), iz çapı m tablodan.
+  Seçim tanıma ("ISO 7045 - M3 × 12 - Z"), malzeme listesine, teknik resme, montaja, 3B izine (Pozidriv çentikleri)
+  ve proje dosyasına yazılır; alanı olmayan eski projeler H ile açılır, izi desteklemeyen tipe geçilince tipin varsayılanı alınır
+- Bombeli havşa (ISO 7047, ISO 7051): havşa kısmı ISO 7046-1 / ISO 7050 ile aynıdır, kapağa aynı havşa açılır; bombe f
+  (0,5–1,4 mm) yüzeyden çıkar, boy bombeyi kapsamaz (ISO 7047:1994 Şekil 1). Bombe 3B'de, ölçü çiziminde (f), montaj STEP'inde,
+  teknik resim notunda, aralayıcı altındaki vida başında (ayak yüksekliği) ve FAS-CSK bilgi notunda hesaba katılır
+- Kombi vida (ISO 10644, S3 = ISO 7045 başı, ISO 10673 tip N pul): pul vidaya takılıdır; oturma yüzeyi (tork),
+  sıkıştırılan boy, 3B modeli ve ölçü çizimi pulla hesaplanır; ayrıca seçilen baş altı pulu yok sayılır (FAS-WASHER bilgisi);
+  malzeme listesinde tek kalemdir ("ISO 10644 - M3 × 10 - H - S3 - N"), pul malzemesi vidayı izler. M2 kombi vida boyları
+  kaynaklarda bulunamadığı için tanımlanmadı
+- Eski DIN karşılıkları (V2.1): Toolbox araması DIN numarasını da bulur ("965", "DIN 965", "7981"); ayrıntı panelinde
+  "Eşdeğer: DIN 965" ve M2–M6 ölçü farkı yazılır (pullar ve somunlar dahil: DIN 125-1 A, DIN 433-1, DIN 9021, DIN 934,
+  DIN 439-2, DIN 985)
 - Sac vidası seçilince gövdede insert/kılavuz yerine ön delik açılır (diş vidayla açılır, ≥ 2·d tutunma, boss ≥ 2,5 × ön delik);
   enjeksiyonda metrik vida seçiliyse sac vidası, metal gövdede sac vidası seçiliyse metrik vida önerilir
 - Her boy için bu karttaki durum canlı hesaplanır: uygun / kısa / standoff uyarlanır. Uzun vida seçilirse
@@ -208,7 +222,7 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
 - Tercihli parça listesi: şirket stok listesi CSV olarak yüklenir (Standart; Boyut; Boy; Malzeme; Stok kodu; Açıklama,
   boş alan "hepsi"); Toolbox'ta tercihli tip/boyut/boy ★ ile işaretlenir, Çıktılar'da listede olmayan kalemler gösterilir;
   "Şablon indir" bu tasarımın parçalarıyla doldurulmuş boş şablon verir. Liste yalnızca tarayıcıda (localStorage) saklanır
-- Toolbox'ta arama: kod (7045), ad (imbus, rakor, cıvata) ya da boyut (M5); Türkçe karakter duyarsız, Enter ilk sonucu açar
+- Toolbox'ta arama: kod (7045), eski DIN numarası (965, DIN 7981; V2.1), ad (imbus, rakor, cıvata) ya da boyut (M5); Türkçe karakter duyarsız, Enter ilk sonucu açar
 
 **Malzeme kütüphanesi ve geçmeler (V1.9)**
 - FDM (8): PLA, PETG, ABS, ASA, PC, naylon (PA11/PA12), PA-CF, PETG-CF — yoğunluk, HDT, çekme (katmanlar arası),
@@ -300,7 +314,10 @@ kurum standardına göre düzenlenmesi beklenir. Yeni malzeme eklemek için dosy
 Vida ölçüleri (geçiş deliği, kılavuz matkabı, insert deliği/boyu, baş ölçüleri, standart boylar) `web/rules/fasteners.json`,
 IP seviyelerinin kordon çapı, sıkıştırma, et payı ve kapak sıkıştırma aralığı `web/rules/sealing.json` içindedir.
 Toolbox kütüphanesi `web/rules/toolbox/iso-screws.json` (gruplar › tipler): vida tipi başına baş ölçüleri (dk, k), diş adımı, tahrik ölçüsü
-ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kaydı eklemek yeterli.
+ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kaydı eklemek yeterli. İsteğe bağlı alanlar:
+`recesses` (izinli yıldız izleri, ör. `["H", "Z"]`) ve boyutta `mZ` (Pozidriv iz çapı), `raised` + boyutta `f` / `rf`
+(bombeli havşa), boyutta `v` / `rf` / `k_nom` (DIN 7985 yuvarlak silindir baş), `combi` + boyutta `washer` { `type`, `d1`, `d2`, `s` }
+(kombi vida), `din` / `din_note` (eski DIN karşılığı ve M2–M6 farkı), `withdrawn` (geri çekilmiş standardın yerine gelen).
 Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dış çap, delik, en az et) ve Helicoil boyutları
 (matkap, yuva dişi, 1d…3d boyları).
 
@@ -327,7 +344,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.12 | Kapak için ayrı süreç/malzeme (ısıl genleşme farkı dahil), örnek kartlar: Arduino UNO R3, Raspberry Pi 4 B, ESP32-DevKitC, STM32 Nucleo-64 |
 | V1.13 | Kart kenarı tutucu (alt destek + kapak baskısı), taşan anten/parçaları kutunun içine alma |
 | V1.14 | DIN ray klipsi (EN 60715 TS35): ayrı parça, esnek kilit dili, kutuya içeriden 2 × M3 |
-| **V2.0** | Kaynaklı DFM kural kataloğu, inceleme ve güvenli otomatik düzeltme döngüsü, katı modelde kenar işlemleri ve kalıp çıkma açısı, son inceleme, muafiyetler, DFM rapor paftası, freze takım çapı seçimi |
+| V2.0 | Kaynaklı DFM kural kataloğu, inceleme ve güvenli otomatik düzeltme döngüsü, katı modelde kenar işlemleri ve kalıp çıkma açısı, son inceleme, muafiyetler, DFM rapor paftası, freze takım çapı seçimi |
+| **V2.1** | Toolbox 18 vida tipine: ISO 7047 bombeli havşa, ISO 7048 silindir, DIN 7985 (geri çekilmiş), ISO 10644 kombi vida (takılı pul), ISO 7051 bombeli havşa sac vidası; Phillips (H) / Pozidriv (Z) iz seçimi; eski DIN karşılıkları ve DIN numarasıyla arama |
 
 ## Yerelde çalıştırma
 

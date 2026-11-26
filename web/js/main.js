@@ -9,7 +9,7 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.21.0 (V2.0)';
+const APP_VERSION = '0.22.0 (V2.1)';
 
 const LARGE_FILE_MB = 50;
 
