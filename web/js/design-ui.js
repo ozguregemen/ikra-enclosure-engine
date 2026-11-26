@@ -24,7 +24,7 @@ import { FIT_CLASSES, toleranceOf } from './fits.js';
 import { MOUNT_TYPES, MOUNT_SIZES } from './mount.js';
 import { runDesignLoop, baseParams, AUTO_KEYS } from './dfm/loop.js';
 import { reviewBuild, summarize, toFinding, mergeBuildFindings, staleWaivers, validWaiver } from './dfm/review.js';
-import { ruleInfo, SOURCES } from './dfm/catalog.js';
+import { ruleInfo } from './dfm/catalog.js';
 import { treatmentFor } from './treat.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -120,6 +120,8 @@ const TOOL_KEY = 'toolDiameter';
 const TOOL_LABEL = 'Freze takım çapı';
 const TOOL_LIMITS = [0.5, 12];
 const PARAM_LABEL = { ...Object.fromEntries(PARAM_FIELDS.map((f) => [f.key, f.label])), [TOOL_KEY]: TOOL_LABEL };
+/** Bulgunun düzeltme seçenekleri: motor fixes[] verdiyse hepsi (fixes[0] === fix, ör. Helicoil ya da daha küçük freze), yoksa yalnız fix */
+const fixList = (fd) => (Array.isArray(fd?.fixes) && fd.fixes.length ? fd.fixes : fd?.fix ? [fd.fix] : []).filter((x) => x && x.key);
 const PARAM_LIMITS = { wall: [0.2, 20], pcbClearance: [0, 20], topClearance: [0, 100], standoffHeight: [0, 100], cornerRadius: [0, 50] };
 /** Katı modelden önce değerlendirilemeyen (yalnızca son incelemede üretilen) kurallar: muafiyetleri ön incelemede "eşleşmeyen" sayılmaz */
 const POST_ONLY_RULES = new Set(['GEO-TREAT', 'GEO-BUILD']);
@@ -130,7 +132,7 @@ const KIND_LABEL = {
   leadin: 'giriş pahı', boolean: 'Boole işlemi', build: 'parça', info: 'bilgi',
 };
 const DEFAULT_MATERIAL = { fdm: 'petg' }; // FDM'de varsayılan PETG (PLA ısıda şekil değiştirir)
-// Sıcaklık gereksinimi kuralı: katalog kaydı motor tarafında eklenene kadar başlık/gerekçe yerelde (requirementFindings)
+// Sıcaklık gereksinimi kuralı (dfm/catalog.js REQ-TEMP: başlık, gerekçe ve kaynaklar katalogdan; requirementFindings)
 const REQ_TEMP_RULE = 'REQ-TEMP';
 
 /* Düzey simgeleri: biçim + metin, renk tek başına anlam taşımaz */
@@ -773,9 +775,11 @@ export function createDesignUI({ viewer, ui }) {
     badge.classList.toggle('locked', locked);
     row.querySelector('.hint').textContent = `Boş: kural değeri Ø${fx(def)} mm. Atölyedeki en küçük parmak frezenin çapı yazılır; iç köşe radyüsü (≥ takım yarıçapı), port ve cep köşeleri ile somun cebi köşe boşaltması buna göre.`;
     const note = row.querySelector('.auto-note');
-    const want = (state.loop?.findings || []).filter((fd) => !fd.waived && (fd.level === 'error' || fd.level === 'warn') && fd.fix && fd.fix.key === TOOL_KEY && Number.isFinite(Number(fd.fix.value)));
+    // Freze önerisi birincil düzeltme ya da seçenek (fixes[]) olabilir; katı model sonrası bulgular da (birleşik inceleme) sayılır
+    const toolFixOf = (fd) => fixList(fd).find((x) => x.key === TOOL_KEY && Number.isFinite(Number(x.value)));
+    const want = (state.review?.findings || state.loop?.findings || []).filter((fd) => !fd.waived && (fd.level === 'error' || fd.level === 'warn') && toolFixOf(fd));
     const text = want.length
-      ? `${locked ? 'Kilitli değer: ' : ''}kural önerisi Ø${fx(Math.min(...want.map((fd) => Number(fd.fix.value))))} mm${locked ? ' uygulanmadı' : ''} (${[...new Set(want.map((fd) => fd.rule))].join(', ')})`
+      ? `${locked ? 'Kilitli değer: ' : ''}kural önerisi Ø${fx(Math.min(...want.map((fd) => Number(toolFixOf(fd).value))))} mm${locked ? ' uygulanmadı' : ''} (${[...new Set(want.map((fd) => fd.rule))].join(', ')})`
       : '';
     note.hidden = !text;
     note.textContent = text;
@@ -805,7 +809,8 @@ export function createDesignUI({ viewer, ui }) {
       const badge = row.querySelector('.mode-badge');
       badge.textContent = locked ? 'Kilitli' : 'Otomatik';
       badge.classList.toggle('locked', locked);
-      row.querySelector('.hint').textContent = paramHint(k, state.rules, state.analysis, defaults);
+      // CNC iç köşe ipucu seçili freze çapına göre (boş: kural dosyası)
+      row.querySelector('.hint').textContent = paramHint(k, state.rules, state.analysis, defaults, usesCnc() ? state.toolDiameter : null);
       const note = row.querySelector('.auto-note');
       let text = '';
       if (!locked && loop) {
@@ -1548,7 +1553,6 @@ export function createDesignUI({ viewer, ui }) {
   function requirementFindings() {
     const tmax = state.req?.tempMax;
     if (!Number.isFinite(tmax) || !state.rules) return [];
-    const info = ruleInfo(REQ_TEMP_RULE);
     const out = [];
     const check = (R, processId, part, fixKey) => {
       if (!R || !Number.isFinite(R.max_service_temp_c)) return;
@@ -1573,14 +1577,8 @@ export function createDesignUI({ viewer, ui }) {
     const lidDiff = !!(state.lidSel && state.lidRules);
     check(state.rules, state.process, lidDiff ? 'base' : 'all', 'material');
     if (lidDiff) check(state.lidRules, state.lidSel.process, 'lid', 'lidMaterial');
+    // Başlık, gerekçe ve kaynaklar katalogdan (dfm/catalog.js REQ-TEMP; toFinding)
     for (const fd of out) {
-      if (!info) {
-        // Katalogda henüz yoksa başlık, gerekçe ve kaynak yerel olarak verilir (katalog kaydı motor tarafında eklenmeli)
-        fd.title = 'Çalışma sıcaklığı gereksinimi';
-        fd.why = 'Sürekli kullanım sıcaklığının üstünde plastik sünme ve çarpılma gösterir; geçmeler gevşer, vida bağlantıları ön yükünü kaybeder ve sızdırmazlık bozulur. Malzeme, en yüksek çalışma sıcaklığını payla karşılamalıdır.';
-        fd.source = SOURCES.materialTds ? [SOURCES.materialTds] : [];
-        fd.conf = 'medium';
-      }
       const w = state.waivers[fd.id];
       if (fd.level !== 'ok' && validWaiver(w)) fd.waived = { reason: String(w.reason).trim(), date: w.date || null };
     }
@@ -1715,12 +1713,12 @@ export function createDesignUI({ viewer, ui }) {
     return `<b>${fmt(m)}</b> ${rel} <b>${fmt(L)}</b>${fd.op && OP[fd.op] ? ` <span class="req">· gerekli ${OP[fd.op]} ${fmt(L)}</span>` : ''}`;
   }
 
-  const fixLabel = (fd) => {
+  const fixLabel = (fix) => {
     // Sayısal parametre düzeltmesi: hangi değerin hangi parametreye yazılacağı etikette açıkça yazılır
-    const fv = Number(fd.fix?.value);
-    if (fd.fix && AUTO_KEYS.includes(fd.fix.key) && PARAM_LABEL[fd.fix.key] && Number.isFinite(fv)) return `Uygula: ${PARAM_LABEL[fd.fix.key]} ${fx(fv)} mm`;
-    if (fd.fix?.key === TOOL_KEY && fd.fix.value !== null && Number.isFinite(fv)) return `Uygula: ${TOOL_LABEL} Ø${fx(fv)} mm`;
-    const l = String(fd.fix?.label || 'Düzeltmeyi uygula').trim();
+    const fv = Number(fix?.value);
+    if (fix && AUTO_KEYS.includes(fix.key) && PARAM_LABEL[fix.key] && Number.isFinite(fv)) return `Uygula: ${PARAM_LABEL[fix.key]} ${fx(fv)} mm`;
+    if (fix?.key === TOOL_KEY && fix.value !== null && Number.isFinite(fv)) return `Uygula: ${TOOL_LABEL} Ø${fx(fv)} mm`;
+    const l = String(fix?.label || 'Düzeltmeyi uygula').trim();
     const last = l.split(/\s+/).pop().toLocaleLowerCase('tr');
     return VERB_END.test(last) ? l : `Uygula: ${l}`;
   };
@@ -1731,7 +1729,10 @@ export function createDesignUI({ viewer, ui }) {
   function findingActions(fd, describedBy) {
     const acts = [];
     const d = `data-fid="${esc(fd.id)}" aria-describedby="${describedBy}"`;
-    if (fd.fix && !fd.waived && fd.level !== 'ok') acts.push(`<button type="button" class="btn sm primary" data-act="fix" ${d}>${esc(fixLabel(fd))}</button>`);
+    // Birinci düzeltme birincil düğme; seçenekler (fixes[1..]) yanında ikincil düğme
+    if (!fd.waived && fd.level !== 'ok') {
+      fixList(fd).forEach((fix, i) => acts.push(`<button type="button" class="btn sm${i ? '' : ' primary'}" data-act="fix" data-fi="${i}" ${d}>${esc(fixLabel(fix))}</button>`));
+    }
     if (canShow(fd)) acts.push(`<button type="button" class="btn sm" data-act="show" ${d}>Göster</button>`);
     if (!fd.waived && (fd.level === 'error' || fd.level === 'warn')) acts.push(`<button type="button" class="btn sm" data-act="waive" ${d}>Muaf tut</button>`);
     if (fd.waived) acts.push(`<button type="button" class="btn sm" data-act="unwaive" ${d}>Muafiyeti kaldır</button>`);
@@ -1986,7 +1987,7 @@ export function createDesignUI({ viewer, ui }) {
     if (act === 'unstale-all') { removeStale((state.review?.stale || []).map((w) => w.id)); return; }
     const fd = findingById(btn.dataset.fid);
     if (!fd) return;
-    if (act === 'fix') fixFinding(fd);
+    if (act === 'fix') fixFinding(fd, Number(btn.dataset.fi) || 0);
     else if (act === 'show') showFinding(fd);
     else if (act === 'waive') openWaiver(fd);
     else if (act === 'unwaive') unwaive(fd);
@@ -2001,29 +2002,32 @@ export function createDesignUI({ viewer, ui }) {
     }, 30);
   }
 
-  async function fixFinding(fd) {
-    const before = numericFixText(fd);
+  /** fi: düzeltme seçeneğinin sırası (fixList; 0 = birincil düzeltme) */
+  async function fixFinding(fd, fi = 0) {
+    const fix = fixList(fd)[fi] || fd.fix;
+    if (!fix) return;
+    const before = numericFixText(fix);
     state.actionLabel = `Düzeltme: ${fd.title}`;
     // Malzeme değişikliği gibi düzeltmeler kural dosyasını yükler (eşzamansız): bildirim geçmiş kaydından sonra
-    const ok = await Promise.resolve(applyFix(fd.fix.key, fd.fix.value)).catch((err) => { console.error(err); return false; });
+    const ok = await Promise.resolve(applyFix(fix.key, fix.value)).catch((err) => { console.error(err); return false; });
     if (!ok) { ui.toast('Bu öneri otomatik uygulanamıyor; ilgili ayar elle değiştirilmeli.'); return; }
     toastUndo(`Düzeltme uygulandı: ${fd.title}${before ? ` — ${before}` : ''}.`);
     keepFocus(`#review-body [data-fid="${CSS.escape(fd.id)}"] [data-act]`);
   }
-  const numericFixText = (fd) => {
-    if (fd.fix && (fd.fix.key === 'material' || fd.fix.key === 'lidMaterial')) {
-      const pid = fd.fix.key === 'lidMaterial' ? state.lidSel?.process : state.process;
-      const m = state.index.processes.find((p) => p.id === pid)?.materials.find((x) => x.id === fd.fix.value);
-      return `${fd.fix.key === 'lidMaterial' ? 'kapak malzemesi' : 'malzeme'} ${m?.label || fd.fix.value} seçildi`;
+  const numericFixText = (fix) => {
+    if (fix && (fix.key === 'material' || fix.key === 'lidMaterial')) {
+      const pid = fix.key === 'lidMaterial' ? state.lidSel?.process : state.process;
+      const m = state.index.processes.find((p) => p.id === pid)?.materials.find((x) => x.id === fix.value);
+      return `${fix.key === 'lidMaterial' ? 'kapak malzemesi' : 'malzeme'} ${m?.label || fix.value} seçildi`;
     }
-    if (fd.fix?.key === TOOL_KEY) {
+    if (fix?.key === TOOL_KEY) {
       const was = state.toolDiameter ?? ruleToolD();
-      const to = fd.fix.value === null || fd.fix.value === '' ? null : Number(fd.fix.value);
+      const to = fix.value === null || fix.value === '' ? null : Number(fix.value);
       return to === null ? `${TOOL_LABEL.toLocaleLowerCase('tr')} kural değerine döndü`
         : `${TOOL_LABEL.toLocaleLowerCase('tr')} ${was !== null ? `Ø${fx(was)} → ` : ''}Ø${fx(to)} mm (kilitlendi)`;
     }
-    if (!fd.fix || !AUTO_KEYS.includes(fd.fix.key) || !Number.isFinite(Number(fd.fix.value))) return fd.fix?.label || '';
-    return `${PARAM_LABEL[fd.fix.key]} ${fx(state.params[fd.fix.key])} → ${fx(Number(fd.fix.value))} mm (kilitlendi)`;
+    if (!fix || !AUTO_KEYS.includes(fix.key) || !Number.isFinite(Number(fix.value))) return fix?.label || '';
+    return `${PARAM_LABEL[fix.key]} ${fx(state.params[fix.key])} → ${fx(Number(fix.value))} mm (kilitlendi)`;
   };
 
   function showFinding(fd) {
@@ -2999,7 +3003,9 @@ export function createDesignUI({ viewer, ui }) {
       phase: phase(),
       params: d.params,
       locks: [...state.locks],
-      toolDiameter: state.toolDiameter,
+      // Tasarıma uygulanan freze seçimi (CNC yoksa null; saklanan değer proje durumunda kalır) ve motorun geçerli çapları
+      toolDiameter: usesCnc() ? state.toolDiameter : null,
+      cncTool: d.cncTool || null,
       requirements: { ...state.req },
       outer: d.outer,
       cavity: { L: d.cavity.L, W: d.cavity.W, H: d.cavity.H },

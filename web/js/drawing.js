@@ -256,7 +256,7 @@ function chooseScale(fits) {
 
 /* ---------- Paftalar ---------- */
 
-function toleranceNotes(rules, d = null) {
+function toleranceNotes(rules, d = null, part = 'base') {
   const pp = rules.process_params || {};
   const t = d?.tolerance;
   const treated = !!d?.geometry?.treat;
@@ -272,9 +272,12 @@ function toleranceNotes(rules, d = null) {
   if (rules.process === 'cnc') {
     // Kenar işlemli modelde kenar/köşe notları edgeNotes()'tan gelir (model neyse not o)
     if (treated) return [`Genel toleranslar ISO 2768-m; ${rules.label} için ${gen || '±0,1 mm'}.`, ...(fitTxt ? [fitTxt] : [])];
+    // Tasarımın geçerli freze çapı (kullanıcı seçimi ya da kural dosyası; eski tasarımda alan yoksa kural dosyası)
+    const gTool = Number(part === 'lid' ? d?.geometry?.lidToolDiameter : d?.geometry?.toolDiameter);
+    const tool = Number.isFinite(gTool) && gTool > 0 ? gTool : pp.tool_diameter || 3;
     return [
       `Genel toleranslar ISO 2768-m; ${rules.label} için ${gen || '±0,1 mm'}. Keskin kenarları 0,3×45° kır.`,
-      `İç köşe radyüsleri takıma göre R${d1(pp.tool_diameter / 2 + 0.1)}.`,
+      `İç köşe radyüsleri Ø${d1(tool)} takıma göre R${d1(tool / 2 + 0.1)}.`,
       ...(fitTxt ? [fitTxt] : []),
     ];
   }
@@ -679,7 +682,7 @@ function lidSheet(ctx) {
     ], rows) + 8;
   }
   const n = [
-    ...toleranceNotes(rules, dl),
+    ...toleranceNotes(rules, dl, 'lid'),
     ...edgeNotes(d, 'lid'),
     `Kapak kalınlığı ${d1(d.params.lidT)} mm. Konumlandırma dili ${d1(d.params.lipT)} mm, gövdeye ${d2(d.params.fit)} mm boşlukla oturur.`,
     'Delik koordinatları gövde ile aynı sıfır noktasına göredir.',
@@ -838,6 +841,13 @@ function measureText(fd) {
   return m || (l ? `gerekli ${l}` : '—');
 }
 
+/** Otomatik düzeltmeyi tetikleyen bulgunun ölçüsü (loop.js changes[]: measured / limit / op / unit; yoksa boş) */
+function changeCause(c) {
+  if (!Number.isFinite(c?.measured) || !Number.isFinite(c?.limit)) return '';
+  const u = c.unit ? (c.unit === '°' ? '°' : ` ${c.unit}`) : '';
+  return `\nNeden: ölçülen ${d2(c.measured)}${u}, gerekli ${`${OP_TR[c.op] || ''} ${d2(c.limit)}${u}`.trim()}.`;
+}
+
 /**
  * İnceleme raporunu paftalara yerleştirir (antet hariç). Taşan tablo yeni paftada başlığıyla sürer.
  * Dönüş: { pages: [string[]] }
@@ -950,7 +960,7 @@ function layoutReview(ctx) {
   // --- Otomatik düzeltmeler ---
   section('OTOMATİK DÜZELTMELER', [{ label: 'No', w: 8 }, { label: 'Kural', w: 34 }, { label: 'Parametre', w: 34 }, { label: 'Değişim', w: 30 }, { label: 'Açıklama', w: W - 106 }],
     changes.map((c, i) => ({ cells: [String(i + 1), c.rule || '—', PARAM_TR[c.key] || c.key || '—',
-      Number.isFinite(c.from) && Number.isFinite(c.to) ? `${d2(c.from)} → ${d2(c.to)} mm` : '—', { title: c.title || '', text: c.text || '' }] })),
+      Number.isFinite(c.from) && Number.isFinite(c.to) ? `${d2(c.from)} → ${d2(c.to)} mm` : '—', { title: c.title || '', text: `${c.text || ''}${changeCause(c)}` }] })),
     'Otomatik düzeltme uygulanmadı.');
   if (rejected.length) {
     section('REDDEDİLEN DÜZELTMELER', [{ label: 'No', w: 8 }, { label: 'Kural', w: 34 }, { label: 'Parametre', w: 34 }, { label: 'Önerilen', w: 30 }, { label: 'Neden', w: W - 106 }],
