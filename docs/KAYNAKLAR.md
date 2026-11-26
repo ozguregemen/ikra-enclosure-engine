@@ -1,17 +1,17 @@
 # Kaynaklar
 
-[TASARIM-ALGORITMASI.md](TASARIM-ALGORITMASI.md) ve kural kataloğunda (`web/js/dfm/catalog.js`) atıf yapılan kaynaklar. Her girdi: anahtar, yayıncı, başlık, bağlantı, Ikra'da ne için kullanıldığı ve doğrulama durumu.
+[TASARIM-ALGORITMASI.md](TASARIM-ALGORITMASI.md) ve kural kataloğunda (`web/js/dfm/catalog.js`, 127 kural) atıf yapılan kaynaklar. Her girdi: anahtar, yayıncı, başlık, bağlantı, Ikra'da ne için kullanıldığı ve doğrulama durumu. Katalogdaki kaynak adlarının bu anahtarlarla eşlemesi sondaki "Katalog anahtarları" tablosundadır; uygulamada her bulgunun "Neden?" bölümü ve DFM rapor paftasının kaynak listesi aynı başlık ve bağlantıları gösterir.
 
 **Doğrulama durumu.** Kurallar kaynaklardan çıkarıldıktan sonra ayrı bir doğrulama adımında kaynağın kendisiyle karşılaştırıldı.
 
 | Durum | Anlamı |
 |---|---|
 | Doğrulandı | Kaynaktan alınan en az bir kural kaynağın metniyle birebir karşılaştırıldı ve onaylandı. |
-| Düzeltildi | Doğrulamada değer ya da atıf düzeltildi; belgede düzeltilmiş hali kullanılır. |
-| Kontrol edilmedi | Kaynaktan alınan kurallar ayrıca doğrulanmadı. Bu kaynağa dayanan sayılar belgede ○ ile işaretlidir ve engelleyici bir kuralın tek dayanağı yapılmaz. |
+| Düzeltildi | Doğrulamada değer ya da atıf düzeltildi; belgede düzeltilmiş hâli kullanılır. |
+| Kontrol edilmedi | Kaynaktan alınan kurallar ayrıca doğrulanmadı. Bu kaynağa dayanan sayılar belgede ○ ile işaretlidir. Böyle bir kaynak hata seviyesindeki bir kuralda yalnızca bağlam verir: hata seviyesi doğrulanmış bir eşikten, modelden ölçülen geometrik çakışmadan (ör. GEN-STANDOFF-BELOW, FAS-COLLIDE, PORT-CROSS-CLOSED), eksik veriden ya da kullanıcının açık gereksiniminden (REQ-TEMP) gelir; düşük güvenli hiçbir kural hata seviyesinde tanımlı değildir. |
 | Açılamadı / okunmadı | Doğrulayıcı kaynağa erişemedi ya da kaynağı okumadı. |
 
-Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrıntı "Durum" alanında belirtilmiştir.
+Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrıntı "Durum" alanında belirtilmiştir. Bu sürümde eklenen [F23], [C25], [M26]–[M30] ve [N1]–[N8] için araştırma notlarında doğrulama kaydı yoktur; hepsi "kontrol edilmedi" durumundadır.
 
 ## FDM (3B baskı)
 
@@ -59,6 +59,8 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
   Kullanım: insertin serbest kenardan en az yarım insert çapı uzakta olması. Durum: doğrulandı.
 - **[F22]** Hubs — *How to design snap-fit joints for 3D printing*. <https://hubs.com/knowledge-base/how-design-snap-fit-joints-3d-printing>
   Kullanım: DIN kilit dili kök radyüsü ≥ 0,5 t. Durum: kontrol edilmedi.
+- **[F23]** Fictiv — *How to Design Snap Fit Components*. <https://www.fictiv.com/articles/how-to-design-snap-fit-components>
+  Kullanım: FDM'de izin verilen geçme gerinimleri ve Z yönünde basılan dilde azaltma (MNT-DIN-SNAP). Durum: kontrol edilmedi.
 
 ## CNC talaşlı imalat
 
@@ -109,7 +111,9 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
 - **[C23]** Boedeker Plastics — *Plastic Machining Guidelines*. <https://www.boedeker.com/Technical-Resources/Plastic-Machining-Guidelines>
   Kullanım: işlenmiş plastikte tolerans ve ısıl genleşme (sonraki tolerans kuralları için). Durum: kontrol edilmedi.
 - **[C24]** ISO 13715:2017 *Technical product documentation — Edges of undefined shape* (önizleme kopyası, Zeiss Quality Forum). <https://qualityforum.zeiss.com/migration/images/1125_cad718ab03258942de4de01b28242c05.pdf>
-  Kullanım: teknik resimde genel kenar notu. Durum: kontrol edilmedi.
+  Kullanım: teknik resimde genel kenar notu (GEO-EDGE-BREAK). Durum: kontrol edilmedi.
+- **[C25]** Boedeker Plastics — *Plastic Drilling Machining Guidelines*. <https://www.boedeker.com/Technical-Resources/Plastic-Machining-Guidelines/Plastic-Drilling-Machining-Guidelines>
+  Kullanım: işlenmiş plastikte sac vidası yerine kılavuz ya da insert (FAS-SCREW-PROCESS). Durum: kontrol edilmedi.
 
 ## Enjeksiyon kalıplama
 
@@ -122,11 +126,11 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
 - **[K4]** Protolabs — *Plastic Boss Design on Molded Parts*. <https://www.protolabs.com/resources/design-tips/plastic-boss-design-on-molded-parts/>
   Kullanım: boss eti nominal etin %40–60'ı (INJ-BOSS-WALL). Durum: doğrulandı.
 - **[K5]** Protolabs — *Draft Angle Guidelines for Injection Molding*. <https://protolabs.com/resources/design-tips/improving-part-moldability-with-draft/>
-  Kullanım: en az 0,5°, 1–2° iyi, 25 mm başına ~1°; derinlik ve ete göre draft tablosu (INJ-DRAFT). Durum: doğrulandı.
+  Kullanım: en az 0,5°, 1–2° iyi, 25,4 mm başına ~1°; derinlik ve ete göre çıkma açısı tablosu (INJ-DRAFT, `treat.js injectionDraft`). Durum: doğrulandı.
 - **[K6]** Protolabs — *Designing for Mouldability, Volume 1* (PDF). <https://www.protolabs.com/media/949709/dfm1-english.pdf>
-  Kullanım: derin duvarda draft (50–101 mm'de 3° ya da 3 mm et), çekirdek–kavitede ≥ 2°. Durum: doğrulandı (yan maça, tolerans ve yolluk maddeleri kontrol edilmedi).
+  Kullanım: derin duvarda çıkma açısı (50–101 mm'de 3° ya da 3 mm et; `injectionDraft`'ta 50,8 mm üstü 3°), çekirdek–kavitede ≥ 2°; sürgülü kapamada 3°; yan maça (INJ-SIDE-ACTION, MNT-DIN-PROCESS). Durum: doğrulandı (kapama 3° maddesi dahil; yan maça, tolerans ve yolluk maddeleri kontrol edilmedi).
 - **[K7]** Protolabs — *Cutting corners on injection molded parts*. <https://www.protolabs.com/resources/design-tips/cutting-corners-on-injection-molded-parts/>
-  Kullanım: r_i ≥ 0,5 t, r_o = 1,5 t bağıntısının eşleşen kaynağı. Durum: doğrulayıcının atıf düzeltmesinde önerdiği kaynak.
+  Kullanım: r_i ≥ 0,5 t, r_o = 1,5 t bağıntısının eşleşen kaynağı (INJ-CORNER-RADIUS). Durum: kontrol edilmedi (doğrulayıcının atıf düzeltmesinde önerdiği kaynak).
 - **[K8]** DuPont — *General Design Principles for DuPont Engineering Polymers*, Module I (Stellenbosch Üniv. kopyası). <https://academic.sun.ac.za/mad/catalogs/dfmguidelines/dupontgeneraldesignprinciples.pdf>
   Kullanım: iç radyüs 0,5 t; yarı kristal malzemelerde düşük draft; boss dış çapı 2–3 × delik; sac vidası seçimi. Durum: doğrulandı.
 - **[K9]** Ticona (Celanese) — *Designing With Plastic: The Fundamentals* (TDM-1). <https://res.cloudinary.com/engineering-com/image/upload/v1639229518/tips/Designing_With_Plastics_-_Ticona_Brochure_vghwzt.pdf>
@@ -146,7 +150,7 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
 - **[K16]** Hubs — *How to design parts for injection molding*. <https://www.hubs.com/knowledge-base/how-design-parts-injection-molding/>
   Kullanım: kalınlık geçişinde 3:1. Durum: doğrulandı.
 - **[K17]** Fictiv — *Enclosure Design for Injection Molding*. <https://www.fictiv.com/articles/enclosure-design-for-injection-molding>
-  Kullanım: ayırma çizgisinin keskin kenarda ve açık kutuda ağızda olması. Durum: kontrol edilmedi.
+  Kullanım: ayırma çizgisinin keskin kenarda ve açık kutuda ağızda olması; kozmetik kenarın ayırma çizgisinden uzakta radyüslenmesi (GEO-FILLET-OUTER). Durum: kontrol edilmedi.
 - **[K18]** Fictiv — *Injection Molding Specifications*. <https://www.fictiv.com/specifications/injection-molding>
   Kullanım: malzemelere göre çekme payları (sonraki tolerans kuralları için). Durum: kontrol edilmedi.
 - **[K19]** Bayer MaterialScience (Covestro) — *Snap-Fit Joints for Plastics: A Design Guide* (MIT ders kopyası). <https://fab.cba.mit.edu/classes/S62.12/people/vernelle.noel/Plastic_Snap_fit_design.pdf>
@@ -163,7 +167,7 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
 - **[M3]** Rogers Corporation — *The Mechanics of Enclosure Seal Design: Gap, Spacing, CFD and Compressibility*. <https://rogerscorp.com/blog/2025/the-mechanics-of-enclosure-seal-design-gap-spacing-cfd-and-compressibility>
   Kullanım: köpük contada %25–35 sıkıştırma; plastik gövdede düşük sıkıştırma kuvveti. Durum: doğrulandı; vida aralığı ve kapak sehim yöntemi bu kaynakta yok (doğrulanamadı).
 - **[M4]** RST — *Expertise: Pressure equalisation*. <https://www.rst.eu/en/products/pressure-equalisation/expertise-pbe.html>
-  Kullanım: membran elemanının yeri; IP68 ile birlikte kullanılmaması; tahliye yeri ve IPx5 sınırı; yoğuşma ilkeleri. Durum: doğrulandı; çiy noktası örnek değerleri psikrometrik olarak hatalı olduğundan Magnus formülüyle düzeltildi.
+  Kullanım: membran elemanının yeri; IP65 ve üstünde önerilmesi, IP68 ile birlikte kullanılmaması (IP-VENT, PNL-VENT); tahliye yeri ve IPx5 sınırı; yoğuşma ilkeleri. Durum: doğrulandı; çiy noktası örnek değerleri psikrometrik olarak hatalı olduğundan Magnus formülüyle düzeltildi.
 - **[M5]** W. L. Gore & Associates — *FAQ GORE Protective Vents*. <https://www.gore.com/resources/faq-gore-protective-vents>
   Kullanım: membran geçirgenliğinin 70 mbar'da tanımlanması. Durum: okunmadı.
 - **[M6]** UL — *IEC 62368-1's Treatment of Enclosure Openings* (teknik not). <https://japan.ul.com/wp-content/uploads/sites/27/2014/06/1_techbrief_treatment_of_enclosure_openings.pdf>
@@ -205,26 +209,36 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
 - **[M24]** D. E. Whitney — *Design for Assembly*, MIT OpenCourseWare 2.875. <https://ocw.mit.edu/courses/2-875-mechanical-assembly-and-its-role-in-product-development-fall-2004/319a0f903d70a1a731d869d2a1c70c7c_class16_dfa04.pdf>
   Kullanım: tek yönden montaj, giriş pahları, parça ve vida çeşidi (sonraki DFA kuralları). Durum: kontrol edilmedi.
 - **[M25]** Best Technology — *PCB standoffs* (blog). <https://www.bestpcbs.com/blog/2026/07/pcb-standoffs/>
-  Kullanım: kart altında ≥ 1 mm hava payı. Durum: kontrol edilmedi (düşük güven).
+  Kullanım: kart altında ≥ 1 mm hava payı (GEN-STANDOFF-GAP; GEN-STANDOFF-BELOW'da yalnızca bağlam). Durum: kontrol edilmedi (düşük güven).
+- **[M26]** fasten.it — *DIN EN ISO 7089* düz pul ölçüleri. <https://fasten.it/Norms/Norm/DIN_EN_ISO_7089>
+  Kullanım: pul dış çapları (FAS-HEAD-CLEAR, FAS-WASHER, MNT-EARS, MNT-HEAD-ROOM). Durum: kontrol edilmedi.
+- **[M27]** RS DesignSpark — *Mounting holes: how to set copper pour clearance*. <https://www.rs-online.com/designspark/mounting-holes-how-to-set-copper-pour-clearance>
+  Kullanım: montaj deliği çevresinde bakır ve bileşensiz halka (FAS-SCREW-FIT, FAS-COLLIDE, FAS-HEAD-CLEAR, FAS-CHASSIS). Durum: kontrol edilmedi.
+- **[M28]** MacroFab — *PCB Mounting Holes and What to Watch Out For*. <https://www.macrofab.com/blog/attaching-your-project-to-things-mounting-holes-and-what-to-watch-out-for/>
+  Kullanım: delik çevresindeki bileşenler, takım erişim silindiri, kart tutma (FAS-SCREW-FIT, FAS-COLLIDE, FAS-TOOL-ACCESS, FAS-STANDOFF, FAS-NO-HOLES). Durum: kontrol edilmedi.
+- **[M29]** UL Solutions — *Thermal Aging Tests for Plastics* (UL 746B bağıl sıcaklık indeksi, RTI). <https://www.ul.com/services/thermal-aging-tests-plastics>
+  Kullanım: sürekli kullanım sıcaklığı sınırı; RTI'nin özelliğe bağlı olması (REQ-TEMP). Durum: kontrol edilmedi (araştırma notlarında yok).
+- **[M30]** Ensinger — *High temperature plastics* (sürekli kullanım sıcaklığı ve HDT). <https://ensingerplastics.com/en/plastic-material-selection/high-temperature-plastics>
+  Kullanım: sürekli kullanım sıcaklığı ile HDT ayrımı (REQ-TEMP). Durum: kontrol edilmedi (araştırma notlarında yok).
 
 ## Anten ve RF
 
 - **[R1]** Espressif Systems — *ESP Hardware Design Guidelines (ESP32): PCB Layout Design*. <https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32/pcb-layout-design.html>
-  Kullanım: kutu içinde anten çevresinde tüm yönlerde ≥ 15 mm (RF-KEEPOUT-METAL varsayılanı); anten yerleşimi; son ürün testi. Durum: 15 mm doğrulandı, yerleşim ve test maddeleri kontrol edilmedi.
+  Kullanım: kutu içinde anten çevresinde tüm yönlerde ≥ 15 mm (RF-KEEPOUT-METAL; `design.js`'teki sabit değer); taşan anteni kutuya alma (PORT-ENCLOSED); anten yerleşimi; son ürün testi (RF-DETUNE). Durum: 15 mm doğrulandı, yerleşim ve test maddeleri kontrol edilmedi.
 - **[R2]** Espressif Systems — *ESP Hardware Design Guidelines (ESP32-S3): PCB Layout Design*. <https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32s3/pcb-layout-design.html>
   Kullanım: kart kenarında anten yerleşimi. Durum: kontrol edilmedi.
 - **[R3]** Microchip — *PIC32CX-BZ2 and WBZ45 Family Data Sheet: Module Placement Guidelines*. <https://onlinedocs.microchip.com/oxy/GUID-BF0CC5BA-1C78-4CCE-9C55-E847CB1F91C0-en-US-5/GUID-4DA5C0BD-495A-4865-8E33-07EA41067338.html>
   Kullanım: genel 10 mm, metal aralayıcılar için 31,75 mm. Durum: doğrulandı.
 - **[R4]** Digi International — *Design notes for PCB antenna devices*. <https://docs.digi.com/resources/documentation/Digidocs/90002002/Reference/r_design_notes_pcb.htm>
-  Kullanım: metal parçalarla antenin arasında 25,4 mm; anten kenarında engel olmaması. Durum: kontrol edilmedi.
+  Kullanım: metal parçalarla antenin arasında 25,4 mm; anten kenarında engel olmaması (RF-METAL-BODY ve RF-MAGNETIC'te ikincil kaynak). Durum: kontrol edilmedi.
 - **[R5]** Infineon (Cypress) — *AN91445 Antenna Design and RF Layout Guidelines*. <https://www.infineon.com/dgdl/Infineon-AN91445_Antenna_Design_and_RF_Layout_Guidelines-ApplicationNotes-v09_00-EN.pdf>
   Kullanım: plastik kasada 2,4 GHz'de 100–200 MHz kayma; eşleştirme devresi. Durum: kayma ve toprak boşluğu maddeleri doğrulandı, diğerleri kontrol edilmedi.
 - **[R6]** Würth Elektronik — *ANP057 WE-MCA Multilayer Chip Antenna Placement & Matching*. <https://www.we-online.com/components/media/o139357v410%20ANP057a_WE-MCA%20Multilayer%20Chip%20Antenna%20Placement%20%26%20Matching_EN.pdf>
   Kullanım: çip antenin üstünde ya da altında metal için > 6 mm. Durum: doğrulandı.
 - **[R7]** Texas Instruments — *Antenna Impedance Measurement and Matching* (SWRA726). <https://ti.com/lit/swra726>
-  Kullanım: 868 MHz kayma örneği; kaymanın ölçülmesi gerekliliği. Durum: doğrulandı (metal yüzeye montaj maddesi kontrol edilmedi).
+  Kullanım: 868 MHz kayma örneği; kaymanın ölçülmesi gerekliliği (RF-DETUNE). Durum: doğrulandı (metal yüzeye yerleştirme maddesi kontrol edilmedi).
 - **[R8]** Taoglas — *APN-11-8-004/C Flexible PCB Antenna with Cable*. <https://www.taoglas.com/wp-content/uploads/pdf/APN-11-8-004.C.pdf>
-  Kullanım: metalden ≥ 20 mm (en az 4 mm); 2–3 mm ABS ayar koşulu; karbon siyahı ve naylon uyarısı; kablo uzunluğu ve döngü (RF-LOSSY-MATERIAL). Durum: doğrulandı; bazı aralıklar başka Taoglas belgelerine ait olduğundan düzeltildi.
+  Kullanım: metalden ≥ 20 mm (en az 4 mm); 2–3 mm ABS ayar koşulu; karbon siyahı ve naylon uyarısı (RF-LOSSY-MATERIAL'de not; denetim yalnızca karbon elyaf dolgulu malzemelerde); iletken gövdede dış anten (RF-METAL-BODY); kablo uzunluğu ve döngü (PNL-RF-CABLE). Durum: doğrulandı; bazı aralıklar başka Taoglas belgelerine ait olduğundan düzeltildi.
 - **[R9]** Taoglas — *Guidelines for achieving highest RF performance and passing select regulatory approvals for cellular devices with internal antennas* (white paper). <https://www.taoglas.com/assets/whitepapers/Guidelines-for-achieving-highest-RF-performance-and-passing-select-regulatory-approvals-for-cellular-devices-with-internal-antennas-White-Paper.pdf>
   Kullanım: hücresel antende 20 mm metal mesafesi; TRP/TIS hedefleri. Durum: doğrulandı.
 - **[R10]** Taoglas — *Antenna Integration Application Note* (nRF9160 ile Taoglas antenleri). <https://www.taoglas.com/datasheets/NordicApplicationNote.pdf>
@@ -236,11 +250,11 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
 - **[R13]** u-blox — *SAM-M10Q Integration manual* (UBX-22020019). <https://content.u-blox.com/sites/default/files/documents/SAM-M10Q_IntegrationManual_UBX-22020019.pdf>
   Kullanım: GNSS yama modülünde kapak ≥ 5 mm, yüksek bileşen ve modül kenarı ≥ 10 mm. Durum: doğrulandı.
 - **[R14]** Antenova — *Techniques to integrate an antenna on a metal surface*. <https://www.antenova.com/techniques-to-integrate-an-antenna-on-a-metal-surface>
-  Kullanım: metal yüzeye mesafe kademeleri; RF penceresi ≥ λ0/2 (RF-METAL-BODY). Durum: doğrulandı.
+  Kullanım: metal yüzeye mesafe kademeleri ve 3–10 dB kayıp (RF-KEEPOUT-METAL); RF penceresi ≥ λ0/2 (RF-METAL-BODY). Durum: doğrulandı.
 - **[R15]** K. Armstrong — *Design Techniques for EMC, Part 4: Shielding (Screening), part 1* (EMC Journal; KEK kopyası). <https://www-esys.kek.jp/r-and-d/emc/keitharmstrong/design-techniques-for-emc-part-4-shielding-screening-part-1/@@download/file/EMC%20Compliance%20Club4-1.pdf>
   Kullanım: açıklık boyutu ve ekranlama; vida aralığının açıklık sayılması; dalga kılavuzu kesim frekansı. Durum: doğrulandı (yazar bağıntıları kaba yaklaşım olarak niteler).
 - **[R16]** Johanson Technology — *Understanding Chip Antennas Handbook*. <https://johansontechnology.com/docs/4565/johanson-antenna-handbook.pdf>
-  Kullanım: anten üstünde iletken malzeme, metalik boya ve karbon elyaf yasağı. Durum: kontrol edilmedi.
+  Kullanım: anten üstünde iletken malzeme, metalik boya ve karbon elyaf yasağı (RF-LOSSY-MATERIAL); anten yakınında metal ve manyetik parça (RF-MAGNETIC). Durum: kontrol edilmedi.
 - **[R17]** Texas Instruments — *AN058 Antenna Selection Guide* (SWRA161B). <https://ti.com/lit/swra161>
   Kullanım: bant boyunca S11 ≤ −10 dB; su şişesiyle el benzetimi. Durum: kontrol edilmedi.
 - **[R18]** Pasternack — *PE4354 SMA Male Bulkhead Mount Connector* veri sayfası. <https://pasternack.com/images/ProductPDF/PE4354.pdf>
@@ -303,9 +317,9 @@ Bu gruptaki kaynaklar sayısal eşik değil, yöntem ve sunum ilkesi için kulla
 - **[A21]** Dassault Systèmes — *SOLIDWORKS Tech Tip: Using DFMXpress*. <http://blogs.solidworks.com/products/solidworks/solidworks-tech-tip-using-dfmxpress>
   Kullanım: süreç başına kural grupları.
 - **[A22]** Autodesk — *DFM help: Wall thickness*. <https://help.autodesk.com/cloudhelp/2015/ENU/DFM/files/GUID-CFC1BEF6-FD8D-4A66-9D16-5A6BBFEA7BBA.htm>
-  Kullanım: gerçekleşen geometrinin denetimi; et kalınlığı haritası (sonraki aşama).
+  Kullanım: gerçekleşen geometrinin denetimi (GEO-TREAT, GEO-BUILD; katı model sonrası inceleme); et kalınlığı haritası (sonraki aşama).
 - **[A23]** Altium Resources — *Design for Manufacturing and Assembly (DFM/A) or Predictive Engineering*. <https://resources.altium.com/p/design-manufacturing-and-assembly-dfma-or-predictive-engineering>
-  Kullanım: maliyetin %75–85'inin tasarımda belirlenmesi.
+  Kullanım: maliyetin %75–85'inin tasarımda belirlenmesi; uygulanamayan kenar işleminin ve özelliğin raporlanması gerekçesi (GEO-TREAT, GEO-BUILD).
 - **[A24]** Nielsen Norman Group — *Error-Message Guidelines*. <https://www.nngroup.com/articles/error-message-guidelines/>
   Kullanım: mesaj dili; rengin tek başına kullanılmaması; kalıcı pencerenin yalnızca engelleyici durumda kullanılması.
 - **[A25]** Nielsen Norman Group — *10 Usability Heuristics for User Interface Design*. <https://www.nngroup.com/articles/ten-usability-heuristics/>
@@ -328,9 +342,40 @@ Bu kaynaklar katı model denetiminde (geometri incelemesi) kullanıldı; doğrul
 - **[G3]** Open CASCADE hata izleyicisi — kayıt 33877. <https://tracker.dev.opencascade.org/view.php?id=33877>
   Kullanım: radyüs işleminin yarıçapa duyarlılığı.
 
+## Standartlar ve iç mühendislik notları
+
+Katalogda bağlantısız anılan standartlar ve iç notlar. Standart metinleri bu çalışmada okunmadı; değerler kodda iç mühendislik modeli olarak kullanılır (tablolar `web/rules/` ve `fits.js` içindedir). Durum: hepsi kontrol edilmedi.
+
+- **[N1]** VDI 2230 Blatt 1 — yüksek zorlanmalı cıvata bağlantılarının sistematik hesabı (ön yük, sıkma torku). Kullanım: sıkma torku sınırı, pul ve kilit pulu notları (FAS-TORQUE, FAS-WASHER, FAS-LOCK-WASHER, FAS-PLASTIC-SCREW).
+- **[N2]** ISO 273 — cıvatalar için geçiş delikleri (ince / orta / kaba seri). Kullanım: geçiş deliği çapları ve vida geçme sınıfı (FAS-SCREW-FIT, MNT-DATA).
+- **[N3]** EN 60715 — alçak gerilim şalt düzenlerinin montaj ölçüleri (TS35 rayı). Kullanım: DIN klipsi (MNT-DIN).
+- **[N4]** ISO 7045 / ISO 7046 / ISO 7049 / ISO 14580 — vida baş ve boy serileri (Toolbox kütüphanesi). Kullanım: vida tipi ve boyut tanımı, havşa (FAS-TYPE-SIZE, FAS-CSK).
+- **[N5]** DIN 974-1 — silindir başlı vidalar için gömme baş oyukları. Kullanım: gömme oyuk (FAS-CBORE).
+- **[N6]** IEC 60529 — muhafazaların koruma dereceleri (IP kodu). Kullanım: IP iddiasının testle doğrulanması (IP-TEST); test parametreleri [M2] üzerinden.
+- **[N7]** Galvanik seri ve metal çiftleri (DIN EN ISO 8044 terimleri; iç mühendislik notu). Kullanım: alüminyum gövdede metal vida (FAS-GALVANIC).
+- **[N8]** Malzeme teknik veri sayfaları (kural dosyası notlarındaki kaynak: HDT, sürekli kullanım sıcaklığı, yoğunluk, çekme dayanımı). Kullanım: `max_service_temp_c` (REQ-TEMP), pano içi sıcaklık (MNT-DIN-HDT), plastik vida (FAS-PLASTIC-SCREW).
+
 ## Kullanılmayan ya da erişilemeyen kaynaklar
 
 - Covestro *Part and Mold Design* kılavuzu HTTP 403 verdi; kural kaynağı yapılmadı ([K20]).
 - aPriori, DFMPro ve Xometry'nin DFM özellik açıklamaları (403 ve DNS hataları), Silicon Labs AN1088 ve modül veri sayfaları ile Semtech sayfaları (403 ve yönlendirme) okunamadı; atıf yapılmadı.
 - Enjeksiyonda et düzgünlüğü için anılan PT Online makalesi açılamadı; ±%10 düzgünlük hedefi bu yüzden kullanılmadı.
 - FDM'de damla biçimli yatay delik ve 8 mm'ye kadar desteksiz yatay delik bilgisi doğrulayıcının andığı Makerverse FDM kılavuzundadır; bağlantısı kayıtlı olmadığından atıf yapılmadı.
+
+## Katalog anahtarları
+
+`catalog.js`'teki kaynak adları (`S.<ad>`) ile bu belgedeki anahtarlar. Tabloda olmayan anahtarlar yalnızca TASARIM-ALGORITMASI.md'de kullanılır.
+
+| Grup | Eşleme |
+|---|---|
+| FDM | F1 `ultimaker`, F2 `prusaModel`, F3 `prusaElephant`, F4 `prusaWarp`, F5 `formlabsWall`, F7 `stratasysFdm`, F8 `hubsFdm`, F9 `hubsShell`, F10 `hubsEnclosure`, F11 `hubsThreaded`, F12 `hubsInterlock`, F13 `hubsAccuracy`, F16 `heBridge`, F17 `cncKitchen`, F18 `cncKitchenTable`, F20 `spirol`, F23 `fictivSnap` |
+| CNC | C1 `hubsCnc`, C2 `hubsCncCost`, C4 `xometryCnc`, C5 `xometryCorner`, C7 `xometryChamfer`, C8 `ensinger`, C11 `protolabsMill`, C16 `protolabsFillet`, C18 `fictivCnc`, C20 `nasa`, C21 `bossard`, C22 `mcam`, C23 `boedeker`, C24 `iso13715`, C25 `boedekerDrill` |
+| Enjeksiyon | K1 `protolabsWall`, K2 `protolabsStronger`, K3 `protolabsBasics`, K4 `protolabsBoss`, K5 `protolabsDraft`, K6 `protolabsDfm1`, K7 `protolabsCorners`, K8 `dupont`, K9 `ticona`, K10 `avient`, K11 `boellhoff`, K12 `bonenberger`, K14 `fathom`, K17 `fictivEnclosure`, K18 `fictivImSpec`, K19 `bayerSnap` |
+| Muhafaza | M1 `parker`, M2 `element`, M3 `rogers`, M4 `rst`, M5 `gore`, M20 `pcbway`, M21 `obo`, M22 `lapp`, M23 `sevilla`, M24 `mitDfa`, M25 `standoffBlog`, M26 `iso7089`, M27 `rsMount`, M28 `macrofab`, M29 `ulRti`, M30 `ensingerTemp` |
+| RF | R1 `espressif`, R3 `microchip`, R4 `digi`, R7 `tiMatch`, R8 `taoglasFlex`, R14 `antenova`, R16 `johanson`, R18 `pasternack` |
+| Algoritma | A1 `kicad`, A22 `autodeskDfm`, A23 `altiumDfma` |
+| Standartlar | N1 `vdi2230`, N2 `iso273`, N3 `en60715`, N4 `isoScrews`, N5 `din974`, N6 `iec60529`, N7 `galvanic`, N8 `materialTds` |
+
+## Sürüm geçmişi
+
+- **V2.0 (Kasım 2026):** katalogla eşleme tablosu; katalogda kullanılıp listede olmayan kaynaklar eklendi ([F23], [C25], [M26]–[M30], [N1]–[N8]); [K7] durumu ve "kontrol edilmedi" tanımı düzeltildi; kaynak kullanımları kural kimlikleriyle güncellendi.
