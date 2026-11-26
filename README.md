@@ -128,17 +128,23 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
   tahrik izi) ve "ISO 7049 - ST2.9 × 13 - C - H" gibi tanım
 - Yıldız izi seçimi (V2.1): Phillips (H) ya da Pozidriv (Z); uç no. iki izde aynıdır (PH1 / PZ1), iz çapı m tablodan.
   Seçim tanıma ("ISO 7045 - M3 × 12 - Z"), malzeme listesine, teknik resme, montaja, 3B izine (Pozidriv çentikleri)
-  ve proje dosyasına yazılır; alanı olmayan eski projeler H ile açılır, izi desteklemeyen tipe geçilince tipin varsayılanı alınır
+  ve proje dosyasına yazılır; alanı olmayan eski projeler H ile açılır, izi desteklemeyen tipe geçilince tipin varsayılanı alınır.
+  Katı model güncelken geometriyi değiştirmeyen seçimler (iz, aynı delikli vida tipi, malzeme) yeniden oluşturma olmadan
+  3B görünüme, teknik resme ve montaj STEP'ine yansır
 - Bombeli havşa (ISO 7047, ISO 7051): havşa kısmı ISO 7046-1 / ISO 7050 ile aynıdır, kapağa aynı havşa açılır; bombe f
   (0,5–1,4 mm) yüzeyden çıkar, boy bombeyi kapsamaz (ISO 7047:1994 Şekil 1). Bombe 3B'de, ölçü çiziminde (f), montaj STEP'inde,
-  teknik resim notunda, aralayıcı altındaki vida başında (ayak yüksekliği) ve FAS-CSK bilgi notunda hesaba katılır
+  teknik resim notunda, aralayıcı altındaki vida başında (ayak yüksekliği; düz havşa karşılığı önerilir) ve FAS-CSK bilgi notunda
+  hesaba katılır
 - Kombi vida (ISO 10644, S3 = ISO 7045 başı, ISO 10673 tip N pul): pul vidaya takılıdır; oturma yüzeyi (tork),
-  sıkıştırılan boy, 3B modeli ve ölçü çizimi pulla hesaplanır; ayrıca seçilen baş altı pulu yok sayılır (FAS-WASHER bilgisi);
-  malzeme listesinde tek kalemdir ("ISO 10644 - M3 × 10 - H - S3 - N"), pul malzemesi vidayı izler. M2 kombi vida boyları
-  kaynaklarda bulunamadığı için tanımlanmadı
+  sıkıştırılan boy, panel engeli, taban izi, 3B modeli ve ölçü çizimi pulla hesaplanır; ayrıca seçilen baş altı pulu yok sayılır
+  (FAS-WASHER bilgisi); malzeme listesinde tek kalemdir ("ISO 10644 - M3 × 10 - H - S3 - N - 200 HV", ISO 10644:2009 madde 7).
+  ISO 10644 yalnızca çelik vidaları kapsadığı için malzeme 4.8 galvaniz, pul 200 HV'dir. M2 kombi vida boyları kaynaklarda
+  bulunamadığı için tanımlanmadı
 - Eski DIN karşılıkları (V2.1): Toolbox araması DIN numarasını da bulur ("965", "DIN 965", "7981"); ayrıntı panelinde
   "Eşdeğer: DIN 965" ve M2–M6 ölçü farkı yazılır (pullar ve somunlar dahil: DIN 125-1 A, DIN 433-1, DIN 9021, DIN 934,
-  DIN 439-2, DIN 985)
+  DIN 439-2, DIN 985); ölçü eşdeğerliği doğrulanmayan karşılık "Eski DIN" diye gösterilir (DIN 6900-1), katalogda DIN
+  ölçüsüyle tutulan satırlar ölçünün yanında "(DIN 7985 ölçüsü)" gibi işaretlidir. Arama yıldız izi adını ("Pozidriv", "PZ",
+  "Phillips") ve kombi vidanın pul standardını ("10673") da bulur
 - Sac vidası seçilince gövdede insert/kılavuz yerine ön delik açılır (diş vidayla açılır, ≥ 2·d tutunma, boss ≥ 2,5 × ön delik);
   enjeksiyonda metrik vida seçiliyse sac vidası, metal gövdede sac vidası seçiliyse metrik vida önerilir
 - Her boy için bu karttaki durum canlı hesaplanır: uygun / kısa / standoff uyarlanır. Uzun vida seçilirse
@@ -316,8 +322,11 @@ IP seviyelerinin kordon çapı, sıkıştırma, et payı ve kapak sıkıştırma
 Toolbox kütüphanesi `web/rules/toolbox/iso-screws.json` (gruplar › tipler): vida tipi başına baş ölçüleri (dk, k), diş adımı, tahrik ölçüsü
 ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kaydı eklemek yeterli. İsteğe bağlı alanlar:
 `recesses` (izinli yıldız izleri, ör. `["H", "Z"]`) ve boyutta `mZ` (Pozidriv iz çapı), `raised` + boyutta `f` / `rf`
-(bombeli havşa), boyutta `v` / `rf` / `k_nom` (DIN 7985 yuvarlak silindir baş), `combi` + boyutta `washer` { `type`, `d1`, `d2`, `s` }
-(kombi vida), `din` / `din_note` (eski DIN karşılığı ve M2–M6 farkı), `withdrawn` (geri çekilmiş standardın yerine gelen).
+(bombeli havşa), boyutta `v` / `rf` / `k_nom` (DIN 7985 yuvarlak silindir baş), `combi` + `washer_hardness` + boyutta
+`washer` { `type`, `d1`, `d2`, `s` } (kombi vida, pul sertlik sınıfı tanıma yazılır), `din` / `din_note` (eski DIN karşılığı ve
+M2–M6 farkı), `din_verified: false` (yalnızca eski DIN adı bilinir, ölçü eşdeğerliği doğrulanmadı), boyutta `dim_src`
+(o satırın ölçüleri ISO yerine eski DIN standardından), `note` (Toolbox ayrıntısında gösterilen tip notu), `withdrawn`
+(geri çekilmiş standardın yerine gelen).
 Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dış çap, delik, en az et) ve Helicoil boyutları
 (matkap, yuva dişi, 1d…3d boyları).
 
