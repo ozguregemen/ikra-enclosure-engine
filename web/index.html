@@ -195,9 +195,9 @@
           <div class="sp-head"><h2>Gereksinimler</h2><span class="sp-sub">tasarım zarfını belirleyen kararlar</span></div>
           <p class="lead">Süreç, malzeme, sızdırmazlık ve kutunun sabitlenmesi et kalınlığını, boşlukları ve bağlantıyı değiştirir; ayrıntılardan önce seçilmelidir.</p>
           <div class="cards">
-            <details class="card" open data-cat="surec">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Üretim ve malzeme</h3><span class="card-sum" id="sum-process"></span></summary>
-              <div class="card-body">
+            <section class="card" data-cat="surec">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="true" aria-controls="card-surec-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Üretim ve malzeme</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="sum-process"></span></button></h3>
+              <div class="card-body" id="card-surec-body">
                 <div class="field-label" id="process-lbl">Üretim yöntemi</div>
                 <div class="seg-full" id="process-seg" role="radiogroup" aria-labelledby="process-lbl"></div>
                 <div class="field-label" id="material-lbl">Malzeme</div>
@@ -217,19 +217,19 @@
                   <p class="mat-props" id="lid-mat-props"></p>
                 </div>
               </div>
-            </details>
+            </section>
 
-            <details class="card" data-cat="ip">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Sızdırmazlık (IP)</h3><span class="card-sum" id="sum-ip"></span></summary>
-              <div class="card-body">
+            <section class="card" data-cat="ip">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="false" aria-controls="card-ip-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Sızdırmazlık (IP)</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="sum-ip"></span></button></h3>
+              <div class="card-body" id="card-ip-body" hidden>
                 <div class="seg-full four" id="ip-level" role="radiogroup" aria-label="IP koruma seviyesi"></div>
                 <p class="muted small" id="ip-desc"></p>
               </div>
-            </details>
+            </section>
 
-            <details class="card" data-cat="montaj">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Kutunun sabitlenmesi</h3><span class="card-sum" id="sum-mount"></span></summary>
-              <div class="card-body">
+            <section class="card" data-cat="montaj">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="false" aria-controls="card-montaj-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Kutunun sabitlenmesi</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="sum-mount"></span></button></h3>
+              <div class="card-body" id="card-montaj-body" hidden>
                 <div class="seg-full two" id="mount-type" role="radiogroup" aria-label="Kutunun sabitlenmesi"></div>
                 <p class="muted small" id="mount-desc"></p>
                 <div class="mount-opts" id="mount-opts">
@@ -250,7 +250,7 @@
                   <div class="tol-result" id="mount-info"></div>
                 </div>
               </div>
-            </details>
+            </section>
           </div>
           <button type="button" class="btn block next-btn" data-goto="design">Tasarıma geç <span aria-hidden="true">→</span></button>
         </div>
@@ -260,9 +260,9 @@
           <div class="sp-head"><h2>Tasarım</h2><span class="sp-sub">kural setinden otomatik</span></div>
           <p class="lead">Ölçüler kurallardan üretilir. <b>Otomatik</b> alanları inceleme döngüsü ayarlar; yazılan değer <b>Kilitli</b> olur ve döngü onu değiştirmez.</p>
           <div class="cards" id="design-panel">
-            <details class="card" open data-cat="baglanti">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Kartın tutulması</h3><span class="card-sum" id="holes-summary"></span></summary>
-              <div class="card-body">
+            <section class="card" data-cat="baglanti">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="true" aria-controls="card-baglanti-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Kartın tutulması</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="holes-summary"></span></button></h3>
+              <div class="card-body" id="card-baglanti-body">
                 <h4 class="sub-title">Vida <span class="muted">· Toolbox</span></h4>
                 <button type="button" class="screw-pick" id="screw-pick">
                   <span class="screw-pick-icon" id="screw-pick-icon"></span>
@@ -287,11 +287,11 @@
                 <div class="seg-full three" id="edge-hold" role="radiogroup" aria-labelledby="edge-lbl"></div>
                 <p class="muted small" id="edge-desc"></p>
               </div>
-            </details>
+            </section>
 
-            <details class="card" data-cat="kapak">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Kapak bağlantısı</h3><span class="card-sum" id="sum-lid"></span></summary>
-              <div class="card-body">
+            <section class="card" data-cat="kapak">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="false" aria-controls="card-kapak-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Kapak bağlantısı</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="sum-lid"></span></button></h3>
+              <div class="card-body" id="card-kapak-body" hidden>
                 <div class="seg-full three" id="lid-mode" role="radiogroup" aria-label="Kapak bağlantısı"></div>
                 <div class="corner-pick-wrap hidden" id="corner-pick-wrap">
                   <h4 class="sub-title">Köşe (kapak) vidası <span class="muted">· Toolbox</span></h4>
@@ -307,39 +307,39 @@
                   <div class="seg-full three" id="corner-axis" role="radiogroup" aria-labelledby="corner-axis-lbl"></div>
                 </div>
               </div>
-            </details>
+            </section>
 
-            <details class="card" data-cat="port">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Port açıklıkları</h3><span class="card-sum" id="ports-summary"></span></summary>
-              <div class="card-body">
+            <section class="card" data-cat="port">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="false" aria-controls="card-port-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Port açıklıkları</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="ports-summary"></span></button></h3>
+              <div class="card-body" id="card-port-body" hidden>
                 <div class="port-list" id="port-list"></div>
               </div>
-            </details>
+            </section>
 
-            <details class="card" data-cat="panel">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Panel elemanları</h3><span class="card-sum" id="panel-summary"></span></summary>
-              <div class="card-body">
+            <section class="card" data-cat="panel">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="false" aria-controls="card-panel-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Panel elemanları</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="panel-summary"></span></button></h3>
+              <div class="card-body" id="card-panel-body" hidden>
                 <div class="panel-list" id="panel-list"></div>
                 <button type="button" class="btn block" id="panel-add">Toolbox'tan eleman ekle</button>
                 <p class="muted small">Boş bırakılan yüz ve konum, çakışmayan en uygun yere otomatik yerleştirilir. Konum: duvarda kavite merkezinden yatay, gövde alt yüzünden Z; kapakta merkezden X/Y (mm).</p>
               </div>
-            </details>
+            </section>
 
             <div class="group-title">Ayrıntılar</div>
-            <details class="card" data-cat="genel">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Parametreler</h3><span class="card-sum" id="sum-params"></span></summary>
-              <div class="card-body">
+            <section class="card" data-cat="genel">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="false" aria-controls="card-genel-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Parametreler</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="sum-params"></span></button></h3>
+              <div class="card-body" id="card-genel-body" hidden>
                 <div class="params" id="params"></div>
                 <div class="row">
                   <button type="button" class="btn sm" id="params-reset">Tüm kilitleri kaldır</button>
                   <span class="muted small" id="params-lock-sum"></span>
                 </div>
               </div>
-            </details>
+            </section>
 
-            <details class="card">
-              <summary><span class="card-dot" aria-hidden="true"></span><h3 class="card-title">Toleranslar ve geçmeler</h3><span class="card-sum" id="sum-tol"></span></summary>
-              <div class="card-body">
+            <section class="card">
+              <h3 class="card-head"><button type="button" class="card-toggle" data-disclosure aria-expanded="false" aria-controls="card-tol-body"><span class="disc-chev" aria-hidden="true"></span><span class="card-title">Toleranslar ve geçmeler</span> <span class="card-dot" aria-hidden="true"></span> <span class="card-sum" id="sum-tol"></span></button></h3>
+              <div class="card-body" id="card-tol-body" hidden>
                 <h4 class="sub-title" id="fit-lid-lbl">Kapak geçmesi <span class="muted">· kapak dili ↔ gövde</span></h4>
                 <div class="seg-full three" id="fit-lid" role="radiogroup" aria-labelledby="fit-lid-lbl"></div>
                 <h4 class="sub-title" id="fit-screw-lbl">Vida geçiş deliği <span class="muted">· ISO 273</span></h4>
@@ -351,7 +351,7 @@
                 <p class="muted small" id="tol-note"></p>
                 <button type="button" class="btn sm" id="tol-reset">Malzeme değerlerine dön</button>
               </div>
-            </details>
+            </section>
           </div>
         </div>
 
@@ -615,6 +615,7 @@
         <h3 class="sub-title">Otomatik ve Kilitli değerler</h3>
         <p><b>Otomatik</b> parametreyi kural seti ve inceleme döngüsü belirler. Alana farklı bir değer yazılınca parametre <b>Kilitli</b> olur (Esc yazmayı iptal eder, kilitlemez); döngü onu değiştirmez, ilgili bulgu kullanıcı kararı olarak kalır.
           Kilit simgesiyle değer yeniden otomatiğe döndürülebilir. Süreç ya da malzeme değişince kilitli değerler korunur. Bir otomatik düzeltmenin “Geri al” düğmesi parametreyi önceki değerinde kilitler.</p>
+        <p>CNC'de <b>Freze takım çapı</b> alanı atölyedeki en küçük parmak frezeyi alır (0,5–12 mm). Boş bırakılırsa kural dosyasındaki değer (yer tutucuda yazan) kullanılır; yazılan değer kilitlenir ve iç köşe radyüsleri, port ve cep köşeleri ile somun cebi köşe boşaltması buna göre hesaplanır.</p>
       </section>
       <section>
         <h3 class="sub-title">Bulgu düzeyleri ve kararlar</h3>
@@ -625,9 +626,11 @@
           <tr><td><span class="lvl-inline ok">✓ Geçti</span></td><td>Kural sağlanıyor; “N kontrol geçti” altında toplanır.</td></tr>
           <tr><td><span class="lvl-inline waived">– Muaf</span></td><td>Gerekçeyle kabul edilmiş risk; proje dosyasına, rapora ve teknik resme yazılır.</td></tr>
         </table>
-        <p>Her bulgu kartı ölçülen değeri sınırla karşılaştırır (ör. <span class="mono">1,6 mm &lt; 1,95 mm</span>), “Neden?” altında kuralın gerekçesini ve kaynaklarını gösterir.
+        <p>Her bulgu kartı ölçülen değeri sınırla karşılaştırır (ör. <span class="mono">1,6 mm &lt; 1,95 mm</span>; eksi değerler <span class="mono">−0,2 mm</span> biçiminde), “Neden?” altında kuralın gerekçesini ve kaynaklarını gösterir.
           <b>Uygula</b> önerilen düzeltmeyi yapar, <b>Göster</b> ilgili parçayı 3B görünümde vurgular, <b>Muaf tut</b> gerekçe ister.</p>
-        <p>Durum: <b>Hazır</b> (hata ve uyarı yok), <b>Uyarılarla hazır</b> (yalnızca uyarı), <b>Engelli</b> (en az bir hata).</p>
+        <p>Aynı kuralın aynı düzeydeki tekrarlanan bulguları tek grup kartında toplanır (ör. <span class="mono">PORT-RECESS · 3 bulgu</span>); grup açılınca her bulgu kendi düğmeleriyle listelenir. Hata grupları açık, uyarı ve bilgi grupları kapalı gelir; açık hata ya da uyarı varken <b>Bilgiler</b> bölümü de kapalıdır.</p>
+        <p><b>Eşleşmeyen muafiyetler</b>: artık hiçbir bulguya bağlanmayan muafiyetler (sorun giderilmiş ya da bulgunun ölçüsü değişmiş) gerekçeleriyle listelenir. Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz; <b>Kaldır</b> ile silinir.</p>
+        <p>Karar: <b>Hazır</b> (hata ve uyarı yok), <b>Uyarılarla hazır</b> (yalnızca uyarı), <b>Üretime uygun değil</b> (en az bir açık hata). Teknik resimdeki DFM inceleme paftası aynı kararı yazar.</p>
       </section>
       <section>
         <h3 class="sub-title">Sözlük</h3>

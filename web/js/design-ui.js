@@ -23,7 +23,7 @@ import { assemblyItems } from './assembly.js';
 import { FIT_CLASSES, toleranceOf } from './fits.js';
 import { MOUNT_TYPES, MOUNT_SIZES } from './mount.js';
 import { runDesignLoop, baseParams, AUTO_KEYS } from './dfm/loop.js';
-import { reviewBuild, summarize, toFinding } from './dfm/review.js';
+import { reviewBuild, summarize, toFinding, mergeBuildFindings, staleWaivers, validWaiver } from './dfm/review.js';
 import { ruleInfo, SOURCES } from './dfm/catalog.js';
 import { treatmentFor } from './treat.js';
 
@@ -32,8 +32,11 @@ const nf2 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFr
 const nf0 = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const nfx = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
-const f2 = (v) => nf2.format(v);
-const fx = (v) => nfx.format(Math.round(v * 100) / 100);
+// Görüntülenen sayılarda eksi işareti tipografik eksidir (U+2212); "-0" hiçbir zaman yazılmaz.
+// Giriş alanlarının değerleri (inputText) ASCII eksiyle kalır: kullanıcı yazdığını aynen düzenler.
+const uminus = (s) => s.replace(/^[-−]/, '−');
+const f2 = (v) => uminus(nf2.format(Math.round(v * 100) / 100 || 0));
+const fx = (v) => uminus(nfx.format(Math.round(v * 100) / 100 || 0));
 const REBUILD_MS = 500; // düzenlemeden sonra katı model yeniden oluşturma gecikmesi
 const COMMIT_MS = 700; // yazarken değerin uygulanması için bekleme
 const HISTORY_MAX = 50;
@@ -96,7 +99,8 @@ const CAT_LABEL = {
 const LEVEL_LABEL = { error: 'Hata', warn: 'Uyarı', info: 'Bilgi', ok: 'Geçti', waived: 'Muaf' };
 const LEVEL_PLURAL = { error: 'Hatalar', warn: 'Uyarılar', info: 'Bilgiler' };
 const LEVEL_RANK = { error: 0, warn: 1, info: 2, ok: 3 };
-const STATUS_LABEL = { ready: 'Hazır', advisories: 'Uyarılarla hazır', blocked: 'Engelli' };
+// Karar adları teknik resimdeki DFM paftasıyla aynı (ÜRETİME HAZIR / UYARILARLA HAZIR / ÜRETİME UYGUN DEĞİL)
+const STATUS_LABEL = { ready: 'Hazır', advisories: 'Uyarılarla hazır', blocked: 'Üretime uygun değil' };
 const STATUS_ICON = { ready: 'ok', advisories: 'warn', blocked: 'error' };
 const STOP_SHORT = {
   converged: 'yakınsadı', 'needs-user': 'kullanıcı kararı gerekiyor', 'max-iter': 'tur sınırına ulaşıldı',
@@ -109,10 +113,16 @@ const STOP_TEXT = {
   oscillation: 'Düzeltmeler birbirini geri aldığı için döngü durduruldu; ilgili parametrelerden biri kilitlenmelidir.',
   stalled: 'Denenen düzeltmeler bulguları azaltmadı ve geri alındı; kalan bulgular için kullanıcı kararı gerekir.',
 };
-const REJECT_WHY = { 'no-gain': 'bulguları azaltmadı', oscillation: 'salınıma yol açtı' };
+const REJECT_WHY = { 'no-gain': 'bulguları azaltmadı', oscillation: 'salınıma yol açtı', 'no-effect': 'tasarımda etkisi olmadı' };
 const PART_LABEL = { base: 'Gövde', lid: 'Kapak', clip: 'DIN klipsi', all: 'Tüm muhafaza' };
-const PARAM_LABEL = Object.fromEntries(PARAM_FIELDS.map((f) => [f.key, f.label]));
+// Freze takım çapı (CNC): tasarım seçeneği toolDiameter (mm; null = kural dosyasındaki process_params.tool_diameter)
+const TOOL_KEY = 'toolDiameter';
+const TOOL_LABEL = 'Freze takım çapı';
+const TOOL_LIMITS = [0.5, 12];
+const PARAM_LABEL = { ...Object.fromEntries(PARAM_FIELDS.map((f) => [f.key, f.label])), [TOOL_KEY]: TOOL_LABEL };
 const PARAM_LIMITS = { wall: [0.2, 20], pcbClearance: [0, 20], topClearance: [0, 100], standoffHeight: [0, 100], cornerRadius: [0, 50] };
+/** Katı modelden önce değerlendirilemeyen (yalnızca son incelemede üretilen) kurallar: muafiyetleri ön incelemede "eşleşmeyen" sayılmaz */
+const POST_ONLY_RULES = new Set(['GEO-TREAT', 'GEO-BUILD']);
 const STAGE_CATS = { req: ['surec', 'ip', 'montaj', 'rf'], design: ['genel', 'port', 'kapak', 'baglanti', 'panel'] };
 const CONF_LABEL = { high: 'yüksek', medium: 'orta', low: 'düşük' };
 const KIND_LABEL = {
@@ -199,6 +209,7 @@ export function createDesignUI({ viewer, ui }) {
     tolEdit: 'body', // tolerans kartında düzenlenen malzeme: gövde / kapak
     tolOverrides: loadTolOverrides(),
     locks: new Set(), // kullanıcının yazdığı (kilitli) anahtarlar: tasarım döngüsü bunları değiştirmez
+    toolDiameter: null, // CNC freze takım çapı (mm); null: kural dosyasının değeri. Yazılınca "Kilitli" sayılır
     waivers: {}, // { bulguId: { reason, date, rule, title } } — kullanıcı muafiyetleri (proje dosyasına yazılır)
     req: { tempMax: null }, // gereksinimler: en yüksek çalışma sıcaklığı (°C)
     loop: null, // son tasarım döngüsü sonucu (dfm/loop.js)
@@ -211,6 +222,7 @@ export function createDesignUI({ viewer, ui }) {
     actionLabel: null,
     hist: { undo: [], redo: [], present: null, saved: null, seq: 0, busy: Promise.resolve() },
     commitTimer: null,
+    paramsRendering: false, // parametre alanları yeniden çiziliyor: kaldırılan alanın blur/change olayı uygulanmaz
   };
 
   /* ---------- Kural dosyaları ---------- */
@@ -603,7 +615,22 @@ export function createDesignUI({ viewer, ui }) {
     mount: state.mount,
     edgeHold: state.edgeHold,
     encloseOverrides: state.encloseOverrides,
+    // Yalnızca CNC (gövde ya da ayrı kapak) varken; süreç değişince saklanan değer başka sürece uygulanmaz
+    toolDiameter: usesCnc() ? state.toolDiameter : null,
   });
+  /** CNC süreci (gövde ya da ayrı kapak) var mı; freze takım çapı alanı yalnızca o zaman gösterilir */
+  const usesCnc = () => state.rules?.process === 'cnc' || !!(state.lidSel && state.lidRules?.process === 'cnc');
+  /** Kural dosyasındaki takım çapı (gövde CNC ise gövdenin, değilse CNC kapağın); CNC yoksa null */
+  const ruleToolD = () => {
+    const R = state.rules?.process === 'cnc' ? state.rules : state.lidSel && state.lidRules?.process === 'cnc' ? state.lidRules : null;
+    const v = Number(R?.process_params?.tool_diameter);
+    return R ? (Number.isFinite(v) && v > 0 ? v : 3) : null;
+  };
+  const validToolD = (v) => Number.isFinite(v) && v >= TOOL_LIMITS[0] - 1e-9 && v <= TOOL_LIMITS[1] + 1e-9;
+  /** Kilitli (kullanıcının yazdığı) değer sayısı: parametre kilitleri + elle yazılmış takım çapı */
+  const lockCount = () => state.locks.size + (state.toolDiameter !== null && usesCnc() ? 1 : 0);
+  /** Tüm kilitler kaldırılır: parametreler ve takım çapı yeniden otomatik (kural değeri) */
+  const clearLocks = () => { state.locks = new Set(); state.toolDiameter = null; };
   // Kilitsiz varsayılanlar: kural dosyası + tasarım döngüsünün otomatik düzeltmeleri (dfm/loop.js; sonuçlar önbellekte)
   const currentDefaults = () => defaultParams(state.analysis, state.rules, designOptions());
   /** Kullanıcının yazdığı (kilitli) parametreler */
@@ -637,11 +664,12 @@ export function createDesignUI({ viewer, ui }) {
     renderParams();
     state.actionLabel = `${label}: ${state.rules.label}`;
     update();
-    const kept = Object.entries(keep);
+    const kept = Object.entries(keep).map(([k, v]) => `${PARAM_LABEL[k] || k} ${fx(v)} mm`);
+    if (state.toolDiameter !== null && usesCnc()) kept.push(`${TOOL_LABEL} Ø${fx(state.toolDiameter)} mm`);
     if (kept.length) {
-      ui.toast(`Kilitli değerler korundu: ${kept.map(([k, v]) => `${PARAM_LABEL[k] || k} ${fx(v)} mm`).join(', ')}.`, {
+      ui.toast(`Kilitli değerler korundu: ${kept.join(', ')}.`, {
         action: 'Kilitleri kaldır',
-        onAction: () => { state.locks = new Set(); state.actionLabel = 'Kilitler kaldırıldı'; update(); },
+        onAction: () => { clearLocks(); renderParams(); state.actionLabel = 'Kilitler kaldırıldı'; update(); },
         timeout: 9000,
       });
     }
@@ -651,7 +679,15 @@ export function createDesignUI({ viewer, ui }) {
 
   function renderParams() {
     if (!state.rules || !state.params) return;
-    $('#params').innerHTML = PARAM_FIELDS.map((fld) => {
+    // Odaktaki alan kaldırılırken tarayıcı blur/change olaylarını eşzamanlı yayar: bu sırada uygulama yapılmaz
+    // (geri almada eski yazılan değer yeni durumun üstüne yeniden yazılmasın)
+    state.paramsRendering = true;
+    try { renderParamsHtml(); } finally { state.paramsRendering = false; }
+    syncParamInputs();
+  }
+  function renderParamsHtml() {
+    // Takım çapı kendi satırında (toolRowHtml); PARAM_FIELDS'e eklenirse iki kez çizilmez
+    $('#params').innerHTML = PARAM_FIELDS.filter((fld) => fld.key !== TOOL_KEY).map((fld) => {
       const k = fld.key;
       return `
       <div class="param" data-key="${k}">
@@ -666,8 +702,83 @@ export function createDesignUI({ viewer, ui }) {
         <span class="auto-note" id="p-${k}-auto" hidden></span>
         <span class="field-msg" id="p-${k}-msg"></span>
       </div>`;
-    }).join('');
-    syncParamInputs();
+    }).join('') + toolRowHtml();
+  }
+
+  /** Freze takım çapı satırı (yalnızca CNC): boş = kural değeri (yer tutucuda), yazılan değer kilitlenir */
+  function toolRowHtml() {
+    if (!usesCnc()) return '';
+    const def = ruleToolD();
+    return `
+      <div class="param" data-tool-row>
+        <span class="p-lab"><label for="p-tool">${TOOL_LABEL}</label><span class="mode-badge" id="p-tool-mode">Otomatik</span></span>
+        <button type="button" class="lock-btn" data-tool-lock aria-pressed="false" aria-label="${TOOL_LABEL} değerini kilitle" aria-describedby="p-tool-mode">${UNLOCK_SVG}</button>
+        <div class="input-wrap">
+          <input id="p-tool" data-tool type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
+            aria-describedby="p-tool-hint p-tool-msg" aria-invalid="false" value="${state.toolDiameter !== null ? inputText(state.toolDiameter) : ''}" placeholder="${inputText(def)}">
+          <span class="unit">mm</span>
+        </div>
+        <span class="hint" id="p-tool-hint"></span>
+        <span class="auto-note" id="p-tool-auto" hidden></span>
+        <span class="field-msg" id="p-tool-msg"></span>
+      </div>`;
+  }
+
+  /** Takım çapı alanı doğrulaması: boş → kural değeri (v null); geçersiz ya da 0,5–12 mm dışı → uygulanmaz */
+  function validateTool(input) {
+    const msg = document.getElementById('p-tool-msg');
+    const raw = String(input.value).trim();
+    const v = raw === '' ? null : parseInput(raw);
+    let err = '';
+    if (v !== null && !Number.isFinite(v)) err = 'Sayı girilmeli (ör. 3); değer uygulanmadı.';
+    else if (v !== null && !validToolD(v)) err = `Takım çapı ${fx(TOOL_LIMITS[0])}–${fx(TOOL_LIMITS[1])} mm arasında olmalı; değer uygulanmadı.`;
+    input.setAttribute('aria-invalid', String(!!err));
+    if (msg) { msg.className = `field-msg${err ? ' error' : ''}`; msg.textContent = err; }
+    return err ? { ok: false } : { ok: true, v };
+  }
+
+  function commitTool(input) {
+    clearTimeout(state.commitTimer);
+    // Yeniden çizimde kaldırılan (ör. geri almada) odaktaki alanın blur/change olayı eski değeri yeniden yazmasın
+    if (state.paramsRendering || !input.isConnected) return;
+    const r = validateTool(input);
+    if (!r.ok) return;
+    const cur = state.toolDiameter;
+    if ((r.v === null && cur === null) || (r.v !== null && cur !== null && Math.abs(r.v - cur) < 1e-9)) return;
+    state.toolDiameter = r.v === null ? null : Math.round(r.v * 100) / 100;
+    state.actionLabel = r.v === null ? `${TOOL_LABEL}: kural değeri` : `${TOOL_LABEL} Ø${fx(r.v)} mm`;
+    update();
+  }
+
+  /** Takım çapı satırını durumla eşitle (CNC değilse satır yoktur; süreç değişince satır yeniden çizilir) */
+  function syncToolRow() {
+    const row = document.querySelector('.param[data-tool-row]');
+    if (!!row !== usesCnc()) { renderParams(); return; }
+    if (!row) return;
+    const input = row.querySelector('input');
+    const locked = state.toolDiameter !== null;
+    const def = ruleToolD();
+    input.placeholder = inputText(def);
+    if (document.activeElement !== input && input.getAttribute('aria-invalid') !== 'true') {
+      input.value = locked ? inputText(state.toolDiameter) : '';
+      validateTool(input);
+    }
+    input.classList.toggle('locked', locked);
+    const btn = row.querySelector('.lock-btn');
+    btn.setAttribute('aria-pressed', String(locked));
+    btn.innerHTML = locked ? LOCK_SVG : UNLOCK_SVG;
+    btn.title = locked ? 'Kilitli: kilidi kaldırınca kural değerine döner' : 'Otomatik (kural değeri): kilitlenirse bu değer sabit kalır';
+    const badge = row.querySelector('.mode-badge');
+    badge.textContent = locked ? 'Kilitli' : 'Otomatik';
+    badge.classList.toggle('locked', locked);
+    row.querySelector('.hint').textContent = `Boş: kural değeri Ø${fx(def)} mm. Atölyedeki en küçük parmak frezenin çapı yazılır; iç köşe radyüsü (≥ takım yarıçapı), port ve cep köşeleri ile somun cebi köşe boşaltması buna göre.`;
+    const note = row.querySelector('.auto-note');
+    const want = (state.loop?.findings || []).filter((fd) => !fd.waived && (fd.level === 'error' || fd.level === 'warn') && fd.fix && fd.fix.key === TOOL_KEY && Number.isFinite(Number(fd.fix.value)));
+    const text = want.length
+      ? `${locked ? 'Kilitli değer: ' : ''}kural önerisi Ø${fx(Math.min(...want.map((fd) => Number(fd.fix.value))))} mm${locked ? ' uygulanmadı' : ''} (${[...new Set(want.map((fd) => fd.rule))].join(', ')})`
+      : '';
+    note.hidden = !text;
+    note.textContent = text;
   }
 
   /** Alanları durumla eşitle (odaktaki alanın yazılan değerine dokunulmaz) */
@@ -707,7 +818,8 @@ export function createDesignUI({ viewer, ui }) {
       note.hidden = !text;
       note.textContent = text;
     }
-    const n = state.locks.size;
+    syncToolRow();
+    const n = lockCount();
     $('#params-lock-sum').textContent = n ? `${n} kilitli parametre` : 'tüm parametreler otomatik';
     $('#params-reset').disabled = !n;
   }
@@ -734,6 +846,7 @@ export function createDesignUI({ viewer, ui }) {
 
   function commitParam(input) {
     clearTimeout(state.commitTimer);
+    if (state.paramsRendering || !input.isConnected) return; // yeniden çizimde kaldırılan alanın blur/change olayı
     const v = validateParam(input);
     if (v === null) return;
     const k = input.dataset.key;
@@ -745,6 +858,54 @@ export function createDesignUI({ viewer, ui }) {
     state.actionLabel = `${PARAM_LABEL[k]} ${fx(v)} mm`;
     update();
   }
+
+  /* Freze takım çapı alanı: Enter, odaktan çıkış ya da 0,7 s bekleme uygular; Esc vazgeçer; ↑/↓ 0,5 mm (Shift: 1 mm) */
+  $('#params').addEventListener('input', (e) => {
+    const input = e.target.closest('input[data-tool]');
+    if (!input) return;
+    clearTimeout(state.commitTimer);
+    if (validateTool(input).ok) state.commitTimer = setTimeout(() => commitTool(input), COMMIT_MS);
+  });
+  $('#params').addEventListener('change', (e) => {
+    const input = e.target.closest('input[data-tool]');
+    if (input) commitTool(input);
+  });
+  $('#params').addEventListener('keydown', (e) => {
+    const input = e.target.closest('input[data-tool]');
+    if (!input) return;
+    if (e.key === 'Enter') { e.preventDefault(); commitTool(input); return; }
+    if (e.key === 'Escape') {
+      clearTimeout(state.commitTimer);
+      state.commitTimer = null;
+      input.value = state.toolDiameter !== null ? inputText(state.toolDiameter) : '';
+      validateTool(input);
+      return;
+    }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const cur = String(input.value).trim() === '' ? ruleToolD() : parseInput(input.value);
+      if (!Number.isFinite(cur)) return;
+      e.preventDefault();
+      const step = (e.shiftKey ? 1 : 0.5) * (e.key === 'ArrowUp' ? 1 : -1);
+      input.value = inputText(Math.min(TOOL_LIMITS[1], Math.max(TOOL_LIMITS[0], Math.round((cur + step) * 100) / 100)));
+      clearTimeout(state.commitTimer);
+      if (validateTool(input).ok) state.commitTimer = setTimeout(() => commitTool(input), COMMIT_MS);
+    }
+  });
+  $('#params').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tool-lock]');
+    if (!btn) return;
+    if (state.toolDiameter !== null) {
+      state.toolDiameter = null;
+      state.actionLabel = `${TOOL_LABEL} otomatiğe döndü`;
+    } else {
+      const input = document.getElementById('p-tool');
+      const r = input ? validateTool(input) : { ok: true, v: null };
+      if (!r.ok) return;
+      state.toolDiameter = r.v ?? ruleToolD();
+      state.actionLabel = `${TOOL_LABEL} kilitlendi`;
+    }
+    update();
+  });
 
   $('#params').addEventListener('input', (e) => {
     const input = e.target.closest('input[data-key]');
@@ -796,8 +957,8 @@ export function createDesignUI({ viewer, ui }) {
     update();
   });
   $('#params-reset').addEventListener('click', () => {
-    if (!state.rules || !state.locks.size) return;
-    state.locks = new Set();
+    if (!state.rules || !lockCount()) return;
+    clearLocks();
     state.actionLabel = 'Tüm kilitler kaldırıldı';
     update();
     toastUndo('Tüm kilitler kaldırıldı; parametreler yeniden otomatik.');
@@ -846,6 +1007,14 @@ export function createDesignUI({ viewer, ui }) {
     if (key === 'mountAxis') { setMount({ axis: value }); return true; }
     if (key === 'mountType') { setMount({ type: value }); return true; }
     if (key === 'mountCount') { setMount({ count: Number(value) }); return true; }
+    if (key === TOOL_KEY) {
+      // Takım çapı önerisi: değer yazılır ve kilitlenir (kullanıcı kararı); null kural değerine döndürür; aralık dışı öneri uygulanmaz
+      const v = value === null || value === '' ? null : Number(value);
+      if (v !== null && !validToolD(v)) return false;
+      state.toolDiameter = v === null ? null : Math.round(v * 100) / 100;
+      update();
+      return true;
+    }
     if (key === 'setParam') {
       const [pk, pv] = String(value).split(':');
       if (!(pk in state.params) || !Number.isFinite(Number(pv))) return false;
@@ -1304,7 +1473,10 @@ export function createDesignUI({ viewer, ui }) {
   /* ---------- Geometri parmak izi, katı model durumu ---------- */
 
   const geomKeys = new WeakMap();
-  /** Katı modeli belirleyen her şey: geometri (işlem politikası hariç) + gövde/kapak kural seti */
+  /**
+   * Katı modeli belirleyen her şey: geometri (işlem politikası hariç) + gövde/kapak kural seti + freze takım çapı.
+   * Takım çapı ayrıca eklenir: kenar işlemi politikası (treatmentFor) ona bağlıysa geometri aynı kalsa da yeniden oluşturulur.
+   */
   function geomKey(d) {
     if (!d || !d.geometry) return null;
     let k = geomKeys.get(d);
@@ -1314,7 +1486,7 @@ export function createDesignUI({ viewer, ui }) {
       k = `${state.rules?.id}|${state.lidSel && state.lidRules ? state.lidRules.id : '-'}|${JSON.stringify(g)}`;
       geomKeys.set(d, k);
     }
-    return k;
+    return `${k}|tool:${usesCnc() && state.toolDiameter !== null ? state.toolDiameter : '-'}`;
   }
   const openErrors = () => (state.review ? state.review.findings : state.loop?.findings || []).filter((fd) => fd.level === 'error' && !fd.waived);
   const preOpenErrors = () => (state.loop?.findings || []).filter((fd) => fd.level === 'error' && !fd.waived);
@@ -1346,16 +1518,17 @@ export function createDesignUI({ viewer, ui }) {
 
   /* ---------- İnceleme birleştirme ---------- */
 
-  /** Son inceleme: işçinin işlem raporu (sözleşme A) bulgulara çevrilir; INJ-DRAFT sınırı ön incelemeden */
+  /**
+   * Son inceleme: işçinin işlem raporu (sözleşme A) bulgulara çevrilir. INJ-DRAFT sınırları burada verilmez:
+   * reviewBuild gövde ve kapak sınırlarını (kapakta plaka/dil/boru ayrı) tasarımın kendi kontrollerinden okur.
+   * (Tek bir draftLimit vermek kapağın sınırını gövdeye ya da gövdeninkini kapağa yazabilirdi.)
+   */
   function computePost() {
     if (!isCurrent()) { state.post = null; return; }
-    const pre = state.loop?.findings || [];
-    const draft = pre.find((fd) => fd.rule === 'INJ-DRAFT' && Number.isFinite(fd.limit));
-    const draftLimit = draft ? draft.limit : null;
     let post = [];
     try {
       post = reviewBuild(state.design, state.result.treatReport || null, {
-        waivers: state.waivers, params: state.params, locks: state.locks, draftLimit, limits: draftLimit !== null ? { 'INJ-DRAFT': draftLimit } : {},
+        waivers: state.waivers, params: state.params, locks: state.locks,
       }) || [];
     } catch (err) {
       console.error('Son inceleme çalıştırılamadı', err);
@@ -1409,24 +1582,38 @@ export function createDesignUI({ viewer, ui }) {
         fd.conf = 'medium';
       }
       const w = state.waivers[fd.id];
-      if (w && fd.level !== 'ok') fd.waived = { reason: String(w.reason || ''), date: w.date || null };
+      if (fd.level !== 'ok' && validWaiver(w)) fd.waived = { reason: String(w.reason).trim(), date: w.date || null };
     }
     return out;
   }
 
+  /**
+   * Birleşik inceleme: gereksinimler + döngü bulguları + (model güncelse) son inceleme. mergeBuildFindings, katı
+   * modelde doğrulanan parçanın (gövde / kapak) ön incelemedeki INJ-DRAFT notunu düşürür: her parça için tek INJ-DRAFT.
+   */
   function composeReview() {
     const loop = state.loop;
     if (!loop) return null;
-    const pre = loop.findings;
     const post = state.post;
-    // Katı modelde doğrulanan kural ön incelemedeki "uygulanmalı" notunun yerini alır
-    const superseded = new Set((post || []).map((fd) => fd.rule).filter((r) => r === 'INJ-DRAFT'));
-    const findings = [...requirementFindings(), ...pre.filter((fd) => !superseded.has(fd.rule)), ...(post || [])];
+    const merged = post ? mergeBuildFindings(loop.findings, post).findings : loop.findings;
+    const findings = [...requirementFindings(), ...merged];
     const sum = summarize(findings);
-    return {
+    const r = {
       phase: post ? 'post' : 'pre', status: sum.status, counts: sum.counts, findings, post: post || [],
       stop: loop.stop, iterations: loop.iterations, changes: loop.changes || [], rejected: loop.rejected || [],
     };
+    r.stale = staleList(r);
+    return r;
+  }
+
+  /**
+   * Eşleşmeyen muafiyetler (review.js staleWaivers): hiçbir bulguya bağlanmayan kayıtlar. Yalnızca katı modelde
+   * üretilen bulguların muafiyetleri, model güncel değilken değerlendirilemeyeceği için listelenmez.
+   */
+  function staleList(r) {
+    const ids = staleWaivers(state.waivers, r.findings);
+    return ids.map((id) => ({ id, ...(state.waivers[id] || {}) }))
+      .filter((w) => r.phase === 'post' || !(w.post === true || POST_ONLY_RULES.has(w.rule)));
   }
 
   /* ---------- Ana hesap ---------- */
@@ -1474,7 +1661,7 @@ export function createDesignUI({ viewer, ui }) {
     const proc = state.index.processes.find((pp) => pp.id === state.process);
     $('#sum-process').textContent = `${proc.label} · ${state.rules.label}${state.lidSel && state.lidRules ? ` · kapak ${state.lidRules.label}` : ''}`;
     $('#sum-params').textContent = d.params
-      ? `et ${f2(d.params.wall)} · PCB altı ${f2(d.params.standoffHeight)} mm${state.locks.size ? ` · ${state.locks.size} kilitli` : ''}`
+      ? `et ${f2(d.params.wall)} · PCB altı ${f2(d.params.standoffHeight)} mm${usesCnc() ? ` · takım Ø${fx(state.toolDiameter ?? ruleToolD())}` : ''}${lockCount() ? ` · ${lockCount()} kilitli` : ''}`
       : 'geçersiz değer';
     const mountCount = (state.analysis.holes || []).filter((h) => h.mount).length;
     const sc = d.screws && d.screws[0];
@@ -1532,6 +1719,7 @@ export function createDesignUI({ viewer, ui }) {
     // Sayısal parametre düzeltmesi: hangi değerin hangi parametreye yazılacağı etikette açıkça yazılır
     const fv = Number(fd.fix?.value);
     if (fd.fix && AUTO_KEYS.includes(fd.fix.key) && PARAM_LABEL[fd.fix.key] && Number.isFinite(fv)) return `Uygula: ${PARAM_LABEL[fd.fix.key]} ${fx(fv)} mm`;
+    if (fd.fix?.key === TOOL_KEY && fd.fix.value !== null && Number.isFinite(fv)) return `Uygula: ${TOOL_LABEL} Ø${fx(fv)} mm`;
     const l = String(fd.fix?.label || 'Düzeltmeyi uygula').trim();
     const last = l.split(/\s+/).pop().toLocaleLowerCase('tr');
     return VERB_END.test(last) ? l : `Uygula: ${l}`;
@@ -1539,37 +1727,103 @@ export function createDesignUI({ viewer, ui }) {
   const canShow = (fd) => (fd.focus && Number.isFinite(fd.focus.partId)) || (['base', 'lid', 'clip'].includes(fd.part) && state.result);
   const safeId = (id) => String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
 
-  function findingCard(fd) {
-    const lvl = fd.waived ? 'waived' : fd.level;
+  /** Bulgunun eylem düğmeleri; describedBy: düğmeyi hangi bulgunun anlattığı (kart başlığı ya da grup öğesinin metni) */
+  function findingActions(fd, describedBy) {
+    const acts = [];
+    const d = `data-fid="${esc(fd.id)}" aria-describedby="${describedBy}"`;
+    if (fd.fix && !fd.waived && fd.level !== 'ok') acts.push(`<button type="button" class="btn sm primary" data-act="fix" ${d}>${esc(fixLabel(fd))}</button>`);
+    if (canShow(fd)) acts.push(`<button type="button" class="btn sm" data-act="show" ${d}>Göster</button>`);
+    if (!fd.waived && (fd.level === 'error' || fd.level === 'warn')) acts.push(`<button type="button" class="btn sm" data-act="waive" ${d}>Muaf tut</button>`);
+    if (fd.waived) acts.push(`<button type="button" class="btn sm" data-act="unwaive" ${d}>Muafiyeti kaldır</button>`);
+    return acts.length ? `<div class="fc-actions">${acts.join('')}</div>` : '';
+  }
+  /** "Neden?" açılır bölümü: kuralın gerekçesi, kaynakları ve kaynak güveni */
+  function whyBlock(fd, key, label) {
     const info = fd.rule ? ruleInfo(fd.rule) : null;
     const why = fd.why || info?.why || '';
     const src = (Array.isArray(fd.source) && fd.source.length ? fd.source : info?.source) || [];
     const conf = fd.conf || info?.conf;
+    if (!why && !src.length) return '';
+    return `<details class="fc-why" data-open-key="${esc(key)}"${state.openSecs.has(key) ? ' open' : ''}><summary>Neden?<span class="vh"> ${esc(label || '')}</span></summary>
+        ${why ? `<p>${esc(why)}</p>` : ''}
+        ${src.length ? `<ul class="fc-src">${src.map((s) => `<li>${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}<span class="vh"> (yeni sekmede açılır)</span></a>` : esc(s.title)}</li>`).join('')}</ul>` : ''}
+        ${conf ? `<p class="fc-conf">Kaynak güveni: ${esc(CONF_LABEL[conf] || conf)}</p>` : ''}</details>`;
+  }
+  const metaChips = (fd) => `<span class="part-chip">${esc(PART_LABEL[fd.part] || 'Genel')}</span>${fd.autoFixed ? '<span class="auto-chip">otomatik düzeltildi</span>' : ''}` +
+    `${fd.fix && fd.fix.auto === false && !fd.waived ? '<span class="part-chip">öneri</span>' : ''}`;
+
+  function findingCard(fd) {
+    const lvl = fd.waived ? 'waived' : fd.level;
     const meas = measureHtml(fd);
     const hid = `fh-${safeId(fd.id)}`;
-    const acts = [];
-    if (fd.fix && !fd.waived && fd.level !== 'ok') {
-      acts.push(`<button type="button" class="btn sm primary" data-act="fix" data-fid="${esc(fd.id)}" aria-describedby="${hid}">${esc(fixLabel(fd))}</button>`);
-    }
-    if (canShow(fd)) acts.push(`<button type="button" class="btn sm" data-act="show" data-fid="${esc(fd.id)}" aria-describedby="${hid}">Göster</button>`);
-    if (!fd.waived && (fd.level === 'error' || fd.level === 'warn')) acts.push(`<button type="button" class="btn sm" data-act="waive" data-fid="${esc(fd.id)}" aria-describedby="${hid}">Muaf tut</button>`);
-    if (fd.waived) acts.push(`<button type="button" class="btn sm" data-act="unwaive" data-fid="${esc(fd.id)}" aria-describedby="${hid}">Muafiyeti kaldır</button>`);
-    const whyKey = `why:${fd.id}`;
     const date = fd.waived?.date ? new Date(fd.waived.date).toLocaleDateString('tr-TR') : '';
     return `<article class="fcard ${lvl}" data-fid="${esc(fd.id)}" aria-labelledby="${hid}">
       <div class="fc-head">${lvlIcon(lvl)}<h4 id="${hid}">${esc(fd.title || fd.rule || 'Bulgu')}</h4></div>
-      <div class="fc-meta"><span class="lvl-inline ${lvl}">${LEVEL_LABEL[lvl]}</span>${fd.rule ? `<span class="rule-id">${esc(fd.rule)}</span>` : ''}` +
-        `<span class="part-chip">${esc(PART_LABEL[fd.part] || 'Genel')}</span>${fd.autoFixed ? '<span class="auto-chip">otomatik düzeltildi</span>' : ''}` +
-        `${fd.fix && fd.fix.auto === false && !fd.waived ? '<span class="part-chip">öneri</span>' : ''}</div>
+      <div class="fc-meta"><span class="lvl-inline ${lvl}">${LEVEL_LABEL[lvl]}</span>${fd.rule ? `<span class="rule-id">${esc(fd.rule)}</span>` : ''}${metaChips(fd)}</div>
       ${meas ? `<p class="fc-measure">${meas}</p>` : ''}
       <p class="fc-text">${esc(fd.text)}</p>
       ${fd.waived ? `<p class="fc-waiver">Muaf tutuldu${date ? ` (${esc(date)})` : ''}: ${esc(fd.waived.reason)}</p>` : ''}
-      ${why || src.length ? `<details class="fc-why" data-open-key="${esc(whyKey)}"${state.openSecs.has(whyKey) ? ' open' : ''}><summary>Neden?<span class="vh"> ${esc(fd.title || '')}</span></summary>
-        ${why ? `<p>${esc(why)}</p>` : ''}
-        ${src.length ? `<ul class="fc-src">${src.map((s) => `<li>${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}<span class="vh"> (yeni sekmede açılır)</span></a>` : esc(s.title)}</li>`).join('')}</ul>` : ''}
-        ${conf ? `<p class="fc-conf">Kaynak güveni: ${esc(CONF_LABEL[conf] || conf)}</p>` : ''}</details>` : ''}
-      ${acts.length ? `<div class="fc-actions">${acts.join('')}</div>` : ''}
+      ${whyBlock(fd, `why:${fd.id}`, fd.title)}
+      ${findingActions(fd, hid)}
     </article>`;
+  }
+
+  /* Tekrarlanan bulgular: aynı kural + düzey + kategori tek grup kartında ("PORT-RECESS · 3 bulgu"); öğe eylemleri ayrı */
+  const catOf = (fd) => (CAT_ORDER.includes(fd.cat) ? fd.cat : 'genel');
+  const grpKey = (fd) => `grp:${fd.level}:${catOf(fd)}:${fd.rule || fd.id}`;
+  /** Açılır bölüm durumu: kullanıcı açtıysa/kapattıysa o; yoksa varsayılan */
+  const discOpen = (key, defOpen) => state.openSecs.has(key) || (defOpen && !state.openSecs.has(`!${key}`));
+  /** Başlık içinde düğme deseni (APG açılır bölüm): başlık düzeyi korunur, düğme aria-expanded ile durumu bildirir */
+  const discBtn = (key, ctrl, open, inner, cls = '') =>
+    `<button type="button" class="disc-btn${cls ? ' ' + cls : ''}" data-disclosure data-open-key="${esc(key)}" aria-expanded="${open}" aria-controls="${ctrl}"><span class="disc-chev" aria-hidden="true"></span>${inner}</button>`;
+
+  /** Grup öğesi; parça bütün öğelerde aynıysa (grup başlığında yazılı) parça etiketi tekrarlanmaz */
+  function groupItem(fd, samePart) {
+    const lvl = fd.waived ? 'waived' : fd.level;
+    const tid = `ft-${safeId(fd.id)}`;
+    const meas = measureHtml(fd);
+    const meta = samePart ? metaChips(fd).replace(/^<span class="part-chip">[^<]*<\/span>/, '') : metaChips(fd);
+    return `<li class="fitem ${lvl}" data-fid="${esc(fd.id)}">
+        ${meta ? `<div class="fc-meta">${meta}</div>` : ''}
+        ${meas ? `<p class="fc-measure">${meas}</p>` : ''}
+        <p class="fc-text" id="${tid}">${esc(fd.text)}</p>
+        ${findingActions(fd, tid)}
+      </li>`;
+  }
+
+  function groupCard(level, list) {
+    const fd0 = list[0];
+    const key = grpKey(fd0);
+    const sid = safeId(key);
+    const open = discOpen(key, level === 'error'); // hatalar açık gelir; uyarı ve bilgi grupları kapalı (gürültü)
+    const title = fd0.title || ruleInfo(fd0.rule)?.title || fd0.rule || 'Bulgu';
+    const parts = [...new Set(list.map((fd) => PART_LABEL[fd.part] || 'Genel'))];
+    const inner = `${lvlIcon(level)}<span class="fgrp-text"><span class="fgrp-title">${esc(title)}</span> ` +
+      `<span class="fgrp-meta"><span class="rule-id">${esc(fd0.rule || '')}</span> · ${list.length} bulgu · ${esc(parts.join(', '))}</span></span>`;
+    return `<section class="fgrp ${level}">
+      <h4 class="fgrp-head" id="gh-${sid}">${discBtn(key, `gb-${sid}`, open, inner)}</h4>
+      <div class="fgrp-body" id="gb-${sid}"${open ? '' : ' hidden'}>
+        ${whyBlock(fd0, `why:${key}`, title)}
+        <ul class="fgrp-list">${list.map((fd) => groupItem(fd, parts.length === 1)).join('')}</ul>
+      </div>
+    </section>`;
+  }
+
+  /** Bir kategorideki bulgular: tekrarlanan kural grup kartında, diğerleri tek kart (ilk görülme sırası korunur) */
+  function catItems(level, xs) {
+    const byRule = new Map();
+    for (const fd of xs) {
+      const k = fd.rule || fd.id;
+      if (!byRule.has(k)) byRule.set(k, []);
+      byRule.get(k).push(fd);
+    }
+    return [...byRule.values()].map((list) => (list.length > 1 ? groupCard(level, list) : findingCard(list[0]))).join('');
+  }
+
+  /** Bulgu görünür olsun diye düzey bölümü ve grup kartı açılır (ör. muafiyet kaldırılınca bulgu kapalı gruba dönerse) */
+  function revealFinding(fd) {
+    if (!fd || fd.level === 'ok') return;
+    for (const k of [`lvl:${fd.level}`, grpKey(fd)]) { state.openSecs.add(k); state.openSecs.delete(`!${k}`); }
   }
 
   const countsText = (c) => {
@@ -1580,6 +1834,13 @@ export function createDesignUI({ viewer, ui }) {
   /** Kural etiketi: geçen satırda yalnızca kimlik (katalog başlığı sorunu anlattığından "geçti" metniyle çelişmesin) */
   const ruleTag = (fd) => (fd.rule ? `<span class="rule-id">${esc(fd.rule)}${fd.level !== 'ok' && fd.title ? ` · ${esc(fd.title)}` : ''}</span>` : '');
 
+  /** Değişikliği tetikleyen bulgunun ölçüsü (loop.js changes[]: measured / limit / op / unit varsa) */
+  const changeCause = (c) => {
+    const has = Number.isFinite(c?.measured) || Number.isFinite(c?.limit) || (Array.isArray(c?.limit) && c.limit.length === 2);
+    const m = has ? measureHtml(c) : '';
+    return m ? `<span class="chg-cause"><span class="req">neden:</span> ${m}</span>` : '';
+  };
+
   function changeRow(c, i) {
     const info = ruleInfo(c.rule);
     const lbl = PARAM_LABEL[c.key] || c.key;
@@ -1589,6 +1850,7 @@ export function createDesignUI({ viewer, ui }) {
     const why = info?.why || '';
     return `<li class="chg"><span class="chg-main">${esc(lbl)} <span class="chg-val">${fx(c.from)} → ${fx(c.to)} mm</span></span>
       <span class="chg-sub"><span class="rule-id">${esc(c.rule || '')}</span> ${esc(c.title || info?.title || '')} · tur ${c.iter + 1}${trig ? ` · ${esc(trig)}` : ''}</span>
+      ${changeCause(c)}
       ${why || src.length ? `<details class="fc-why chg-why" data-open-key="${esc(key)}"${state.openSecs.has(key) ? ' open' : ''}><summary>Neden?<span class="vh"> ${esc(lbl)} ${fx(c.from)} → ${fx(c.to)} mm</span></summary>
         ${why ? `<p>${esc(why)}</p>` : ''}
         ${src.length ? `<ul class="fc-src">${src.map((s) => `<li>${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}<span class="vh"> (yeni sekmede açılır)</span></a>` : esc(s.title)}</li>`).join('')}</ul>` : ''}</details>` : ''}
@@ -1599,7 +1861,7 @@ export function createDesignUI({ viewer, ui }) {
     const intro = (c.introduced || []).filter(Boolean);
     return `<li class="chg rejected"><span class="chg-main">${esc(PARAM_LABEL[c.key] || c.key)} <span class="chg-val">${fx(c.from)} → ${fx(c.to)} mm</span></span>
       <span class="chg-sub"><span class="rule-id">${esc(c.rule || '')}</span> ${esc(info?.title || '')} · tur ${c.iter + 1} · ${esc(REJECT_WHY[c.why] || c.why || '')}` +
-      `${intro.length ? ` · yeni bulgu doğururdu: ${intro.map((r) => `${esc(r)} (${esc(ruleInfo(r)?.title || '')})`).join(', ')}` : ''}</span></li>`;
+      `${intro.length ? ` · yeni bulgu doğururdu: ${intro.map((r) => `${esc(r)} (${esc(ruleInfo(r)?.title || '')})`).join(', ')}` : ''}</span>${changeCause(c)}</li>`;
   }
 
   function renderReview() {
@@ -1624,21 +1886,44 @@ export function createDesignUI({ viewer, ui }) {
     const cats = CAT_ORDER.filter((c) => open.some((fd) => fd.cat === c));
     if (flt.cat !== 'all' && !cats.includes(flt.cat)) flt.cat = 'all';
     const shown = open.filter((fd) => (flt.level === 'all' || fd.level === flt.level) && (flt.cat === 'all' || fd.cat === flt.cat));
+    // Bölümler başlık + düğme deseniyle: panel H2 → bölüm H3 → bulgu / grup H4 (başlıkla gezinme bozulmaz).
+    // <section> öğelerine bilerek ad verilmez: her biri ayrı "bölge" işaretine dönüşüp yer işareti listesini kalabalıklaştırmasın.
     const sec = (key, title, count, inner, defOpen = false) => {
-      const isOpen = state.openSecs.has(key) || (defOpen && !state.openSecs.has(`!${key}`));
-      return `<details class="rv-section" data-open-key="${key}"${isOpen ? ' open' : ''}><summary>${title}<span class="count-badge">${count}</span></summary>${inner}</details>`;
+      const isOpen = discOpen(key, defOpen);
+      const sid = safeId(key);
+      return `<section class="rv-section"><h3 class="rv-head" id="sh-${sid}">` +
+        discBtn(key, `sb-${sid}`, isOpen, `<span class="rv-title">${title}</span> <span class="count-badge">${count}</span>`) +
+        `</h3><div class="rv-body" id="sb-${sid}"${isOpen ? '' : ' hidden'}>${inner}</div></section>`;
     };
 
+    // Açık hata ya da uyarı varken bilgi bölümü kapalı gelir (kullanıcı açarsa açık kalır; "Bilgi" süzgeci açar)
+    const hasIssues = lvlCount('error') + lvlCount('warn') > 0;
     const groups = ['error', 'warn', 'info'].map((l) => {
       const list = shown.filter((fd) => fd.level === l);
       if (!list.length) return '';
-      const byCat = CAT_ORDER.map((c) => [c, list.filter((fd) => (fd.cat || 'genel') === c)]).filter(([, xs]) => xs.length);
-      const other = list.filter((fd) => !CAT_ORDER.includes(fd.cat || 'genel'));
-      if (other.length) byCat.push(['genel', other]);
-      return `<section class="fgroup" aria-label="${LEVEL_PLURAL[l]}"><h3>${lvlIcon(l)} ${LEVEL_PLURAL[l]} <span class="count-badge ${l === 'info' ? '' : l}">${list.length}</span></h3>` +
+      const byCat = CAT_ORDER.map((c) => [c, list.filter((fd) => catOf(fd) === c)]).filter(([, xs]) => xs.length);
+      const key = `lvl:${l}`;
+      const isOpen = discOpen(key, l !== 'info' || !hasIssues || flt.level === 'info');
+      const head = `${lvlIcon(l)}<span class="rv-title">${LEVEL_PLURAL[l]}</span> <span class="count-badge ${l === 'info' ? '' : l}">${list.length}</span>`;
+      return `<section class="fgroup ${l}"><h3 class="rv-head" id="lvh-${l}">${discBtn(key, `lvb-${l}`, isOpen, head)}</h3>` +
+        `<div class="fgroup-body" id="lvb-${l}"${isOpen ? '' : ' hidden'}>` +
         // Kategori adı başlık değil grup etiketidir: başlık düzeyi bulgu başlıklarında (h4) kalır
-        byCat.map(([c, xs], ci) => `<div class="fcat" role="group" aria-labelledby="fcat-${l}-${ci}"><p class="fcat-title" id="fcat-${l}-${ci}">${esc(CAT_LABEL[c] || c)}</p>${xs.map(findingCard).join('')}</div>`).join('') + '</section>';
+        byCat.map(([c, xs], ci) => `<div class="fcat" role="group" aria-labelledby="fcat-${l}-${ci}"><p class="fcat-title" id="fcat-${l}-${ci}">${esc(CAT_LABEL[c] || c)}</p>${catItems(l, xs)}</div>`).join('') +
+        '</div></section>';
     }).join('');
+
+    // Hiçbir bulguyla eşleşmeyen muafiyetler: gerekçesiyle listelenir, kaldırılabilir
+    const stale = r.stale || [];
+    const staleRow = (w) => {
+      const title = w.title || ruleInfo(w.rule)?.title || 'Bulgu';
+      const date = w.date ? new Date(w.date).toLocaleDateString('tr-TR') : '';
+      return `<li class="chg stale" data-wid="${esc(w.id)}"><span class="chg-main">${esc(title)}</span>
+        <span class="chg-sub">${w.rule ? `<span class="rule-id">${esc(w.rule)}</span> · ` : ''}${date ? `${esc(date)} · ` : ''}gerekçe: ${esc(w.reason || '–')}</span>
+        <button type="button" class="btn sm" data-act="unstale" data-wid="${esc(w.id)}" aria-label="Eşleşmeyen muafiyeti kaldır: ${esc(title)}">Kaldır</button></li>`;
+    };
+    const staleHtml = stale.length ? sec('sec:stale', `${lvlIcon('waived')} Eşleşmeyen muafiyetler`, stale.length,
+      `<p class="muted small">Bu muafiyetler artık hiçbir bulguyla eşleşmiyor: sorun giderilmiş ya da bulgunun metni (ör. bir ölçü) değişmiş olabilir. Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz; gerekiyorsa ilgili bulgu yeniden muaf tutulmalı.</p>
+       <ul class="rv-list">${stale.map(staleRow).join('')}</ul>${stale.length > 1 ? '<div class="row"><button type="button" class="btn sm" data-act="unstale-all">Tümünü kaldır</button></div>' : ''}`, true) : '';
 
     const chips = [['all', 'Tümü', open.length], ['error', 'Hata', lvlCount('error')], ['warn', 'Uyarı', lvlCount('warn')], ['info', 'Bilgi', lvlCount('info')]]
       .map(([id, label, n]) => `<button type="button" class="chip" role="radio" data-flevel="${id}" aria-checked="${flt.level === id}">${label} <span class="chip-sub">${n}</span></button>`).join('');
@@ -1658,6 +1943,7 @@ export function createDesignUI({ viewer, ui }) {
       <div class="filters" role="radiogroup" aria-label="Bulgu düzeyi süzgeci">${chips}${catSel}</div>
       ${groups || `<p class="empty-list">${open.length ? 'Süzgece uyan bulgu yok.' : 'Açık bulgu yok: tüm kontroller geçti ya da muaf tutuldu.'}</p>`}
       ${waived.length ? sec('sec:waived', `${lvlIcon('waived')} Muaf tutulanlar`, waived.length, waived.map(findingCard).join('')) : ''}
+      ${staleHtml}
       ${sec('sec:passed', `${lvlIcon('ok')} ${passed.length} kontrol geçti`, passed.length, passed.length
         ? `<ul class="passed">${passed.map((fd) => `<li>${lvlIcon('ok')}<span>${esc(fd.text)}${fd.autoFixed ? ' <span class="auto-chip">otomatik düzeltildi</span>' : ''}</span><span class="rule-id">${esc(fd.rule || '')}</span></li>`).join('')}</ul>`
         : '<p class="empty-list">Henüz geçen kontrol yok.</p>')}`;
@@ -1673,16 +1959,31 @@ export function createDesignUI({ viewer, ui }) {
     if (!key) return;
     if (det.open) { state.openSecs.add(key); state.openSecs.delete(`!${key}`); } else { state.openSecs.delete(key); state.openSecs.add(`!${key}`); }
   }, true);
+  // Başlık + düğme açılır bölümleri (main.js açıp kapatır ve "ikra:disclosure" yayar): durum yeniden çizimde korunur
+  const rememberDisclosure = (e) => {
+    const key = e.detail?.key;
+    if (!key) return;
+    if (e.detail.open) { state.openSecs.add(key); state.openSecs.delete(`!${key}`); } else { state.openSecs.delete(key); state.openSecs.add(`!${key}`); }
+  };
+  $('#review-body').addEventListener('ikra:disclosure', rememberDisclosure);
   $('#review-body').addEventListener('change', (e) => {
     if (e.target.id === 'rv-cat') { state.filter.cat = e.target.value; renderReview(); $('#rv-cat')?.focus(); }
   });
   $('#review-body').addEventListener('click', (e) => {
     const fl = e.target.closest('[data-flevel]');
-    if (fl) { state.filter.level = fl.dataset.flevel; renderReview(); return; }
+    if (fl) {
+      state.filter.level = fl.dataset.flevel;
+      // Düzey süzgeci seçilince o düzeyin bölümü (kapatılmış olsa da) açılır
+      if (fl.dataset.flevel !== 'all') { state.openSecs.add(`lvl:${fl.dataset.flevel}`); state.openSecs.delete(`!lvl:${fl.dataset.flevel}`); }
+      renderReview();
+      return;
+    }
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
     if (act === 'revert') { revertChange(Number(btn.dataset.ci)); return; }
+    if (act === 'unstale') { removeStale([btn.dataset.wid]); return; }
+    if (act === 'unstale-all') { removeStale((state.review?.stale || []).map((w) => w.id)); return; }
     const fd = findingById(btn.dataset.fid);
     if (!fd) return;
     if (act === 'fix') fixFinding(fd);
@@ -1715,6 +2016,12 @@ export function createDesignUI({ viewer, ui }) {
       const m = state.index.processes.find((p) => p.id === pid)?.materials.find((x) => x.id === fd.fix.value);
       return `${fd.fix.key === 'lidMaterial' ? 'kapak malzemesi' : 'malzeme'} ${m?.label || fd.fix.value} seçildi`;
     }
+    if (fd.fix?.key === TOOL_KEY) {
+      const was = state.toolDiameter ?? ruleToolD();
+      const to = fd.fix.value === null || fd.fix.value === '' ? null : Number(fd.fix.value);
+      return to === null ? `${TOOL_LABEL.toLocaleLowerCase('tr')} kural değerine döndü`
+        : `${TOOL_LABEL.toLocaleLowerCase('tr')} ${was !== null ? `Ø${fx(was)} → ` : ''}Ø${fx(to)} mm (kilitlendi)`;
+    }
     if (!fd.fix || !AUTO_KEYS.includes(fd.fix.key) || !Number.isFinite(Number(fd.fix.value))) return fd.fix?.label || '';
     return `${PARAM_LABEL[fd.fix.key]} ${fx(state.params[fd.fix.key])} → ${fx(Number(fd.fix.value))} mm (kilitlendi)`;
   };
@@ -1730,11 +2037,20 @@ export function createDesignUI({ viewer, ui }) {
   function revertChange(i) {
     const c = state.loop?.changes?.[i];
     if (!c) return;
-    state.params[c.key] = c.from;
-    state.locks.add(c.key);
-    state.actionLabel = `Otomatik düzeltme geri alındı: ${PARAM_LABEL[c.key]}`;
+    const lbl = PARAM_LABEL[c.key] || c.key;
+    if (c.key === TOOL_KEY) {
+      // Döngü takım çapını değiştirdiyse: önceki değerde kilitlenir (önceki değer yoksa kural değeri, kilitsiz)
+      state.toolDiameter = validToolD(Number(c.from)) ? Number(c.from) : null;
+    } else {
+      if (!state.params || !(c.key in state.params)) return;
+      state.params[c.key] = c.from;
+      state.locks.add(c.key);
+    }
+    state.actionLabel = `Otomatik düzeltme geri alındı: ${lbl}`;
     update();
-    toastUndo(`Otomatik düzeltme geri alındı: ${PARAM_LABEL[c.key]} ${fx(c.from)} mm değerinde kilitlendi.`);
+    toastUndo(c.key === TOOL_KEY && state.toolDiameter === null
+      ? `Otomatik düzeltme geri alındı: ${lbl} kural değerine döndü.`
+      : `Otomatik düzeltme geri alındı: ${lbl} ${fx(c.from)} mm değerinde kilitlendi.`);
     keepFocus('#review-body [data-act="revert"]');
   }
 
@@ -1767,7 +2083,9 @@ export function createDesignUI({ viewer, ui }) {
     const fd = waiverTarget;
     wDialog.close();
     if (!fd) return;
-    state.waivers = { ...state.waivers, [fd.id]: { reason, date: new Date().toISOString().slice(0, 10), rule: fd.rule || null, title: fd.title || '' } };
+    // post: katı model sonrası bulgu (model güncel değilken eşleşmeyen sayılmaz)
+    const post = (state.post || []).some((x) => x.id === fd.id);
+    state.waivers = { ...state.waivers, [fd.id]: { reason, date: new Date().toISOString().slice(0, 10), rule: fd.rule || null, title: fd.title || '', ...(post ? { post: true } : {}) } };
     state.openSecs.add('sec:waived');
     state.actionLabel = `Muafiyet: ${fd.title}`;
     update();
@@ -1778,10 +2096,24 @@ export function createDesignUI({ viewer, ui }) {
     const next = { ...state.waivers };
     delete next[fd.id];
     state.waivers = next;
+    revealFinding(fd); // bulgu kapalı bir grup kartına dönerse odak gizli düğmede kalmasın
     state.actionLabel = `Muafiyet kaldırıldı: ${fd.title}`;
     update();
     toastUndo(`Muafiyet kaldırıldı: ${fd.title}.`);
     keepFocus(`#review-body [data-fid="${CSS.escape(fd.id)}"] [data-act]`);
+  }
+  /** Eşleşmeyen muafiyet kayıtlarını sil (geri alınabilir) */
+  function removeStale(ids) {
+    const list = ids.filter((id) => id && Object.prototype.hasOwnProperty.call(state.waivers, id));
+    if (!list.length) return;
+    const next = { ...state.waivers };
+    for (const id of list) delete next[id];
+    state.waivers = next;
+    const one = list.length === 1 ? (state.review?.stale || []).find((w) => w.id === list[0]) : null;
+    state.actionLabel = list.length > 1 ? `${list.length} eşleşmeyen muafiyet kaldırıldı` : 'Eşleşmeyen muafiyet kaldırıldı';
+    update();
+    toastUndo(list.length > 1 ? `${list.length} eşleşmeyen muafiyet kaldırıldı.` : `Eşleşmeyen muafiyet kaldırıldı${one?.title ? `: ${one.title}` : ''}.`);
+    keepFocus('#review-body [data-act="unstale"]');
   }
 
   /* ---------- Kart durum noktaları, aşamalar, durum çubuğu ---------- */
@@ -1807,9 +2139,11 @@ export function createDesignUI({ viewer, ui }) {
       // Durum yalnızca renkle değil, biçimle de gösterilir (sekizgen ×, üçgen !, daire ✓)
       const dot = card.querySelector('.card-dot');
       if (dot && dot.dataset.lvl !== (w || '')) { dot.dataset.lvl = w || ''; dot.innerHTML = w ? lvlIcon(w) : ''; }
-      const summary = card.querySelector('summary');
-      let sr = summary.querySelector('.card-sr');
-      if (!sr) { sr = document.createElement('span'); sr.className = 'vh card-sr'; summary.appendChild(sr); }
+      // Durum metni kartın açma düğmesinde (başlığın adı): "Kartın tutulması … (1 uyarı)"
+      const toggle = card.querySelector('.card-toggle');
+      if (!toggle) return;
+      let sr = toggle.querySelector('.card-sr');
+      if (!sr) { sr = document.createElement('span'); sr.className = 'vh card-sr'; toggle.appendChild(sr); }
       const e = list.filter((fd) => !fd.waived && fd.level === 'error').length;
       const wn = list.filter((fd) => !fd.waived && fd.level === 'warn').length;
       sr.textContent = e || wn ? ` (${[e ? `${e} hata` : '', wn ? `${wn} uyarı` : ''].filter(Boolean).join(', ')})` : '';
@@ -1899,7 +2233,7 @@ export function createDesignUI({ viewer, ui }) {
     const rej = loop.rejected || [];
     const items = [];
     items.push(`<li class="tl-item"><span class="tl-dot">1</span><div class="tl-body"><strong>Tur 1 · İlk tasarım incelendi</strong>
-      <p>Kural seti varsayılanları${state.locks.size ? ` ve ${state.locks.size} kilitli değer` : ''} ile tasarım üretildi; ${total} kontrol kataloğa bağlı kurallarla değerlendirildi.</p></div></li>`);
+      <p>Kural seti varsayılanları${lockCount() ? ` ve ${lockCount()} kilitli değer` : ''} ile tasarım üretildi; ${total} kontrol kataloğa bağlı kurallarla değerlendirildi.</p></div></li>`);
     for (const [iter, list] of [...byIter.entries()].sort((a, b) => a[0] - b[0])) {
       items.push(`<li class="tl-item"><span class="tl-dot fix">${iter + 1}</span><div class="tl-body"><strong>Tur ${iter + 1} · Otomatik düzeltme, yeniden inceleme</strong>
         <ul class="rv-list">${list.map(([c, i]) => changeRow(c, i)).join('')}</ul></div></li>`);
@@ -1981,7 +2315,7 @@ export function createDesignUI({ viewer, ui }) {
     const errs = preOpenErrors();
     const ok = await ui.confirm({
       title: 'Hatalara rağmen katı model oluşturulsun mu?',
-      html: `<p>Tasarımda ${errs.length} açık hata var. Katı model oluşturulur ama tasarım <b>Engelli</b> kalır; dosyalar indirilmeden önce yeniden onay istenir.</p>
+      html: `<p>Tasarımda ${errs.length} açık hata var. Katı model oluşturulur ama karar <b>Üretime uygun değil</b> olarak kalır; dosyalar indirilmeden önce yeniden onay istenir.</p>
         <ul class="confirm-list">${errs.map((fd) => `<li><b>${esc(fd.title)}</b> <span class="rule-id">${esc(fd.rule || '')}</span><br>${esc(fd.text)}</li>`).join('')}</ul>`,
       buttons: [{ id: 'cancel', label: 'Vazgeç' }, { id: 'go', label: 'Yine de oluştur', primary: true, danger: true }],
     });
@@ -2044,7 +2378,7 @@ export function createDesignUI({ viewer, ui }) {
   }
   $('#final-review').addEventListener('click', (e) => { if (e.target.closest('[data-open-review]')) ui.openReview({ focus: true }); });
 
-  /** Çıktı kapısı: model güncel değilse indirme kapalı (gerekçesiyle); engelliyse önce onay */
+  /** Çıktı kapısı: model güncel değilse indirme kapalı (gerekçesiyle); üretime uygun değilse önce onay */
   function gateState() {
     const ph = phase();
     const r = state.review;
@@ -2057,7 +2391,7 @@ export function createDesignUI({ viewer, ui }) {
         lines: ['Görüntülenen ve indirilebilecek dosyalar son geçerli tasarıma ait olurdu; bu yüzden indirme kapalı. Hatalar düzeltilmeli, muaf tutulmalı ya da katı model bilerek oluşturulmalı.'],
         action: '<button type="button" class="btn sm" data-open-review>Hataları göster</button>' };
     }
-    if (r.status === 'blocked') return { ok: true, confirm: true, cls: 'error', ico: 'error', title: `Engelli: ${r.counts.error} açık hata`, lines: ['Dosyalar indirilebilir; indirmeden önce açık hatalar listelenip onay istenir.'] };
+    if (r.status === 'blocked') return { ok: true, confirm: true, cls: 'error', ico: 'error', title: `${STATUS_LABEL.blocked}: ${r.counts.error} açık hata`, lines: ['Dosyalar indirilebilir; indirmeden önce açık hatalar listelenip onay istenir.'] };
     if (r.status === 'advisories') return { ok: true, cls: 'warn', ico: 'warn', title: `Uyarılarla hazır: ${r.counts.warn} açık uyarı`, lines: ['Son inceleme tamamlandı; uyarılar üretim öncesi gözden geçirilmeli.'] };
     return { ok: true, cls: 'ok', ico: 'ok', title: 'Hazır: son inceleme tamamlandı', lines: ['Tasarım niyeti belirtilen kurallarla uyumludur; üretim öncesi üretici onayı gerekir.'] };
   }
@@ -2081,7 +2415,7 @@ export function createDesignUI({ viewer, ui }) {
     if (e.target.closest('[data-retry]')) { state.buildFail = null; generate(); }
   });
 
-  /** İndirme kapısı: engelli tasarımda açık hatalar listelenir ve onay istenir */
+  /** İndirme kapısı: üretime uygun olmayan tasarımda açık hatalar listelenir ve onay istenir */
   async function gated(run) {
     const g = gateState();
     if (!g.ok) { ui.toast(g.title); return; }
@@ -2383,7 +2717,11 @@ export function createDesignUI({ viewer, ui }) {
       stop: r.stop,
       iterations: r.iterations,
       counts: { error: r.counts.error, warn: r.counts.warn, info: r.counts.info, ok: r.counts.ok, waived: r.counts.waived },
-      changes: r.changes.map((c) => ({ rule: c.rule, title: c.title || ruleInfo(c.rule)?.title || '', key: c.key, from: c.from, to: c.to, text: c.text || '' })),
+      changes: r.changes.map((c) => ({
+        rule: c.rule, title: c.title || ruleInfo(c.rule)?.title || '', key: c.key, from: c.from, to: c.to, text: c.text || '',
+        // Tetikleyen bulgunun ölçüsü (loop.js verirse)
+        ...(c.measured !== undefined || c.limit !== undefined ? { measured: c.measured ?? null, limit: c.limit ?? null, op: c.op ?? null, unit: c.unit ?? null } : {}),
+      })),
       rejected: r.rejected.map((c) => ({ rule: c.rule, key: c.key, from: c.from, to: c.to, why: REJECT_WHY[c.why] || c.why || '', introduced: c.introduced || [] })),
       findings: r.findings.map((fd) => ({
         id: fd.id, rule: fd.rule, title: fd.title, level: fd.level, cat: fd.cat, text: fd.text,
@@ -2436,8 +2774,11 @@ export function createDesignUI({ viewer, ui }) {
   }
 
   function renderSheet() {
+    // Ölçek yalnızca çizim paftalarında; DFM rapor paftası (kind 'report') ölçeksizdir (antette de "—")
+    const scaleOf = (s) => (s.kind === 'report' || !Number.isFinite(s.scale) || s.scale <= 0 ? ''
+      : ` (${s.scale >= 1 ? `${s.scale}:1` : `1:${Math.round(1 / s.scale)}`})`); // antetteki yazımla aynı
     $('#dd-tabs').innerHTML = state.sheets.map((s, i) =>
-      `<button type="button" role="tab" data-sheet="${i}" id="sheet-tab-${i}" aria-selected="${i === state.sheetIdx}" tabindex="${i === state.sheetIdx ? 0 : -1}">${i + 1} · ${esc(s.title)} (${s.scale >= 1 ? s.scale + ':1' : '1:' + Math.round(1 / s.scale)})</button>`).join('');
+      `<button type="button" role="tab" data-sheet="${i}" id="sheet-tab-${i}" aria-selected="${i === state.sheetIdx}" tabindex="${i === state.sheetIdx ? 0 : -1}">${i + 1} · ${esc(s.title)}${scaleOf(s)}</button>`).join('');
     $('#dd-body').innerHTML = state.sheets[state.sheetIdx].svg;
     $('#dd-body').setAttribute('aria-labelledby', `sheet-tab-${state.sheetIdx}`);
   }
@@ -2636,7 +2977,7 @@ export function createDesignUI({ viewer, ui }) {
     state.sheets = null;
     state.drawingId = null;
     state.asmId = null;
-    state.locks = new Set(); // yeni kart: kilitler ve muafiyetler sıfırlanır (proje açılırsa importState geri yükler)
+    clearLocks(); // yeni kart: kilitler (takım çapı dahil) ve muafiyetler sıfırlanır (proje açılırsa importState geri yükler)
     state.waivers = {};
     state.params = currentDefaults();
     state.silent = true;
@@ -2658,6 +2999,7 @@ export function createDesignUI({ viewer, ui }) {
       phase: phase(),
       params: d.params,
       locks: [...state.locks],
+      toolDiameter: state.toolDiameter,
       requirements: { ...state.req },
       outer: d.outer,
       cavity: { L: d.cavity.L, W: d.cavity.W, H: d.cavity.H },
@@ -2719,6 +3061,7 @@ export function createDesignUI({ viewer, ui }) {
       edgeHold: state.edgeHold,
       encloseOverrides: [...state.encloseOverrides.entries()],
       locks: [...state.locks],
+      toolDiameter: state.toolDiameter, // null: kural değeri (eski projelerde alan yoktur → null)
       waivers: { ...state.waivers },
       requirements: { ...state.req },
     };
@@ -2770,6 +3113,10 @@ export function createDesignUI({ viewer, ui }) {
     state.edgeHold = ['auto', 'on', 'off'].includes(s.edgeHold) ? s.edgeHold : 'auto';
     state.encloseOverrides = new Map(Array.isArray(s.encloseOverrides) ? s.encloseOverrides : []);
     state.req = { tempMax: Number.isFinite(s.requirements?.tempMax) ? s.requirements.tempMax : null };
+    // Freze takım çapı: yoksa ya da geçersizse kural değeri (eski projeler değişmeden açılır)
+    const td = s.toolDiameter === null || s.toolDiameter === undefined || s.toolDiameter === '' ? null : Number(s.toolDiameter);
+    state.toolDiameter = td !== null && validToolD(td) ? Math.round(td * 100) / 100 : null;
+    if (project && td !== null && state.toolDiameter === null) warnings.push(`Projedeki freze takım çapı (${s.toolDiameter}) ${fx(TOOL_LIMITS[0])}–${fx(TOOL_LIMITS[1])} mm aralığında değil; kural değeri kullanıldı.`);
     if (state.req.tempMax) await ensureProcessRules(state.process).catch(() => null);
     if (state.req.tempMax && state.lidSel) await ensureProcessRules(state.lidSel.process).catch(() => null);
     setTol(state.rules.id, s.toleranceOverride);
@@ -2832,6 +3179,7 @@ export function createDesignUI({ viewer, ui }) {
         phase: rv.phase, status: rv.status, counts: rv.counts, stop: rv.stop, iterations: rv.iterations,
         findings: rv.findings.map((fd) => ({ id: fd.id, rule: fd.rule, level: fd.level, cat: fd.cat, part: fd.part, title: fd.title, text: fd.text, measured: fd.measured ?? null, limit: fd.limit ?? null, op: fd.op ?? null, unit: fd.unit ?? null, waived: !!fd.waived, autoFixed: !!fd.autoFixed })),
         post: rv.post.map((fd) => ({ rule: fd.rule, level: fd.level, text: fd.text })),
+        stale: (rv.stale || []).map((w) => w.id),
       } : null,
       rejected: state.loop ? state.loop.rejected : [],
       buildMs: r && Number.isFinite(r.buildMs) ? Math.round(r.buildMs) : null,

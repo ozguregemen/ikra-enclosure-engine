@@ -379,6 +379,21 @@ document.addEventListener('keydown', (e) => {
   next.click();
 });
 
+/* ---------- Açılır bölümler: başlık içinde düğme (WAI-ARIA APG "disclosure") ----------
+ * <h3><button data-disclosure aria-expanded aria-controls="gövde">…</button></h3> + <div id="gövde" hidden>.
+ * Başlık düzeyi başlıkla gezinmede görünür kalır; Enter / Boşluk düğmenin kendi davranışıdır.
+ * Durum değişince düğmeden "ikra:disclosure" olayı kabarcıklanır ({ open, key }); inceleme paneli bunu saklar.
+ */
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('button[data-disclosure]');
+  if (!b || b.disabled) return;
+  const open = b.getAttribute('aria-expanded') !== 'true';
+  b.setAttribute('aria-expanded', String(open));
+  const panel = document.getElementById(b.getAttribute('aria-controls') || '');
+  if (panel) panel.hidden = !open;
+  b.dispatchEvent(new CustomEvent('ikra:disclosure', { bubbles: true, detail: { open, key: b.dataset.openKey || null } }));
+});
+
 /* ---------- Görünüm ve kısayollar ---------- */
 
 $('#view-home').addEventListener('click', () => viewer.setView('iso'));
