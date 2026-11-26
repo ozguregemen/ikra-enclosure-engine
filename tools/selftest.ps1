@@ -64,7 +64,10 @@ try {
     }
     $json = $m.Groups[1].Value
     if ($errors) { $errors | ForEach-Object { Write-Output $_ } }
-    if ($OutFile) { [System.IO.File]::WriteAllText((Join-Path (Get-Location) $OutFile), $json, (New-Object System.Text.UTF8Encoding $false)); Write-Output "Sonuc yazildi: $OutFile" }
+    if ($OutFile) {
+        $outPath = if ([System.IO.Path]::IsPathRooted($OutFile)) { $OutFile } else { Join-Path (Get-Location) $OutFile }
+        [System.IO.File]::WriteAllText($outPath, $json, (New-Object System.Text.UTF8Encoding $false)); Write-Output "Sonuc yazildi: $outPath"
+    }
     else { Write-Output $json }
 }
 finally {
