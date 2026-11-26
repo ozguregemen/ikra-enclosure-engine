@@ -20,7 +20,7 @@ import {
   getOC,
   cast,
 } from 'https://cdn.jsdelivr.net/npm/replicad@1.2.1/+esm';
-import { bossRoot, bottomEdge, EAR_EMBED } from './treat.js';
+import { bossRoot, bottomEdge, EAR_EMBED, nutDogboneR, nutMaxTool } from './treat.js';
 
 // Teknik resim görünüşleri. replicad'de kamera yönü nesneden İZLEYİCİYE doğrudur;
 // xAxis kağıtta sağ, yön × xAxis kağıtta yukarı olacak şekilde seçildi (aynalanma yok).
@@ -467,10 +467,11 @@ function edgeLadder(shape, kind, size, weightOf, { geom = true } = {}) {
 function recordLadder(rep, part, key, feature, kind, size, res, { note = '', want = size, rule, as } = {}) {
   const applied = res.factor ? size * res.factor : 0;
   const parts = [note];
-  if (res.factor && res.kind !== kind) parts.push(`radyüs yerine ${numTr(applied)} mm pah uygulandı (çekirdek radyüsü kuramadı)`);
+  const swapped = res.factor && res.kind !== kind; // radyüs kurulamadı, 45° pah uygulandı: satır türü 'chamfer'
+  if (swapped) parts.push(`radyüs yerine ${numTr(applied)} mm pah uygulandı (çekirdek radyüsü kuramadı)`);
   else if (res.factor && res.factor < 1) parts.push(`çekirdek tam ölçüyü kuramadı; ${numTr(applied)} mm'ye küçültüldü`);
   if (!res.factor) parts.push(res.note);
-  rep.add({ part, key, feature, kind: as || kind, size: want, applied, rule, note: parts.filter(Boolean).join('; '), dv: res.factor ? res.dv : undefined });
+  rep.add({ part, key, feature, kind: swapped ? res.kind : as || kind, size: want, applied, rule, note: parts.filter(Boolean).join('; '), dv: res.factor ? res.dv : undefined });
 }
 
 /** Tek kenar zinciri işlemi: kenar seçimi + basamaklı uygulama + kayıt */
@@ -547,18 +548,20 @@ function applyBatch(rep, part, op, shape, items, tag = '') {
         rep.add({ part, key: t.key, feature: t.feature, kind: t.kind, size: t.size, applied: done ? t.applied ?? t.size : 0, ok: done ? undefined : false,
           unit: t.unit, rule: t.rule, note: done ? t.note || '' : why });
       }
-      if (used[i] === 'none' && !optional[i]) {
-        rep.add({ part, key: `${it.key}.bool`, feature: it.feature, kind: 'boolean', size: 1, applied: 0, rule: 'GEO-BUILD', note: `${label} başarısız; özellik modelde yok` });
-      }
     });
   };
+  // Tek özet satırı: eksik kalan özellikler (adetleriyle) notta; ayrı öğe satırı yazılmaz (bir eksik = bir bulgu)
   const summary = (used, how) => {
     const req = items.filter((_, i) => !optional[i]).length;
     if (!req) return;
     const okN = used.filter((u, i) => !optional[i] && u !== 'none').length;
     const fellBack = used.filter((u, i) => !optional[i] && u === 'plain' && ((items[i].treats || []).length || items[i].err)).length;
+    const missing = new Map();
+    items.forEach((it, i) => { if (!optional[i] && used[i] === 'none') missing.set(it.feature, (missing.get(it.feature) || 0) + 1); });
+    const miss = [...missing].map(([f, n]) => (n > 1 ? `${f} (${n})` : f)).join(', ');
     rep.add({ part, key: bkey, feature: `özellik ${label} (${how})`, kind: 'boolean', size: req, applied: okN, limited: fellBack > 0, rule: 'GEO-BUILD',
-      note: [how === 'tek tek' ? 'toplu Boole işlemi başarısız; özellikler tek tek uygulandı' : '', fellBack ? `${fellBack} özellik işlemsiz geometriyle` : ''].filter(Boolean).join('; ') });
+      note: [how === 'tek tek' ? 'toplu Boole işlemi başarısız; özellikler tek tek uygulandı' : '', miss ? `modelde eksik: ${miss}` : '',
+        fellBack ? `${fellBack} özellik işlemsiz geometriyle` : ''].filter(Boolean).join('; ') });
   };
   // 1) toplu: işlemli araçlar (yoksa işlemsiz)
   const v0 = measureVolume(shape);
@@ -674,17 +677,50 @@ function cornerOutline(c, shift, Rb, rc, e) {
     .close();
 }
 
-/** Kulak: duvara gömülü dil + yuvarlak uç; duvar birleşiminde plan radyüsü rc (2B) */
-function earSolid(ear, rc) {
+/**
+ * Kulak–duvar birleşimi plan radyüsü (2B, kulak yerel çerçevesi: u duvardan dışa, v duvar boyunca kulak ortasından).
+ * Yuvarlatma dairesi kulak yan yüzüne ve dış hatta teğettir: düz duvara ya da — kulak duvarın düz kısmının ucuna
+ * yakınsa — dış köşe radyüsüne (R0, merkezi düz kısmın ucunda, duvardan R0 içeride). Böylece radyüs kökü hiçbir yerde
+ * dış hattın dışında kalmaz (çıkıntı yok) ve tam ölçü uygulanabilir. s: −1 / +1 yan, vs: kulak ortasından o yöndeki
+ * düz kısmın ucuna uzaklık. Dönüş: { Te (yan yüzde teğet), Tw (dış hatta teğet), M (yay ortası), Ew (Tw'nin duvara
+ * gömülü izdüşümü), Es (düz kısmın ucunun gömülü izdüşümü, yalnız köşe radyüsüne teğette), onArc }
+ */
+function earFillet(hw, rc, s, vs, R0, emb) {
+  if (hw + rc <= vs + 1e-9 || !(R0 > emb)) {
+    const k = rc * (1 - S2);
+    return { Te: [rc, s * hw], Tw: [0, s * (hw + rc)], M: [k, s * (hw + rc - rc * S2)], Ew: [-emb, s * (hw + rc)], Es: null, onArc: false };
+  }
+  const dv = hw + rc - vs; // 0 < dv ≤ rc (kulak yan yüzü düz kısımda)
+  const uc = -R0 + Math.sqrt((R0 + rc) ** 2 - dv ** 2);
+  const n = [(uc + R0) / (R0 + rc), dv / (R0 + rc)]; // köşe radyüsü merkezinden yuvarlatma merkezine (s yönünde v)
+  const C = [uc, s * (hw + rc)];
+  const Tw = [-R0 + R0 * n[0], s * (vs + R0 * n[1])];
+  const a = [0, -s];
+  const b = [-n[0], -s * n[1]];
+  const l = Math.hypot(a[0] + b[0], a[1] + b[1]);
+  const M = [C[0] + (rc * (a[0] + b[0])) / l, C[1] + (rc * (a[1] + b[1])) / l];
+  const Ew = [Tw[0] - emb * n[0], Tw[1] - s * emb * n[1]];
+  return { Te: [uc, s * hw], Tw, M, Ew, Es: [-emb, s * vs], onArc: true };
+}
+
+/**
+ * Kulak: duvara gömülü dil + yuvarlak uç; duvar birleşiminde plan radyüsü rc (2B).
+ * fit: { vs: [eksi yan, artı yan] düz kısım uzaklıkları, R0: dış köşe radyüsü } — yoksa duvar düz kabul edilir.
+ */
+function earSolid(ear, rc, fit = null) {
   const toW = (u, v) => { const p = [0, 0]; p[ear.axis] = ear.wallOut + ear.dir * u; p[ear.along] = ear.a + v; return p; };
   const hw = ear.w / 2;
-  const k = rc * (1 - S2);
   let pen;
   if (rc > 0.02) {
-    pen = draw(toW(-EAR_EMBED, -hw - rc)).lineTo(toW(0, -hw - rc)).threePointsArcTo(toW(rc, -hw), toW(k, -hw - rc + rc * S2))
+    const F = [-1, 1].map((s, i) => earFillet(hw, rc, s, fit ? fit.vs[i] : Infinity, fit ? fit.R0 : 0, EAR_EMBED));
+    const [m, p] = F;
+    pen = draw(toW(...m.Ew)).lineTo(toW(...m.Tw)).threePointsArcTo(toW(...m.Te), toW(...m.M))
       .lineTo(toW(ear.e, -hw)).threePointsArcTo(toW(ear.e, hw), toW(ear.e + hw, 0))
-      .lineTo(toW(rc, hw)).threePointsArcTo(toW(0, hw + rc), toW(k, hw + rc - rc * S2))
-      .lineTo(toW(-EAR_EMBED, hw + rc));
+      .lineTo(toW(...p.Te)).threePointsArcTo(toW(...p.Tw), toW(...p.M))
+      .lineTo(toW(...p.Ew));
+    // Kapanış duvar içinde: köşe radyüsüne teğet yanlarda düz kısmın ucundan geçilir (gömme izi duvarın içinde kalsın)
+    if (p.Es) pen = pen.lineTo(toW(...p.Es));
+    if (m.Es) pen = pen.lineTo(toW(...m.Es));
   } else {
     pen = draw(toW(-EAR_EMBED, -hw)).lineTo(toW(ear.e, -hw)).threePointsArcTo(toW(ear.e, hw), toW(ear.e + hw, 0)).lineTo(toW(-EAR_EMBED, hw));
   }
@@ -863,6 +899,7 @@ function grooveTool(gr, cx, cy, zBot, zTop, { ta = 0, brk = 0, shift = 0, bottom
     const res = edgeLadder(tool, 'fillet', bottomR, (e) => (inZ(edgePts(e), zBot) ? 1 : null));
     tool = res.shape;
     tool.__bottomR = res.factor ? bottomR * res.factor : 0;
+    tool.__bottomKind = res.kind;
     tool.__bottomNote = res.note;
   }
   return tool;
@@ -874,10 +911,11 @@ function grooveTool(gr, cx, cy, zBot, zTop, { ta = 0, brk = 0, shift = 0, bottom
 function ladderTreat(key, feature, kind, want, size, res, rule, note = '') {
   const applied = res && res.factor ? size * res.factor : 0;
   const parts = [note];
-  if (res && res.factor && res.kind !== kind) parts.push(`radyüs yerine ${numTr(applied)} mm pah uygulandı`);
+  const swapped = res && res.factor && res.kind !== kind;
+  if (swapped) parts.push(`radyüs yerine ${numTr(applied)} mm pah uygulandı`);
   else if (res && res.factor && res.factor < 1) parts.push(`çekirdek tam ölçüyü kuramadı; ${numTr(applied)} mm'ye küçültüldü`);
   if (res && !res.factor) parts.push(res.note);
-  return { key, feature, kind, size: want, applied, rule, note: parts.filter(Boolean).join('; ') };
+  return { key, feature, kind: swapped ? res.kind : kind, size: want, applied, rule, note: parts.filter(Boolean).join('; ') };
 }
 
 function buildBaseTreated(g, T, rep, st) {
@@ -978,6 +1016,8 @@ function buildBaseTreated(g, T, rep, st) {
       return k === 'in' ? B.rimLeadIn / big || null : k === 'out' ? B.rimOuterBreak / big || null : null;
     });
     base = res.shape;
+    // Kapak dili dış kök radyüsü gerçekten uygulanan giriş pahına göre boyutlanır (basamaklı küçülme / başarısızlık)
+    st.rimLeadIn = res.factor ? (B.rimLeadIn || 0) * res.factor : 0;
     if (B.rimLeadIn > 0) recordLadder(rep, P, 'rim.in', 'ağız iç kenarı giriş pahı', 'chamfer', B.rimLeadIn, res, { rule: 'GEO-LEADIN', as: 'leadin' });
     if (B.rimOuterBreak > 0) recordLadder(rep, P, 'rim.out', 'ağız dış kenarı çapak kırma', 'chamfer', B.rimOuterBreak, res, { rule: 'GEO-EDGE-BREAK' });
   }
@@ -1018,8 +1058,10 @@ function buildBaseTreated(g, T, rep, st) {
     const treats = [];
     if (rcWant > 0 && pd.edge) {
       const ra = padGeom(pd, rcWant).r;
+      // CNC'de takım yarıçapının altındaki radyüs işlenemez: freze köşede R(takım/2) bırakır (destek ucuna kadar yuvarlanır)
+      const toolNote = ra < tool / 2 - 1e-3 ? `; Ø${numTr(tool)} freze bu köşede R${numTr(tool / 2)} altına inemez` : '';
       treats.push({ key: 'pad.concave', feature: 'kart desteği–duvar iç köşesi radyüsü', kind: 'fillet', size: rcWant, applied: ra > 0.05 ? ra : 0, rule: 'GEO-FILLET-INNER',
-        note: ra < rcWant - 1e-3 ? `destek genişliği nedeniyle ${ra > 0.05 ? `R${numTr(ra)} ile sınırlandı` : 'uygulanmadı'}` : '' });
+        note: ra < rcWant - 1e-3 ? `destek genişliği nedeniyle ${ra > 0.05 ? `R${numTr(ra)} ile sınırlandı` : 'uygulanmadı'}${toolNote}` : '' });
     }
     if (emb > 0.3 + 1e-6) treats.push({ key: 'pad.embed', feature: 'kart desteği açılı duvara gömüldü', kind: 'info', size: emb, unit: 'mm', rule: 'INJ-DRAFT', note: 'duvar açısı kadar derine gömüldü' });
     const m = treats.length && pd.edge ? tryMake(() => padSolid(pd, rcWant, emb)) : { shape: null, err: '' };
@@ -1090,27 +1132,31 @@ function buildBaseTreated(g, T, rep, st) {
       max[ear.along] = ear.a + ear.w / 2;
       return makeBox(min, max).fuse(makeCylinder(ear.w / 2, ear.t, [c[0], c[1], ear.z0], up));
     };
-    // Plan radyüsü duvarın düz kısmında bitmeli: dış köşe radyüsüne taşarsa radyüs kökü duvarın dışında kalır (çıkıntı)
+    // Plan radyüsü kulak yan yüzüne ve dış hatta teğet: düz kısım yetmezse dış köşe radyüsüne teğet bağlanır (earFillet),
+    // kök hiçbir yerde dış hattın dışında kalmaz. Kulak yan yüzü düz kısmı aşıyorsa (köşe radyüsüne biniyorsa) radyüs yok.
     const rcWant = Math.max(B.concaveMinR, 0.5);
     const straight = (ear.along === 0 ? g.outer.L : g.outer.W) / 2 - g.outer.r;
-    const room = straight - (Math.abs(ear.a - g.center[ear.along]) + ear.w / 2);
+    const dA = ear.a - g.center[ear.along];
+    const vs = [straight + dA, straight - dA]; // kulak ortasından eksi / artı yöndeki düz kısmın ucuna
     let rc = Math.min(rcWant, ear.e - 0.5);
     let why = rc < rcWant - 1e-3 ? `kulak çıkıntısı nedeniyle R${numTr(rc)} ile sınırlandı` : '';
-    if (room < rc) {
-      rc = Math.max(0, room);
-      why = rc > 0.05 ? `radyüs duvarın düz kısmında kalsın (dış köşe radyüsüne taşmasın) diye R${numTr(rc)} ile sınırlandı`
-        : 'kulak duvarın düz kısmının ucunda; radyüs dış köşe radyüsüne taşacağı için uygulanmadı';
+    if (Math.min(...vs) < ear.w / 2 - 1e-6) {
+      rc = 0;
+      why = 'kulak yan yüzü duvarın düz kısmını aşıyor (dış köşe radyüsüne biniyor); birleşim radyüsü uygulanmadı';
     }
     if (rc <= 0.05) rc = 0;
+    if (rc > 0 && vs.some((v) => ear.w / 2 + rc > v + 1e-9)) why = [why, 'radyüs dış köşe radyüsüne teğet bağlandı'].filter(Boolean).join('; ');
+    if (B.process === 'cnc' && rc < tool / 2 - 1e-3) why = [why, `Ø${numTr(tool)} freze bu köşede R${numTr(tool / 2)} altına inemez`].filter(Boolean).join('; ');
     const treats = [{ key: 'ear.concave', feature: 'kulak–duvar birleşimi (plan radyüsü)', kind: 'fillet', size: rcWant, applied: rc, rule: 'GEO-FILLET-INNER', note: why }];
     const bot = B.bedChamfer > 0 ? B.bedChamfer : B.outerEdgeBreak;
     const botSize = Math.min(bot, ear.t / 3);
     const topSize = Math.min(B.outerEdgeBreak, ear.t / 3);
     let botRes = null;
     let topRes = null;
-    const outside = (q) => ear.dir * (q.m[ear.axis] - ear.wallOut) > 0.01;
+    // Kenar dış hattın dışındaysa işlenir (gömülü kök kenarları hariç; köşe radyüsüne teğet yayda da doğru)
+    const outside = (q) => sdfRR(q.m[0], q.m[1], cx, cy, g.outer.L, g.outer.W, g.outer.r) > 0.01;
     const m = tryMake(() => {
-      let s = earSolid(ear, rc);
+      let s = earSolid(ear, rc, { vs, R0: g.outer.r });
       if (bot > 0) { botRes = edgeLadder(s, 'chamfer', botSize, (e) => { const q = edgePts(e); return inZ(q, ear.z0) && outside(q) ? 1 : null; }); s = botRes.shape; }
       if (B.outerEdgeBreak > 0) { topRes = edgeLadder(s, 'chamfer', topSize, (e) => { const q = edgePts(e); return inZ(q, ear.z0 + ear.t) && outside(q) ? 1 : null; }); s = topRes.shape; }
       return s;
@@ -1148,10 +1194,10 @@ function buildBaseTreated(g, T, rep, st) {
     if (s.nutPocket) {
       const plain = () => nutPocketShape(s);
       if (s.nutPocket.shape === 'hex' && B.nutDogbone > 0) {
-        // Köşe boşaltması: r = min(takım yarıçapı, s/4 − 0,02); s/4'ten büyük takım altıgen köşeye giremez
+        // Köşe boşaltması: r = min(takım yarıçapı, s/4 − 0,02); s/4'ten büyük takım altıgen köşeye giremez (treat.js)
         const sAF = s.nutPocket.s;
-        const r = r3(Math.min(B.nutDogbone, sAF / 4 - 0.02));
-        const toolMax = Math.floor(2 * r * 20) / 20;
+        const r = nutDogboneR(sAF, B.nutDogbone);
+        const toolMax = nutMaxTool(sAF);
         const note = r < B.nutDogbone - 1e-3
           ? `SW ${numTr(sAF)} altıgen cepte Ø${numTr(2 * B.nutDogbone)} freze köşeye girmez; R${numTr(r)} boşaltma modellendi, köşe boşaltması için Ø${numTr(toolMax)} mm veya daha küçük freze gerekir`
           : '';
@@ -1267,8 +1313,9 @@ function buildBaseTreated(g, T, rep, st) {
     const treats = [];
     if (B.grooveBottomR > 0) {
       const ap = m.shape ? m.shape.__bottomR || 0 : 0;
-      treats.push({ key: 'groove.bottom', feature: 'conta kanalı dip radyüsü', kind: 'fillet', size: B.grooveBottomR, applied: ap, rule: 'GEO-GROOVE',
-        note: ap > 0 ? (ap < B.grooveBottomR - 1e-3 ? 'çekirdek tam ölçüyü kuramadı' : '') : m.shape?.__bottomNote || '' });
+      const asCh = ap > 0 && m.shape.__bottomKind === 'chamfer'; // radyüs kurulamadı, 45° pah
+      treats.push({ key: 'groove.bottom', feature: 'conta kanalı dip radyüsü', kind: asCh ? 'chamfer' : 'fillet', size: B.grooveBottomR, applied: ap, rule: 'GEO-GROOVE',
+        note: ap > 0 ? (asCh ? `radyüs yerine ${numTr(ap)} mm pah uygulandı (çekirdek radyüsü kuramadı)` : ap < B.grooveBottomR - 1e-3 ? 'çekirdek tam ölçüyü kuramadı' : '') : m.shape?.__bottomNote || '' });
     }
     if (B.grooveEdgeBreak > 0) treats.push({ key: 'groove.break', feature: 'conta kanalı üst kenarları kırma', kind: 'chamfer', size: B.grooveEdgeBreak, rule: 'GEO-GROOVE' });
     if (ta2 > 0) treats.push({ key: 'groove.draft', feature: 'conta kanalı yan yüz açısı (Parker 0–5°)', kind: 'draft', size: st.baseDraft, rule: 'GEO-GROOVE' });
@@ -1349,7 +1396,9 @@ function buildLidTreated(g, T, rep, st) {
     const gapRoot = fit + depth * Math.max(0, tB - tanD(ao));
     // Kök radyüsü dil boyunun %40'ını ve dil kalınlığını geçmez; dış yüzde gövde ağzındaki boşluk + giriş pahı kadar
     const ri = Math.min(L.lipRootFillet, 0.4 * depth, lipT);
-    const ro = Math.max(0, Math.min(ri, gapRoot + (B.rimLeadIn || 0) - 0.05));
+    // Gövde ağzında gerçekten uygulanan giriş pahı (gövde işlemsiz kurulduysa 0; st yoksa eski davranış)
+    const leadIn = Number.isFinite(st.rimLeadIn) ? st.rimLeadIn : B.rimLeadIn || 0;
+    const ro = Math.max(0, Math.min(ri, gapRoot + leadIn - 0.05));
     const c = Math.min(L.lipTipChamfer, 0.4 * (lipT - depth * (tanD(ao) + tanD(ai))), 0.4 * depth);
     const treats = [];
     if (L.lipRootFillet > 0) {
@@ -1361,7 +1410,7 @@ function buildLidTreated(g, T, rep, st) {
       const roWant = L.process === 'injection' ? L.lipRootFillet : Math.min(L.lipRootFillet, ro);
       if (roWant > 0.02) {
         treats.push({ key: 'lip.root.out', feature: 'kapak dili kökü radyüsü (dış yüz)', kind: 'fillet', size: roWant, applied: ro > 0.02 ? ro : 0, rule: 'GEO-FILLET-INNER',
-          note: ro < roWant - 1e-3 ? `gövde ağzıyla boşluk ${numTr(gapRoot)} mm ve giriş pahı nedeniyle ${ro > 0.02 ? `R${numTr(ro)} ile sınırlandı` : 'uygulanmadı'}` : '' });
+          note: ro < roWant - 1e-3 ? `gövde ağzıyla boşluk ${numTr(gapRoot)} mm${leadIn > 0.02 ? ` ve ${numTr(leadIn)} mm giriş pahı` : ' (ağızda giriş pahı yok)'} nedeniyle ${ro > 0.02 ? `R${numTr(ro)} ile sınırlandı` : 'uygulanmadı'}` : '' });
       }
     }
     if (L.lipTipChamfer > 0) {
@@ -1513,7 +1562,8 @@ function buildClipTreated(dn, T, rep) {
 function buildTreated(g) {
   const T = g.treat;
   const rep = makeReport();
-  const st = { rim: { L: g.outer.L, W: g.outer.W, r: g.outer.r }, pocketGrow: 0, baseDraft: 0 };
+  // st: gövdenin gerçekten kurulan ağız ölçüleri (kapak bunlara göre kurulur); rimLeadIn: uygulanan ağız iç pahı
+  const st = { rim: { L: g.outer.L, W: g.outer.W, r: g.outer.r }, pocketGrow: 0, baseDraft: 0, rimLeadIn: 0 };
   let base;
   let lid;
   let clip = null;
@@ -1527,6 +1577,7 @@ function buildTreated(g) {
     st.rim = { L: g.outer.L, W: g.outer.W, r: g.outer.r };
     st.pocketGrow = 0;
     st.baseDraft = 0;
+    st.rimLeadIn = 0; // eski yöntemle kurulan gövdenin ağzı keskin: kapak dili kökü buna göre
     base = legacyBase(g);
   }
   try {

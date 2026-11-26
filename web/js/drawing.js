@@ -307,6 +307,9 @@ function edgeNotes(d, part) {
   const got = (key, fallback = 0) => span(key, fallback)?.[0] || 0;
   const rng = (s, fmt = d2) => (s[1] - s[0] > 0.005 ? `${fmt(s[0])}–${fmt(s[1])}` : fmt(s[0]));
   const limitedOf = (key) => fam(key).find((e) => e.ok && e.limited);
+  // Radyüs istenip çekirdek kuramadığında 45° pah uygulanmış olabilir (satır türü 'chamfer'): ölçü buna göre yazılır
+  const asChamfer = (key) => has && fam(key).some((e) => e.ok && e.applied > 0 && e.kind === 'chamfer');
+  const rad = (key, v) => (asChamfer(key) ? `${d2(v)}×45° pah` : `R${d2(v)}`);
   const n = [];
   const geo = d.geometry;
   const cnc = P.process === 'cnc';
@@ -331,7 +334,8 @@ function edgeNotes(d, part) {
       const ro = got('outer.bottom', P.outerBottomFillet);
       const roLim = limitedOf('outer.bottom');
       if (ri > 0 || ro > 0) {
-        n.push(`İç taban köşesi R${d2(ri)}${ro > 0 ? `, dış alt kenar R${d2(ro)} ${roLim ? `(r_o = r_i + t için R${d2(roLim.size)} gerekirdi; ${roLim.note || 'sınırlandı'})` : '(iç radyüs + et, aynı merkezden)'}` : ''}.`);
+        const roTxt = roLim ? `(r_o = r_i + t için R${d2(roLim.size)} gerekirdi; ${roLim.note || 'sınırlandı'})` : '(iç radyüs + et, aynı merkezden)';
+        n.push(`İç taban köşesi ${ri > 0 ? rad('floor', ri) : 'keskin'}${ro > 0 ? `, dış alt kenar ${rad('outer.bottom', ro)} ${roTxt}` : ''}.`);
       }
       const sr = span('standoff.root', P.bossRootFillet);
       const stp = span('standoff.tip', P.bossTipChamfer);
@@ -354,7 +358,7 @@ function edgeNotes(d, part) {
       const bc = got('bed', P.bedChamfer);
       if (bc > 0) n.push(`Tabla kenarları ${d1(bc)}×45° pah (ilk katman taşması için, ölçü tasarım tercihi; tabla kenarında radyüs yok)${(geo.ears || []).length && got('ear.bottom', P.bedChamfer) > 0 ? '; kulak alt kenarları dahil' : ''}.`);
       const ff = got('floor', P.floorFillet);
-      if (ff > 0) n.push(`Taban–duvar iç köşesi R${d2(ff)} (yukarı bakan oluk, desteksiz basılır).`);
+      if (ff > 0) n.push(`Taban–duvar iç köşesi ${rad('floor', ff)} (yukarı bakan oluk, desteksiz basılır).`);
     }
     const li = got('rim.in', P.rimLeadIn);
     if (li > 0) n.push(`Ağız iç kenarında ${d1(li)}×45° giriş pahı (kapak dili için).`);
@@ -365,9 +369,11 @@ function edgeNotes(d, part) {
       const cr = got('corner.concave', 0);
       const pr = got('pad.concave', 0);
       const er = got('ear.concave', 0);
-      if (cr > 0) radii.push(`köşe boss'u–duvar birleşimi R${d2(cr)}${cr < tool / 2 - 1e-3 ? ` (Ø${d1(tool)} freze R${d2(tool / 2)} bırakır; kapak dili ucuyla çakışma kontrol edilmeli)` : ''}`);
-      if (pr > 0) radii.push(`kart desteği–duvar birleşimi R${d2(pr)}`);
-      if (er > 0) radii.push(`kulak–duvar birleşimi R${d2(er)}`);
+      // Takım yarıçapının altındaki iç köşe radyüsü işlenemez: freze o köşede R(takım/2) bırakır
+      const toolLeft = (v) => (v < tool / 2 - 1e-3 ? `Ø${d1(tool)} freze R${d2(tool / 2)} bırakır` : '');
+      if (cr > 0) radii.push(`köşe boss'u–duvar birleşimi R${d2(cr)}${toolLeft(cr) ? ` (${toolLeft(cr)}; kapak dili ucuyla çakışma kontrol edilmeli)` : ''}`);
+      if (pr > 0) radii.push(`kart desteği–duvar birleşimi R${d2(pr)}${toolLeft(pr) ? ` (${toolLeft(pr)}; destek ucuna kadar yuvarlanır)` : ''}`);
+      if (er > 0) radii.push(`kulak–duvar birleşimi R${d2(er)}${toolLeft(er) ? ` (${toolLeft(er)})` : ''}`);
       if ((geo.cutouts || []).length) radii.push(`port köşeleri R${d1(Math.max(...geo.cutouts.map((c) => c.r)))}`);
       n.push(`İç dikey köşeler: ${radii.join(', ')}; taban–duvar iç köşesi keskin (düz parmak freze).`);
       const nut = span('nut.dogbone', 0);
@@ -387,7 +393,13 @@ function edgeNotes(d, part) {
     if (tap.length && entryDone) n.push('Kılavuz çekilecek delik girişleri havşalı: NASA JSC-67701 §9.6a 80–120° ister; modelde 90°, üst çap = diş dış çapı + 0,2 mm (tasarım tercihi).');
     const selfTap = holeList.filter((h) => h.entry && h.method === 'self_tap');
     if (selfTap.length && entryDone) n.push('Diş açan vida ön deliklerinin girişinde 90° havşa, üst çap Ø1,05·d (EJOT DELTA PT boşaltma çapı; havşa biçimi tasarım tercihi).');
-    if (holeList.some((h) => h.entry && h.method === 'clearance') && span('entry.standoff')) n.push(`Geçiş delikleri girişte ${d1(P.holeEntry.clearance)}×45° kırık.`);
+    const clrHoles = holeList.some((h) => h.entry && h.method === 'clearance') ? span('entry.standoff') : null;
+    const clrEars = (holes.ears || []).some((h) => h.entry) ? span('entry.ear') : null;
+    if (clrHoles || clrEars) {
+      const s = [clrHoles, clrEars].filter(Boolean);
+      const v = [Math.min(...s.map((x) => x[0])), Math.max(...s.map((x) => x[1]))];
+      n.push(`${clrHoles ? `Geçiş delikleri${clrEars ? ' ve kulak delikleri' : ''}` : 'Kulak delikleri'} girişte ${rng(v, d1)}×45° kırık.`);
+    }
     const ins = holeList.filter((h) => h.method === 'insert');
     if (ins.length) {
       n.push(P.holeEntry.insert > 0 && ins.some((h) => h.entry) && entryDone
@@ -397,14 +409,17 @@ function edgeNotes(d, part) {
     if (P.grooveBottomR > 0 && geo.groove) {
       const gb = got('groove.bottom', P.grooveBottomR);
       const gk = got('groove.break', P.grooveEdgeBreak);
-      if (gb > 0 || gk > 0) n.push(`Conta kanalı ${gb > 0 ? `dip radyüsü R${d2(gb)}` : 'dibi keskin'}${gk > 0 ? `, üst kenarları ${d2(gk)} mm kırık` : ''} (Parker ORD 5700).`);
+      const gbTxt = gb > 0 ? (asChamfer('groove.bottom') ? `dibi ${d2(gb)}×45° pah (radyüs kurulamadı)` : `dip radyüsü R${d2(gb)}`) : 'dibi keskin';
+      if (gb > 0 || gk > 0) n.push(`Conta kanalı ${gbTxt}${gk > 0 ? `, üst kenarları ${d2(gk)} mm kırık` : ''} (Parker ORD 5700).`);
     }
     if (T.clip && geo.din) {
       const clipRep = (d.treatReport || []).filter((e) => e.part === 'clip');
       const cf = (key) => clipRep.filter((e) => (e.key === key || e.key.startsWith(`${key}.`)) && e.ok && e.applied > 0).map((e) => e.applied);
       const lr = has ? cf('latch.root') : [T.clip.latchRootR];
       const cb = has ? cf('bed') : [T.clip.bedChamfer];
-      if (lr.length && lr[0] > 0) n.push(`DIN klipsi: kilit dili kökü R${d2(Math.min(...lr))} (≥ 0,5·t), yarık uçları yuvarlak${cb.length && cb[0] > 0 ? `; üst yüz (tabla) kenarları ${d2(Math.min(...cb))}×45° pah` : ''}.`);
+      if (clipRep.some((e) => e.kind === 'build' && !e.ok)) {
+        n.push('DIN klipsi kenar işlemleri olmadan kurulmuştur (işlemli model kurulamadı): kilit dili yarık uçları ve kenarlar keskindir; ayrıntı DFM incelemesinde.');
+      } else if (lr.length && lr[0] > 0) n.push(`DIN klipsi: kilit dili kökü R${d2(Math.min(...lr))} (≥ 0,5·t), yarık uçları yuvarlak${cb.length && cb[0] > 0 ? `; üst yüz (tabla) kenarları ${d2(Math.min(...cb))}×45° pah` : ''}.`);
     }
   } else if (part === 'lid') {
     if (inj) {
@@ -413,7 +428,7 @@ function edgeNotes(d, part) {
         ? `Kalıp çıkma açısı ${d1(dr)}° (çekme −Z); ayırma çizgisi kapak alt dış kenarında, keskin; alt dış hat gövde ağız hattıyla aynı.`
         : `Kalıp çıkma açısı en az ${d1(P.draftDeg)}° olmalı; modelde uygulanamadı (ayrıntı DFM incelemesinde).`);
       const tf = got('outer.top', P.outerTopFillet);
-      if (tf > 0) n.push(`Üst dış kenar R${d2(tf)} (kozmetik).`);
+      if (tf > 0) n.push(`Üst dış kenar ${rad('outer.top', tf)} (kozmetik).`);
       const ld = span('lip.draft', P.lipDraftDeg);
       if (ld) {
         const ri = span('lip.root', P.lipRootFillet);
@@ -780,8 +795,9 @@ const LEVEL_FILL = { error: '#f4d3d3', warn: '#f9e7c0', info: '#dbe6f2', ok: '#d
 const STATUS_TR = {
   ready: { head: 'ÜRETİME HAZIR', sub: 'Açık hata ve uyarı yok.', fill: '#d9eddc' },
   advisories: { head: 'UYARILARLA HAZIR', sub: 'Hata yok; açık uyarılar üretim öncesi değerlendirilmeli.', fill: '#f9e7c0' },
-  blocked: { head: 'ENGELLİ', sub: 'Giderilmesi gereken hata var; tasarım bu hâliyle üretime verilmemeli.', fill: '#f4d3d3' },
+  blocked: { head: 'ÜRETİME UYGUN DEĞİL', sub: 'Giderilmesi gereken hata var; tasarım bu hâliyle üretime verilmemeli.', fill: '#f4d3d3' },
 };
+const STATUS_RANK = { ready: 0, advisories: 1, blocked: 2 };
 const STOP_TR = {
   converged: 'otomatik düzeltilebilecek bulgu kalmadı', 'needs-user': 'kalan bulgular kullanıcı kararı gerektiriyor',
   stalled: 'kalan düzeltmeler tasarımı iyileştirmedi', oscillation: 'düzeltmeler önceki bir duruma döndürdü', 'max-iter': 'yineleme sınırına ulaşıldı',
@@ -829,10 +845,18 @@ function measureText(fd) {
 function layoutReview(ctx) {
   const R = ctx.review || {};
   const findings = Array.isArray(R.findings) ? R.findings : [];
-  const counts = { error: 0, warn: 0, info: 0, ok: 0, waived: 0 };
-  if (R.counts) Object.assign(counts, R.counts);
-  else for (const fd of findings) { if (fd.waived) counts.waived++; else if (fd.level in counts) counts[fd.level]++; }
-  const st = STATUS_TR[R.status] || STATUS_TR[counts.error ? 'blocked' : counts.warn ? 'advisories' : 'ready'];
+  // Sayılar ve karar listelenen bulgulardan da türetilir: tablo ile karar kutusu hiçbir zaman çelişmez
+  // (verilen karar yalnızca ağırlaştırılabilir; muaf olmayan bir hata varsa karar "üretime uygun değil")
+  const counts = { error: 0, warn: 0, info: 0, ok: 0, waived: 0, ...(R.counts || {}) };
+  if (findings.length) {
+    const c = { error: 0, warn: 0, info: 0, ok: 0, waived: 0 };
+    for (const fd of findings) { if (fd.waived && fd.level !== 'ok') c.waived++; else if (fd.level in c) c[fd.level]++; }
+    for (const k of ['error', 'warn', 'info', 'waived']) counts[k] = c[k];
+    if (c.ok > (counts.ok || 0)) counts.ok = c.ok;
+  }
+  const derived = counts.error > 0 ? 'blocked' : counts.warn > 0 ? 'advisories' : 'ready';
+  const given = R.status in STATUS_RANK ? R.status : derived;
+  const st = STATUS_TR[STATUS_RANK[derived] > STATUS_RANK[given] ? derived : given];
   const changes = Array.isArray(R.changes) ? R.changes : [];
   const rejected = Array.isArray(R.rejected) ? R.rejected : [];
   const W = RV.x1 - RV.x0;
@@ -852,7 +876,7 @@ function layoutReview(ctx) {
   // --- Başlık ve karar ---
   newPage(false);
   out.push(text(RV.x0, 24, 'DFM İNCELEME RAPORU', 3.6, { bold: true }));
-  out.push(text(RV.x0, 28.6, 'Tasarım kaynaklı DFM kural kümesine göre incelendi; otomatik düzeltme döngüsünden geçen son tasarımın sonucudur.', 2.0));
+  out.push(text(RV.x0, 28.6, 'Tasarım, kaynakları belirtilmiş DFM kurallarına göre incelenmiştir; bu sayfa otomatik düzeltme döngüsünden geçen son tasarımın sonucudur.', 2.0));
   out.push(`<rect x="${RV.x0}" y="32" width="150" height="17" fill="${st.fill}" stroke="#000" stroke-width="${STROKE_VISIBLE}"/>`);
   out.push(text(RV.x0 + 3, 38.2, `KARAR: ${st.head}`, 3.4, { bold: true }));
   out.push(text(RV.x0 + 3, 42.8, st.sub, 2.2));
@@ -866,7 +890,11 @@ function layoutReview(ctx) {
     out.push(text(x + cw / 2, 36.2, k.toLocaleUpperCase('tr'), 1.9, { anchor: 'middle', bold: true }));
     out.push(text(x + cw / 2, 45.4, String(v ?? 0), 6, { anchor: 'middle', bold: true }));
   });
-  const when = R.createdAt ? String(R.createdAt).replace('T', ' ').replace(/:\d\d(\.\d+)?Z?$/, '').replace(/Z$/, '') : ctx.info?.date || '';
+  // createdAt ISO (UTC) → izleyicinin yerel saati; çözülemezse olduğu gibi
+  const at = R.createdAt ? new Date(R.createdAt) : null;
+  const when = at && !Number.isNaN(at.getTime())
+    ? at.toLocaleString('tr-TR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : R.createdAt ? String(R.createdAt) : ctx.info?.date || '';
   out.push(text(RV.x0, 53.6, `Oluşturma: ${when}${R.appVersion ? ` · uygulama sürümü ${R.appVersion}` : ''} · proje ${ctx.info?.project || ''}`, 1.9));
   y = 60;
 

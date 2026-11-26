@@ -14,49 +14,16 @@
  * (yalnızca kod açıklaması). Kaynakta sayı olmayan değerler "tasarım tercihi" olarak işaretlidir.
  */
 
-/**
- * Katalog kuralı → dayandığı kaynaklar (kenar işlemleri). Katalog (dfm/catalog.js) bu kuralları kaydeder;
- * buradaki liste politika ile kaynağın eşleşmesini belgeler. Araştırma kimlikleri yalnızca açıklamadadır.
+/*
+ * Katalog kuralı ← araştırma kuralları (yalnız belge; kaynak başlık ve bağlantıları tek yerde, dfm/catalog.js'te):
+ *   GEO-EDGE-BED       FDM-08/09/10/58        GEO-EDGE-BREAK     CNC-32/33/34/35
+ *   GEO-FILLET-INNER   IM-07, IM-24, FDM-53/55/56, CNC-03
+ *   GEO-FILLET-OUTER   IM-08, IM-38           GEO-LEADIN         FDM-47, IM-39
+ *   GEO-HOLE-ENTRY     CNC-26, IM-28, IM-30, FDM-27
+ *   GEO-BOSS           IM-21, IM-28, FDM-41   GEO-DOGBONE        CNC-03, CNC-09
+ *   GEO-GROOVE         ENC-SEAL-02            GEO-CORNER-CONCAVE IM-07, CNC-03, FDM-12
+ *   INJ-DRAFT          IM-10/11/12/16, IM-24, IM-38             INJ-SIDE-ACTION    IM-36
  */
-const SRC = {
-  ultimaker: { title: 'How to design for FFF 3D printing, UltiMaker', url: 'https://ultimaker.com/wp-content/uploads/2024/06/How-to-design-for-FFF-1.pdf' },
-  hubsFdm: { title: 'How to design parts for FDM 3D printing, Hubs (Protolabs Network)', url: 'https://www.hubs.com/knowledge-base/how-design-parts-fdm-3d-printing/' },
-  prusaFoot: { title: 'Elephant foot compensation, Prusa Research', url: 'https://help.prusa3d.com/article/elephant-foot-compensation_114487' },
-  prusaModel: { title: 'Modeling with 3D printing in mind, Prusa Research', url: 'https://help.prusa3d.com/article/modeling-with-3d-printing-in-mind_164135' },
-  hubsKey: { title: 'Key design considerations for 3D printing, Hubs (Protolabs Network)', url: 'https://www.hubs.com/knowledge-base/key-design-considerations-3d-printing/' },
-  cncKitchen: { title: 'Tips & Tricks for Heat-Set Inserts used in 3D printing, CNC Kitchen', url: 'https://www.cnckitchen.com/blog/tipps-amp-tricks-fr-gewindeeinstze-im-3d-druck-3awey' },
-  bayerSnap: { title: 'Snap-Fit Joints for Plastics - A Design Guide, Bayer MaterialScience (Covestro)', url: 'https://fab.cba.mit.edu/classes/S62.12/people/vernelle.noel/Plastic_Snap_fit_design.pdf' },
-  hubsSnap: { title: 'How to design snap-fit joints for 3D printing, Hubs (Protolabs Network)', url: 'https://hubs.com/knowledge-base/how-design-snap-fit-joints-3d-printing' },
-  dupont: { title: 'General Design Principles for DuPont Engineering Polymers, Module I, DuPont', url: 'https://academic.sun.ac.za/mad/catalogs/dfmguidelines/dupontgeneraldesignprinciples.pdf' },
-  ticona: { title: 'Designing With Plastic: The Fundamentals (TDM-1), Ticona/Celanese', url: 'https://res.cloudinary.com/engineering-com/image/upload/v1639229518/tips/Designing_With_Plastics_-_Ticona_Brochure_vghwzt.pdf' },
-  protolabsDraft: { title: 'Draft Angle Guidelines for Injection Molding, Protolabs', url: 'https://protolabs.com/resources/design-tips/improving-part-moldability-with-draft/' },
-  protolabsDfm1: { title: 'Designing for Mouldability, Volume 1, Protolabs', url: 'https://www.protolabs.com/media/949709/dfm1-english.pdf' },
-  bonenberger: { title: 'The First Snap-Fit Handbook, 2nd ed., Bonenberger (Hanser)', url: 'https://s3.amazonaws.com/gc-p/files/128686/The%20First%20Snap-Fit%20Handbook%202E_Bonenberger.pdf' },
-  avient: { title: 'ESCR Design Guide (Bosses), Avient', url: 'https://avient.com/sites/default/files/2022-08/Environmental%20Stress%20Cracking%20Resistance%20_ESCR_%20Design%20Guide%20%281%29.pdf' },
-  boellhoff: { title: 'Self-tapping fasteners (EJOT DELTA PT), Böllhoff', url: 'https://media.boellhoff.com/files/pdf13/8705-self-tapping-fasteners-en.pdf' },
-  fictiv: { title: 'Enclosure design for injection molding, Fictiv', url: 'https://www.fictiv.com/articles/enclosure-design-for-injection-molding' },
-  xometryCorner: { title: 'CNC Machining: Optimizing Internal Corner Radii, Xometry', url: 'https://www.xometry.com/resources/machining/cnc-machining-optimizing-internal-corner-radii/' },
-  hubsCnc: { title: 'How to design parts for CNC machining, Hubs (Protolabs Network)', url: 'https://www.hubs.com/knowledge-base/how-design-parts-cnc-machining/' },
-  nasa: { title: 'JSC-67701 JSC Fabrication Tolerances and Practices, NASA', url: 'https://standards.nasa.gov/system/files/tmp/JSC-67701_JSC_Fabrication_Tolerances_and_Practices_Basic_DCN001_Final.pdf' },
-  protolabsEdge: { title: 'Fillets vs. chamfers, Protolabs', url: 'https://www.protolabs.com/resources/blog/fillets-and-chamfers/' },
-  iso13715: { title: 'ISO 13715:2017 Technical product documentation - Edges of undefined shape', url: 'https://qualityforum.zeiss.com/migration/images/1125_cad718ab03258942de4de01b28242c05.pdf' },
-  xometryEdge: { title: 'The machining costs you should consider when designing with chamfers and fillets, Xometry', url: 'https://www.xometry.com/blog/the-machining-costs-you-should-consider-when-designing-with-chamfers-and-fillets' },
-  parker: { title: 'Parker O-Ring Handbook ORD 5700', url: 'https://nfc.arizona.edu/sites/default/files/2022-02/parker_o-ring_handbook.pdf' },
-};
-export const TREAT_RULE_SOURCES = {
-  'GEO-EDGE-BED': [SRC.ultimaker, SRC.hubsFdm, SRC.prusaFoot], // FDM-08/09/10/58
-  'GEO-EDGE-BREAK': [SRC.nasa, SRC.protolabsEdge, SRC.iso13715, SRC.xometryEdge], // CNC-32/33/34/35
-  'GEO-FILLET-INNER': [SRC.dupont, SRC.hubsKey, SRC.bonenberger, SRC.xometryCorner, SRC.bayerSnap, SRC.hubsSnap], // IM-07, FDM-56, IM-24, CNC-03, FDM-53/55
-  'GEO-FILLET-OUTER': [SRC.ticona, SRC.fictiv], // IM-08, IM-38
-  'GEO-LEADIN': [SRC.prusaModel, SRC.dupont], // FDM-47, IM-39
-  'GEO-HOLE-ENTRY': [SRC.nasa, SRC.boellhoff, SRC.avient, SRC.cncKitchen], // CNC-26, IM-30, IM-28, FDM-27
-  'GEO-BOSS': [SRC.avient, SRC.ticona, SRC.hubsFdm], // IM-28, IM-21, FDM-41
-  'GEO-DOGBONE': [SRC.xometryCorner, SRC.hubsCnc], // CNC-03, CNC-09
-  'GEO-GROOVE': [SRC.parker], // ENC-SEAL-02
-  'GEO-CORNER-CONCAVE': [SRC.dupont, SRC.xometryCorner, SRC.hubsFdm], // IM-07, CNC-03, FDM-12
-  'INJ-DRAFT': [SRC.protolabsDraft, SRC.protolabsDfm1, SRC.ticona, SRC.bonenberger, SRC.fictiv], // IM-10/11/12/16, IM-24, IM-38
-  'INJ-SIDE-ACTION': [SRC.protolabsDfm1], // IM-36
-};
 
 /* ---------- Süreçten bağımsız sabitler ---------- */
 
@@ -165,6 +132,21 @@ export function concaveMinR(rules, wall) {
   return 0;
 }
 
+/*
+ * Altıgen somun cebi köşe boşaltması (CNC, GEO-DOGBONE): her köşedeki boşaltma dairesi kenardan 2/√3·r yer,
+ * altıgen kenarı s/√3 → komşu boşaltmalar çakışmasın diye r < s/4 (0,02 mm pay). cad-worker (modellenen r) ve
+ * tasarım denetimi (en büyük takım çapı) aynı sınırı kullansın diye dışa açıktır.
+ */
+const NUT_RELIEF_GAP = 0.02;
+/** Modellenen köşe boşaltması yarıçapı: takım yarıçapı, cebe sığmıyorsa s/4 − 0,02 (mm) */
+export function nutDogboneR(s, toolR) {
+  return Math.round(Math.min(toolR, s / 4 - NUT_RELIEF_GAP) * 1000) / 1000;
+}
+/** SW s cebinin köşelerini boşaltabilecek en büyük freze çapı (0,05 mm'ye aşağı yuvarlı) */
+export function nutMaxTool(s) {
+  return Math.floor(2 * (s / 4 - NUT_RELIEF_GAP) * 20 + 1e-9) / 20;
+}
+
 /**
  * Dönel boss / boru kök geometrisi (cad-worker bossSolid profili ve kök izi hesabı için tek kaynak).
  * Kök radyüsü taban düzlemine teğet olmadan 10° önce biter (boolean enine kesişsin). Yerel (r, dz) koordinatları.
@@ -190,7 +172,8 @@ export function bossRoot({ h, rTip, draftDeg = 0, rootR = 0 }) {
 
 /**
  * Gövde alt dış kenarı işlemi (FDM tabla pahı / CNC çapak kırma / enjeksiyon r_o): istenen ve uygulanabilir ölçü.
- * Taban kalınlığı (pah ≤ 0,45·taban; radyüs ≤ 1,45·taban) ve kulak kökü gömmesi (EAR_EMBED − 0,1) sınırlar.
+ * Taban kalınlığı (pah ≤ 0,45·taban; radyüs ≤ 1,45·taban ya da iç radyüsle aynı merkezli r_i + taban — et
+ * köşede de üniform kaldığı için) ve kulak kökü gömmesi (EAR_EMBED − 0,1) sınırlar.
  * Dönüş: { kind, key, feature, rule, want, size, note } ya da null
  */
 export function bottomEdge(P, floor, hasEars) {
@@ -201,7 +184,7 @@ export function bottomEdge(P, floor, hasEars) {
   let size = b.want;
   let note = '';
   if (hasEars && size > EAR_EMBED - 0.1) { size = EAR_EMBED - 0.1; note = `kulak kökü duvara ${numTr(EAR_EMBED)} mm gömülü olduğundan ${numTr(size)} mm ile sınırlandı`; }
-  const cap = 0.45 * floor + (b.kind === 'fillet' ? floor : 0);
+  const cap = b.kind === 'fillet' ? Math.max(1.45 * floor, (P.floorFillet || 0) + floor) : 0.45 * floor;
   if (size > cap) { size = cap; note = `taban kalınlığı ${numTr(floor)} mm olduğundan ${numTr(size)} mm ile sınırlandı`; }
   return { ...b, size: Math.floor(size * 1000 + 1e-9) / 1000, note }; // aşağı yuvarlanır: sınır aşılmasın
 }
