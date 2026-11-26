@@ -946,6 +946,161 @@ for (const [rid, extra] of cases) {
     recAx && /köşe vidası boss'ları için bu eksende/.test(recAx.text) && /öşe payı ekseni değiştiril/.test(recAx.text), `${recR6?.text} || ${recAx?.text}`);
 }
 
+// ---------- Toolbox V2.1: yeni yıldız başlı tipler, Pozidriv (Z), bombeli havşa, kombi vida, eski DIN karşılıkları ----------
+{
+  const { designation, driveText, resolveRecess, combiWasher } = await import('../js/design.js');
+  const { headTop, headProfile, driveOutline, recessM } = await import('../js/screw-shapes.js');
+  const { toolboxHit, headIcon } = await import('../js/toolbox.js');
+  const T = (id) => toolbox.types.find((t) => t.id === id);
+  const cross = screwsLib.categories.find((c) => c.id === 'screws').groups.find((g) => g.id === 'cross');
+  const tapGroup = screwsLib.categories.find((c) => c.id === 'screws').groups.find((g) => g.id === 'tapping');
+  const NEW = ['iso7047', 'iso7048', 'din7985', 'iso10644', 'iso7051'];
+  check('tb21: yıldız grubunda ISO 7045, 7046-1, 7047, 7048, DIN 7985, ISO 10644; sac vidalarında ISO 7051; grup adı Pozidriv içerir',
+    ['iso7045', 'iso7046', 'iso7047', 'iso7048', 'din7985', 'iso10644'].every((id) => cross.types.some((t) => t.id === id)) &&
+    tapGroup.types.some((t) => t.id === 'iso7051') && /Pozidriv/.test(cross.label), `${cross.types.map((t) => t.code).join(', ')} | ${cross.label}`);
+  check('tb21: yeni tiplerin kayıtları eksiksiz (ad, kısa ad, malzeme kimlikleri listede, boylar artan)',
+    NEW.every((id) => {
+      const t = T(id);
+      return t && t.name && t.short && (t.materials || []).length && t.materials.every((m) => fmat.materials.some((x) => x.id === m)) &&
+        Object.values(t.sizes).every((z) => z.dk > 0 && z.k > 0 && z.P > 0 && Number.isFinite(z.drive) && z.lengths.length && z.lengths.every((L, i) => !i || L > z.lengths[i - 1]));
+    }));
+
+  // Her yeni tip örnek kartta tasarlanır; tanımlı her boyutta FAS-SCREW-FIT / FAS-TYPE-SIZE hatası yok (Ø6,4 delikli kart: M6'ya kadar geçer)
+  const anBig = { ...analysis, holes: analysis.holes.map((h) => ({ ...h, d: 6.4 })) };
+  const fdmPetg = await rulesFor('fdm/petg');
+  const sizeErrs = [];
+  for (const id of NEW) {
+    const t = T(id);
+    for (const size of ['auto', ...Object.keys(t.sizes)]) {
+      const spec = { type: id, size, length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match' };
+      const dz = computeDesign(anBig, fdmPetg, baseParams(anBig, fdmPetg), opts({ screwSpec: spec }));
+      const bad = dz.checks.filter((c) => (c.rule === 'FAS-SCREW-FIT' || c.rule === 'FAS-TYPE-SIZE') && c.level === 'error');
+      if (bad.length || dz.screws.length !== 4 || dz.screws.some((s) => s.type !== id)) sizeErrs.push(`${id} ${size}: ${dz.screws.length} vida ${bad.map((c) => c.text).join(' ')}`);
+    }
+  }
+  check('tb21: her yeni tip her tanımlı boyutta tasarlanır (4 vida, FAS-SCREW-FIT / FAS-TYPE-SIZE hatası yok)', !sizeErrs.length, sizeErrs.join(' | ') || `${NEW.length} tip`);
+  // Örnek kartta (Ø3,2 delik) tasarım döngüsü: yeni tiplerle bağlantı hatası yok, vida tipi korunur
+  const loopErrs = [];
+  for (const id of NEW) {
+    const rr = id === 'iso7051' ? await rulesFor('injection/abs') : fdmPetg;
+    const Lx = runDesignLoop(analysis, rr, { userParams: {} }, opts({ screwSpec: { type: id, size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match' } }));
+    const errs = Lx.findings.filter((fd) => fd.level === 'error' && /^FAS-/.test(fd.rule));
+    if (errs.length || !Lx.design.screws.length || !Lx.design.screws.every((s) => s.type === id && s.length)) loopErrs.push(`${id}: ${errs.map((fd) => fd.rule + ' ' + fd.text).join(' ')}`);
+  }
+  check('tb21: örnek kartta döngü yeni tiplerle FAS hatasız biter, tüm vidaların boyu seçilir', !loopErrs.length, loopErrs.join(' | ') || 'tamam');
+
+  // Tanımlar: mevcut tipler değişmez, Z izi ve kombi vida öğeleri
+  const des = [
+    [designation(T('iso7045'), 'M3', 12), 'ISO 7045 - M3 × 12 - H'],
+    [designation(T('iso7045'), 'M3', 12, 'H'), 'ISO 7045 - M3 × 12 - H'],
+    [designation(T('iso7045'), 'M3', 12, 'Z'), 'ISO 7045 - M3 × 12 - Z'],
+    [designation(T('iso7046'), 'M3', 12), 'ISO 7046-1 - M3 × 12 - H'],
+    [designation(T('iso7049'), 'ST2.9', 13), 'ISO 7049 - ST2.9 × 13 - C - H'],
+    [designation(T('iso4762'), 'M3', 12, 'Z'), 'ISO 4762 - M3 × 12'],
+    [designation(T('iso7047'), 'M3', 12), 'ISO 7047 - M3 × 12 - H'],
+    [designation(T('iso7047'), 'M4', 16, 'Z'), 'ISO 7047 - M4 × 16 - Z'],
+    [designation(T('iso7048'), 'M3', 10), 'ISO 7048 - M3 × 10 - H'],
+    [designation(T('din7985'), 'M2.5', 6, 'Z'), 'DIN 7985 - M2.5 × 6 - Z'],
+    [designation(T('iso10644'), 'M3', 10), 'ISO 10644 - M3 × 10 - H - S3 - N'],
+    [designation(T('iso10644'), 'M3', 10, 'Z'), 'ISO 10644 - M3 × 10 - Z - S3 - N'],
+    [designation(T('iso7051'), 'ST2.9', 13), 'ISO 7051 - ST2.9 × 13 - C - H'],
+    [designation(T('iso7051'), 'ST3.5', 16, 'Z'), 'ISO 7051 - ST3.5 × 16 - C - Z'],
+    [designation(T('iso7049'), 'ST2.2', 6.5, 'Z'), 'ISO 7049 - ST2.2 × 6,5 - C - Z'],
+  ];
+  const badDes = des.filter(([a, b]) => a !== b);
+  check('tb21: tanımlar (mevcut tipler aynı, Z izi, kombi S3 - N, sac vidası C - Z)', !badDes.length, badDes.map(([a, b]) => `${a} ≠ ${b}`).join(' | ') || `${des.length} tanım`);
+  check('tb21: driveText PH/PZ (uç no. aynı), ISO 7048 M3 PH2, imbus/torx değişmez',
+    driveText(T('iso7045'), T('iso7045').sizes.M3) === 'PH1' && driveText(T('iso7045'), T('iso7045').sizes.M3, 'Z') === 'PZ1' &&
+    driveText(T('iso7047'), T('iso7047').sizes.M6, 'Z') === 'PZ3' && driveText(T('iso7048'), T('iso7048').sizes.M3) === 'PH2' &&
+    driveText(T('iso4762'), T('iso4762').sizes.M3, 'Z') === 'imbus 2,5 mm' && driveText(T('iso14580'), T('iso14580').sizes.M3) === 'T10');
+  check('tb21: resolveRecess: alan yok → tipin varsayılanı H, izinli Z korunur, izinsiz iz → varsayılan, izi olmayan tip → null',
+    resolveRecess(T('iso7045'), undefined) === 'H' && resolveRecess(T('iso7045'), 'Z') === 'Z' && resolveRecess(T('iso7045'), 'X') === 'H' &&
+    resolveRecess(T('iso4762'), 'Z') === null && ['iso7045', 'iso7046', 'iso7047', 'iso7048', 'din7985', 'iso10644', 'iso7049', 'iso7050', 'iso7051'].every((id) => T(id).recesses.join() === 'H,Z'));
+
+  // Bombeli havşa: headTop = f, düz havşa = 0; havşa kısmı ISO 7046-1 ile aynı; profil tepe noktası (0, f)
+  const shp = (t, size, extra = {}) => ({ head: t.head, dk: t.sizes[size].dk, dkActual: t.sizes[size].dk_actual, k: t.sizes[size].k, d: parseFloat(size.replace(/^[A-Z]+/, '')),
+    f: t.raised ? t.sizes[size].f : 0, v: t.sizes[size].v || 0, ...extra });
+  const pR = headProfile(shp(T('iso7047'), 'M3'));
+  const pF = headProfile(shp(T('iso7046'), 'M3'));
+  const s46 = shp(T('iso7046'), 'M3');
+  const ra46 = Math.min(s46.dk / 2, s46.dkActual / 2);
+  check('tb21: headTop bombeli havşa = f (ISO 7047 M3 0,7; ISO 7051 ST2.9 0,7), düz havşa = 0, bombe baş = k',
+    headTop(shp(T('iso7047'), 'M3')) === 0.7 && headTop(shp(T('iso7051'), 'ST2.9')) === 0.7 && headTop(s46) === 0 && headTop(shp(T('iso7045'), 'M3')) === 2.4);
+  check('tb21: bombeli havşa profili: havşa noktaları ISO 7046-1 ile aynı, tepe (0; f), bombe f\'yi aşmaz; düz havşa profili eski biçimde',
+    JSON.stringify(pR.slice(0, 4)) === JSON.stringify(pF.slice(0, 4)) && pR[pR.length - 1][0] === 0 && pR[pR.length - 1][1] === 0.7 && pR.every(([, y]) => y <= 0.7 + 1e-9) &&
+    JSON.stringify(pF) === JSON.stringify([[0, -1.65], [1.5, -1.65], [ra46, Math.min(0, -1.65 + (ra46 - 1.5))], [ra46, 0], [0, 0]]), JSON.stringify(pR.slice(-3)));
+  const p85 = headProfile(shp(T('din7985'), 'M3'));
+  check('tb21: DIN 7985 profili v yüksekliğinde silindir + bombe, tepe k', p85.some(([x, y]) => x === 3 && y === 1.6) && p85[p85.length - 1][1] === 2.52);
+  const oH = driveOutline({ driveKind: 'cross', dk: 5.6, m: 3 });
+  const oZ = driveOutline({ driveKind: 'cross', dk: 5.6, m: 3, recess: 'Z' });
+  check('tb21: Pozidriv (Z) izi yıldız + 4 ince çapraz çentik; Phillips (H) tek yıldız; recessM Z için mZ',
+    oH.length === 1 && oZ.length === 5 && JSON.stringify(oZ[0]) === JSON.stringify(oH[0]) && oZ.slice(1).every((p) => p.length === 4) &&
+    recessM(T('iso7046').sizes.M3, 'Z') === 3.0 && recessM(T('iso7046').sizes.M3, 'H') === 3.2 && recessM(T('iso7045').sizes.M3, 'H') === null);
+
+  // Tasarımda: varsayılan iz H, eski tanım aynı; Z izi tanıma, tahrik metnine ve BOM'a geçer
+  const pom = await rulesFor('cnc/pom');
+  const dH = runDesignLoop(analysis, pom, { userParams: {} }, opts()).design;
+  const dZ = runDesignLoop(analysis, pom, { userParams: {} }, opts({ screwSpec: { type: 'iso7045', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match', recess: 'Z' } })).design;
+  const s0 = dH.screws[0];
+  check('tb21: varsayılan tasarımda iz H, tanım "ISO 7045 - M3 × L - H - A2-70"; Z seçilince PZ1, "- Z -", BOM (PZ1)',
+    s0.recess === 'H' && s0.designation === `ISO 7045 - M3 × ${String(s0.length).replace('.', ',')} - H - A2-70` && s0.driveText === 'PH1' &&
+    dZ.screws.every((s) => s.recess === 'Z' && s.driveText === 'PZ1' && / - Z - A2-70$/.test(s.designation)) && dZ.bom.some((l) => /\(PZ1\)/.test(l)) && dZ.screws[0].driveM === 2.8,
+    `${s0.designation} | ${dZ.screws[0]?.designation} | ${dZ.bom[0]}`);
+  const dX = runDesignLoop(analysis, pom, { userParams: {} }, opts({ screwSpec: { type: 'iso4762', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match', recess: 'Z' } })).design;
+  check('tb21: izi olmayan tipte (ISO 4762) Z yok sayılır', !dX.screws[0].recess && !/ - Z/.test(dX.screws[0].designation) && dX.screws[0].driveText === 'imbus 2,5 mm', dX.screws[0].designation);
+
+  // Bombeli havşa tasarımda: havşa ISO 7046-1 ile aynı, bombe vida kaydında ve bilgi notunda
+  const d46 = runDesignLoop(analysis, fdmPetg, { userParams: {} }, opts({ screwSpec: { type: 'iso7046', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match' } })).design;
+  const L47 = runDesignLoop(analysis, fdmPetg, { userParams: {} }, opts({ screwSpec: { type: 'iso7047', size: 'auto', length: 'auto', material: 'auto', washer: 'none', washerMaterial: 'match' } }));
+  const d47 = L47.design;
+  check('tb21: ISO 7047 kapak vidası: havşa ve boy ISO 7046-1 ile aynı, head_f 0,7, FAS-CSK bilgi notu bombeyi ve düz havşa önerisini yazar',
+    JSON.stringify(d47.lidTubes.map((t) => t.countersink)) === JSON.stringify(d46.lidTubes.map((t) => t.countersink)) &&
+    d47.screws.map((s) => s.length).join() === d46.screws.map((s) => s.length).join() && d47.screws.every((s) => s.head_f === 0.7) && !d46.screws.some((s) => s.head_f) &&
+    L47.findings.some((fd) => fd.rule === 'FAS-CSK' && fd.level === 'info' && /bombe/.test(fd.text) && fd.fix?.value === 'iso7046'),
+    L47.findings.filter((fd) => fd.rule === 'FAS-CSK').map((fd) => fd.text).join(' | '));
+
+  // Kombi vida: takılı pul tasarımda kullanılır (oturma, boy, tork), ayrı pul yok sayılır ve not düşülür, BOM tek kalem
+  const cmb = (washer) => runDesignLoop(analysis, pom, { userParams: {} }, opts({ screwSpec: { type: 'iso10644', size: 'auto', length: 'auto', material: 'auto', washer, washerMaterial: 'match' } }));
+  const C0 = cmb('none');
+  const C1 = cmb('iso7089');
+  const c0 = C0.design.screws[0];
+  const cw3 = combiWasher(T('iso10644'), 'M3');
+  check('tb21: kombi vida: takılı ISO 10673 N pul (M3 Ø2,75/Ø7 × 0,6) oturmaya ve boya girer, malzeme vidayı izler (çelik → 200 HV galvaniz)',
+    c0.washer?.captive && c0.washer.code === 'ISO 10673' && c0.washer.d2 === 7 && c0.washer.s === 0.6 && c0.seat === 0.6 && Math.abs(c0.grip - (dH.screws[0].grip + 0.6)) < 1e-9 &&
+    c0.washer.material?.id === 'st200zn' && cw3.z.form === 'N' && C0.design.washer?.captive,
+    `${JSON.stringify(c0.washer)} grip ${c0.grip} / ${dH.screws[0].grip}`);
+  check('tb21: kombi vida + ayrıca seçilen ISO 7089: pul yok sayılır (FAS-WASHER bilgi), takılı pul kalır, BOM\'da ayrı pul kalemi yok',
+    C1.findings.some((fd) => fd.rule === 'FAS-WASHER' && fd.level === 'info' && /kombi/.test(fd.text) && /ISO 7089/.test(fd.text)) &&
+    C1.design.screws.every((s) => s.washer?.captive && s.washer.code === 'ISO 10673') && !C1.design.parts.some((p) => p.kind === 'washer') &&
+    C1.design.bom.some((l) => /ISO 10644 M3×.*takılı ISO 10673 N pul/.test(l)) && !C1.design.bom.some((l) => /vida başı altı/.test(l)) &&
+    JSON.stringify(C1.design.screws.map((s) => [s.length, s.torque?.T])) === JSON.stringify(C0.design.screws.map((s) => [s.length, s.torque?.T])),
+    C1.design.bom.slice(0, 2).join(' | '));
+  const W1 = runDesignLoop(analysis, pom, { userParams: {} }, opts({ screwSpec: { type: 'iso7045', size: 'auto', length: 'auto', material: 'st48zn', washer: 'iso7089', washerMaterial: 'match' } }));
+  const bear = (dd) => dd.torque.lid?.limits.find((x) => x.key === 'bearing_lid')?.T;
+  check('tb21: kombi vidada baskı alanı takılı pulla (Ø7 → kapak baskı torku ISO 7045 + ISO 7089 Ø7 ile aynı), ISO 7045 + ISO 7089 BOM\'da pul ayrı kalem',
+    W1.design.parts.some((p) => p.kind === 'washer' && p.standard === 'ISO 7089') && Number.isFinite(bear(C0.design)) && Math.abs(bear(C0.design) - bear(W1.design)) < 1e-9,
+    `${bear(C0.design)} / ${bear(W1.design)}`);
+  check('tb21: kombi vida her boyutta pul d2 ≥ baş çapı, d1 < diş çapı (pul vidaya takılı, kaybolmaz)',
+    Object.entries(T('iso10644').sizes).every(([sz, z]) => z.washer.d2 >= z.dk && z.washer.d1 < parseFloat(sz.slice(1)) && z.washer.type === 'N'));
+
+  // Eski DIN karşılıkları: arama DIN numarasını bulur (Türkçe karakter katlama korunur), alanlar biçimli
+  const all = [...toolbox.types, ...toolbox.washers, ...toolbox.nuts];
+  const dinTypes = all.filter((t) => t.din);
+  check('tb21: DIN karşılıkları: 18 tipte (12 vida, 3 pul, 3 somun) "DIN nnn" biçiminde; not varsa metin; DIN 7985 geri çekilmiş, yerine ISO 7045 (listede var)',
+    dinTypes.length >= 18 && dinTypes.every((t) => /^DIN \d+/.test(t.din)) && all.every((t) => !t.din_note || t.din_note.length > 10) &&
+    T('din7985').withdrawn === 'ISO 7045' && toolbox.types.some((t) => t.code === T('din7985').withdrawn), `${dinTypes.length} tip`);
+  const hits = (q) => all.filter((t) => toolboxHit(t, q)).map((t) => t.id);
+  check('tb21: arama: "965", "DIN 965", "din965" → ISO 7046-1; "7981" → ISO 7049; "934" → ISO 4032; "125" → ISO 7089; "7985" → ISO 7045 + DIN 7985',
+    hits('965').join() === 'iso7046' && hits('DIN 965').join() === 'iso7046' && hits('din965').join() === 'iso7046' && hits('7981').join() === 'iso7049' &&
+    hits('934').join() === 'iso4032' && hits('125').join() === 'iso7089' && hits('7985').sort().join() === 'din7985,iso7045',
+    `965: ${hits('965')} · 7981: ${hits('7981')} · 7985: ${hits('7985')}`);
+  check('tb21: arama Türkçe karakterden bağımsız ("BOMBELİ HAVŞA", "bombeli havsa" → ISO 7047 ve ISO 7051); boş arama hepsini bulur',
+    hits('BOMBELİ HAVŞA').sort().join() === 'iso7047,iso7051' && hits('bombeli havsa').sort().join() === 'iso7047,iso7051' && hits('').length === all.length, hits('bombeli havsa').join());
+  check('tb21: simgeler: bombeli havşa ve kombi vida ayrı simge, mevcut başlar aynı',
+    headIcon(T('iso7047')) !== headIcon('countersunk') && headIcon(T('iso10644')) !== headIcon('pan') && headIcon(T('iso7045')) === headIcon('pan') &&
+    headIcon(T('iso7046')) === headIcon('countersunk') && headIcon(T('iso7051')) === headIcon(T('iso7047')));
+}
+
 // ---------- Sonuç ----------
 const failed = results.filter((r) => !r.pass);
 document.getElementById('sum').innerHTML = failed.length
