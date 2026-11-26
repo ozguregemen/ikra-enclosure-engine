@@ -37,16 +37,21 @@ Sol aşama çubuğu akışı yedi adımda gösterir; her aşamanın simgesi duru
   hata grupları açık, uyarı ve bilgi grupları kapalı gelir; açık hata ya da uyarı varken bilgi bölümü kapalıdır.
   Negatif ölçüler tipografik eksiyle (`−0,2 mm`) yazılır
 - Otomatik düzeltme satırlarında tetikleyen bulgunun ölçüsü (`neden: 3 mm < 5,5 mm`), döngü bu bilgiyi verdiğinde
-- **Eşleşmeyen muafiyetler**: hiçbir bulguya bağlanmayan muafiyetler gerekçesiyle listelenir ve **Kaldır** ile silinir;
-  yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz
+- **Eşleşmeyen muafiyetler**: artık bulgusunu örtmeyen muafiyetler gerekçesiyle listelenir ve **Kaldır** ile silinir:
+  bulgu kalkmış, metni değişmiş ya da ölçü muafiyet verildiğinden kötüleşmiş olabilir (sayılar bulgu kimliğine girmez;
+  muafiyet ölçüyü kaydeder, ölçü kötüleşirse bulgu yeniden açılır). Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz
 
 **Otomatik ve Kilitli parametreler:** otomatik alanları döngü belirler; alana yazılan değer kilitlenir ve döngü dokunmaz
 (kilit düğmesiyle yeniden otomatiğe döner). Süreç ya da malzeme değişince kilitli değerler korunur. Alanlar satır içinde
-doğrulanır; geçersiz ya da aralık dışı değer uygulanmaz. CNC'de **Freze takım çapı** (0,5–12 mm) atölyedeki en küçük parmak
-frezeyi alır: boşsa kural dosyasının değeri (yer tutucuda), yazılırsa kilitli; geri al / yinele, proje dosyası ve
-"Tüm kilitleri kaldır" bu değeri de kapsar.
+doğrulanır; geçersiz ya da aralık dışı değer uygulanmaz. CNC'de **Freze takım çapı** (0,5–12 mm) kavite köşelerini ve
+cepleri bitiren parmak frezenin çapını alır: boşsa kural dosyasının değeri (yer tutucuda), yazılırsa kilitli; geri al / yinele,
+proje dosyası ve "Tüm kilitleri kaldır" bu değeri de kapsar. İç köşe radyüsü, port açıklığı köşeleri ve somun cebi köşe
+boşaltmasının yanında cep derinliği oranı da (CNC-POCKET-DEPTH: ≤ 4 × Ø önerilir, 10 × Ø üstü ve Ø1 mm ve küçük frezede
+9,52 mm'den derin cep hata) bu çapla denetlenir; çok küçük freze derinlik uyarısı ya da hatası verir, frezeden dar port
+açıklıkları ayrı freze ister (CNC-CUTOUT-TOOL).
 
-**Güncellik ve çıktı kapısı:** durum makinesi `idle → designing → reviewing → building → built | build-error | invalid`.
+**Güncellik ve çıktı kapısı:** durum makinesi `idle → designing → building → built | build-error | invalid`
+(inceleme ve düzeltme döngüsü `designing` içinde çalışır).
 Muaf tutulmamış hata varsa katı model kendiliğinden oluşturulmaz (bilerek "Hatalara rağmen oluştur" seçilebilir);
 model tasarımla güncel değilse indirme düğmeleri gerekçesiyle kapalıdır, eski dosya sessizce sunulmaz. Üretime uygun olmayan tasarımda
 indirmeden önce açık hatalar listelenip onay istenir. Alttaki durum çubuğu akışı özetler:
@@ -56,9 +61,9 @@ indirmeden önce açık hatalar listelenip onay istenir. Alttaki durum çubuğu 
 "Geri al" düğmeli bildirimler, kaydedilmemiş tasarımda dosya değiştirmeden önce onay, açık / koyu / sistem teması,
 WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kullanım (aşama çubuğu ve seçim gruplarında ok tuşları).
 
-## Şu anki durum: V1.14 (M0–M4 + Toolbox + malzeme kütüphanesi + proje dosyası + montaj + kapak malzemesi + kart kenarı tutucu + DIN ray klipsi)
+## Şu anki durum: V2.0 (kaynaklı DFM incelemesi ve düzeltme döngüsü + Toolbox + malzeme kütüphanesi + proje dosyası + kutunun sabitlenmesi + kapak malzemesi + kart kenarı tutucu + DIN ray klipsi)
 
-**Analiz (M0)**
+**Analiz**
 - STEP (.step / .stp) yükleme: dosya seçme ya da sürükle-bırak
 - OpenCascade (WebAssembly) ile okuma, three.js ile 3B önizleme
 - PCB tespiti (ince ve geniş plaka + isim ipucu), kart ölçüsü ve kalınlığı
@@ -67,7 +72,7 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
 - Tek parçaya düzleştirilmiş montajlarda (ör. SolidWorks "parça olarak kaydet") bileşenleri gövde adlarından gruplama
 - Analiz raporunu JSON olarak indirme
 
-**Muhafaza (M1)**
+**Muhafaza**
 - Üretim yöntemi (3D baskı, CNC, enjeksiyon) ve malzeme seçimi
 - Kural dosyalarından gelen et kalınlığı, boşluk, köşe radyüsü; kullanıcı değiştirebilir
 - Alt gövde + kapak (kenar başına konumlandırma dili; yüksek bileşen varsa kısaltılır/kaldırılır)
@@ -75,14 +80,14 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
   draft ve çöküntü riski (enjeksiyon), metal muhafazada RF uyarısı, duvardan geçen konnektörler
 - STEP (gövde + kapak, PCB ile aynı koordinatlarda) ve STL indirme
 
-**Bağlantı (M2)**
+**Bağlantı**
 - PCB gövdesindeki montaj deliklerini tespit (pin delikleri ayıklanır), delik çapından vida boyutu (M2–M4)
 - Gövdede standoff: FDM'de ısıyla gömülen insert, CNC'de kılavuz veya insert, enjeksiyonda sac vidası ön deliği
 - Kapakta PCB'ye inen vida boruları: aynı vida kapağı ve kartı birlikte sıkıştırır (deliğin üstü doluysa yalnızca PCB vidası)
 - Standart vida boyu seçimi; PCB altı yükseklik insert derinliği ve vida boyuna göre otomatik ayarlanır
 - Bağlantı elemanları listesi (vida, insert/kılavuz), uyarılarda tek tıkla uygulanan öneriler
 
-**Port açıklıkları ve DFM paneli (M3)**
+**Port açıklıkları ve DFM paneli**
 - Duvardan geçen gövdeler üçgen ağın duvar düzlemindeki kesitiyle bulunur: yalnızca duvara taşan kısım
   (ör. modül içindeki RJ45) açıklığı belirler, kart altındaki pinler hesaba katılmaz
 - Duvara dayalı konnektörler (USB, jack, terminal…) aday olarak listelenir; diğer kenar bileşenleri kapalı gelir
@@ -90,10 +95,11 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
   enjeksiyonda yan maça gerektirmemesi için varsayılan çentik. CNC'de köşe radyüsü takım yarıçapına göre
 - Kontroller: konnektör ön yüzünün duvar içinde kalma payı, köşeye yakınlık, komşu açıklıklar arası duvar,
   FDM köprü uzunluğu, kapalı bırakılmış ama duvardan geçen bileşen
-- DFM paneli: kategorilere ayrılmış kontroller (genel, süreç, port, kapak, bağlantı), seviye sayaçları,
+- DFM paneli: kategorilere ayrılmış kontroller (genel, süreç, port, kapak, bağlantı, kutunun sabitlenmesi, panel, IP, RF,
+  katı model), seviye sayaçları,
   üzerine gelince ilgili bileşenin 3B'de vurgulanması
 
-**IP sızdırmazlık ve teknik resim (M4)**
+**IP sızdırmazlık ve teknik resim**
 - IP65 / IP66 / IP67: duvar üstünde kordon conta kanalı (derinlik = çap × (1 − sıkıştırma), genişlik doluluk
   sınırına göre); et kalınlığı kanal + iki yan et payına göre otomatik (FDM'de nozul katına yuvarlanır)
 - IP'de port açıklıkları pencere olur ve üstünde kanal için duvar payı bırakılır (gerekirse üst boşluk artırılır)
@@ -173,7 +179,7 @@ WCAG 2.2 AA renk ve odak belirteçleri, zorlanmış renk modu, klavyeyle tam kul
 - SMA / RP-SMA dişi panel konnektörü (arkadan somunlu, u.FL pigtail): Ø6,5 D-delik (6,1 düzlük üstte, dönmeyi önler),
   5/16" somun; otomatik yerleşimde karttaki RF bileşenine en yakın duvar seçilir, pigtail boyu (50/100/150… mm) önerilir
 - Kablo rakoru M12/M16/M20/M25 ×1,5 (kablo sıkma aralığı Lapp SKINTOP ST-M), kontra somun için anahtar payı;
-  basınç dengeleme elemanı M12×1,5 (IP67/68 dış ortam kutusunda önerilir, membran yönü uyarısı)
+  basınç dengeleme elemanı M12×1,5 (IP65–IP67 kutularda önerilir, IP68 iddiasıyla birlikte kullanılmaz; membran yönü uyarısı)
 - Işık borusu Ø3/Ø5: kartta adında "LED" geçen her bileşenin üstüne kapakta delik, boru boyu hesaplanır;
   kart kenarındaki LED'de (boru duvar üstüne biniyorsa) delik açılmaz, uyarılır
 - Lastik ayak (taban köşeleri): tabandan çıkan vida başı/somundan yüksek olmalı; yoksa ayak önerisi
@@ -295,15 +301,15 @@ ve standart boy serisi. Yeni vida tipi eklemek için bu dosyaya bir `types` kayd
 Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dış çap, delik, en az et) ve Helicoil boyutları
 (matkap, yuva dişi, 1d…3d boyları).
 
-## Yol haritası (V1)
+## Sürüm geçmişi
 
 | Aşama | İçerik |
 |---|---|
-| M0 | STEP yükle, 3B göster, PCB ve bileşen analizi |
-| M1 | Kural dosyaları (süreç × malzeme), parametrik alt gövde + kapak, STEP/STL indir |
-| M2 | Montaj deliklerini tanıma, standoff/boss ve vida noktaları |
-| M3 | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
-| M4 | IP65/66/67 conta kanalı, temel PDF teknik resim |
+| İlk sürüm: analiz | STEP yükle, 3B göster, PCB ve bileşen analizi |
+| İlk sürüm: muhafaza | Kural dosyaları (süreç × malzeme), parametrik alt gövde + kapak, STEP/STL indir |
+| İlk sürüm: bağlantı | Kart montaj deliklerini tanıma, standoff/boss ve vida noktaları |
+| İlk sürüm: portlar | Port açıklıkları (kenar bileşenlerinden), DFM uyarı paneli |
+| İlk sürüm: IP | IP65/66/67 conta kanalı, temel PDF teknik resim |
 | V1.1 | Toolbox: ISO vidalar (tip, boyut, boy), havşa |
 | V1.2 | Toolbox 13 tipe: yıldız, düz, imbus, torx, sac vidası (ST) |
 | V1.3 | Dişli burçlar: ısıyla gömülen insert, Helicoil; CNC'ye PEEK ve PTFE |
@@ -317,7 +323,8 @@ Dişli burçlar `web/rules/toolbox/inserts.json`: insert varyantları (boy, dı�
 | V1.11 | Montaj: taban hizasında montaj kulakları (2/4, yuvarlak ya da uzun delik, M3–M6) ya da tabandan içten vidalı delikler |
 | V1.12 | Kapak için ayrı süreç/malzeme (ısıl genleşme farkı dahil), örnek kartlar: Arduino UNO R3, Raspberry Pi 4 B, ESP32-DevKitC, STM32 Nucleo-64 |
 | V1.13 | Kart kenarı tutucu (alt destek + kapak baskısı), taşan anten/parçaları kutunun içine alma |
-| **V1.14** | DIN ray klipsi (EN 60715 TS35): ayrı parça, esnek kilit dili, kutuya içeriden 2 × M3 |
+| V1.14 | DIN ray klipsi (EN 60715 TS35): ayrı parça, esnek kilit dili, kutuya içeriden 2 × M3 |
+| **V2.0** | Kaynaklı DFM kural kataloğu, inceleme ve güvenli otomatik düzeltme döngüsü, katı modelde kenar işlemleri ve kalıp çıkma açısı, son inceleme, muafiyetler, DFM rapor paftası, freze takım çapı seçimi |
 
 ## Yerelde çalıştırma
 

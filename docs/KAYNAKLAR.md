@@ -1,6 +1,6 @@
 # Kaynaklar
 
-[TASARIM-ALGORITMASI.md](TASARIM-ALGORITMASI.md) ve kural kataloğunda (`web/js/dfm/catalog.js`, 127 kural) atıf yapılan kaynaklar. Her girdi: anahtar, yayıncı, başlık, bağlantı, Ikra'da ne için kullanıldığı ve doğrulama durumu. Katalogdaki kaynak adlarının bu anahtarlarla eşlemesi sondaki "Katalog anahtarları" tablosundadır; uygulamada her bulgunun "Neden?" bölümü ve DFM rapor paftasının kaynak listesi aynı başlık ve bağlantıları gösterir.
+[TASARIM-ALGORITMASI.md](TASARIM-ALGORITMASI.md) ve kural kataloğunda (`web/js/dfm/catalog.js`, 128 kural) atıf yapılan kaynaklar. Her girdi: anahtar, yayıncı, başlık, bağlantı, Ikra'da ne için kullanıldığı ve doğrulama durumu. Katalogdaki kaynak adlarının bu anahtarlarla eşlemesi sondaki "Katalog anahtarları" tablosundadır; uygulamada her bulgunun "Neden?" bölümü ve DFM rapor paftasının kaynak listesi aynı başlık ve bağlantıları gösterir.
 
 **Doğrulama durumu.** Kurallar kaynaklardan çıkarıldıktan sonra ayrı bir doğrulama adımında kaynağın kendisiyle karşılaştırıldı.
 
@@ -87,7 +87,7 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
 - **[C11]** Protolabs — *Design Guidelines: CNC Milling*. <https://www.protolabs.com/services/cnc-machining/cnc-milling/design-guidelines/>
   Kullanım: tek taraftan en çok 50,8 mm; 0,51 mm ince eleman, 1,02 mm nominal; M2–M12. Durum: doğrulandı.
 - **[C12]** Protolabs — *Mastering complex features on machined parts*. <https://www.protolabs.com/resources/design-tips/mastering-complex-features-on-machined-parts/>
-  Kullanım: Ø1 mm takım ve 9,52 mm cep derinliği. Durum: doğrulandı.
+  Kullanım: Ø1 mm takım ve 9,52 mm cep derinliği (CNC-POCKET-DEPTH hata sınırı; CNC-CUTOUT-TOOL dar açıklıkta en küçük freze). Durum: doğrulandı.
 - **[C13]** Protolabs — *6 mistakes to avoid when designing machined parts*. <https://www.protolabs.com/en-gb/resources/design-tips/6-mistakes-to-avoid-when-designing-machined-parts/>
   Kullanım: 0,51 mm ve altındaki duvarların kırılması. Durum: doğrulandı.
 - **[C14]** Protolabs — *Threading: Standard holes*. <https://protolabs.com/services/cnc-machining/threaded-holes-guidelines/standard-holes>
@@ -101,7 +101,7 @@ Bir kaynağın bazı maddeleri doğrulanıp bazıları doğrulanmamışsa ayrın
 - **[C18]** Fictiv — *Optimizing part design for CNC machining*. <https://www.fictiv.com/?p=20227>
   Kullanım: 5 × D standart, 10 × D uzun takım. Durum: doğrulandı.
 - **[C19]** Fictiv — *DFM Feedback Glossary*. <https://www.fictiv.com/articles/dfm-action-steps>
-  Kullanım: 10 × D üstü cep; 0,25 mm metal alt sınırının muhafaza için kullanılmaması. Durum: doğrulandı.
+  Kullanım: 10 × D üstü cep (CNC-POCKET-DEPTH hata sınırı); 0,25 mm metal alt sınırının muhafaza için kullanılmaması. Durum: doğrulandı.
 - **[C20]** NASA — *JSC-67701 JSC Fabrication Tolerances and Practices* (Basic DCN001). <https://standards.nasa.gov/system/files/tmp/JSC-67701_JSC_Fabrication_Tolerances_and_Practices_Basic_DCN001_Final.pdf>
   Kullanım: kılavuz ek derinliği 5 P … 5 P + 1,52 mm; kılavuzdan önce 80–120° havşa; derin delik tanımı; belirtilmemiş kenar kırma 0,13–0,51 mm. Durum: ilk üç madde doğrulandı, kenar kırma ve iç köşe maddeleri kontrol edilmedi.
 - **[C21]** Bossard — *Length of engaged thread* (teknik bilgi, 01-2025). <https://assets.eu.ctfassets.net/0vp0u5uh75zd/3wPlDC2XQOYT3XOdwCk6lz/9a9282ffd29746a7a7f6b0149509f1cf/052_Length_engaged_thread_Fastening_EN_01_2025.pdf>
@@ -369,7 +369,7 @@ Katalogda bağlantısız anılan standartlar ve iç notlar. Standart metinleri b
 | Grup | Eşleme |
 |---|---|
 | FDM | F1 `ultimaker`, F2 `prusaModel`, F3 `prusaElephant`, F4 `prusaWarp`, F5 `formlabsWall`, F7 `stratasysFdm`, F8 `hubsFdm`, F9 `hubsShell`, F10 `hubsEnclosure`, F11 `hubsThreaded`, F12 `hubsInterlock`, F13 `hubsAccuracy`, F16 `heBridge`, F17 `cncKitchen`, F18 `cncKitchenTable`, F20 `spirol`, F23 `fictivSnap` |
-| CNC | C1 `hubsCnc`, C2 `hubsCncCost`, C4 `xometryCnc`, C5 `xometryCorner`, C7 `xometryChamfer`, C8 `ensinger`, C11 `protolabsMill`, C16 `protolabsFillet`, C18 `fictivCnc`, C20 `nasa`, C21 `bossard`, C22 `mcam`, C23 `boedeker`, C24 `iso13715`, C25 `boedekerDrill` |
+| CNC | C1 `hubsCnc`, C2 `hubsCncCost`, C4 `xometryCnc`, C5 `xometryCorner`, C7 `xometryChamfer`, C8 `ensinger`, C11 `protolabsMill`, C12 `protolabsComplex`, C16 `protolabsFillet`, C18 `fictivCnc`, C19 `fictivGlossary`, C20 `nasa`, C21 `bossard`, C22 `mcam`, C23 `boedeker`, C24 `iso13715`, C25 `boedekerDrill` |
 | Enjeksiyon | K1 `protolabsWall`, K2 `protolabsStronger`, K3 `protolabsBasics`, K4 `protolabsBoss`, K5 `protolabsDraft`, K6 `protolabsDfm1`, K7 `protolabsCorners`, K8 `dupont`, K9 `ticona`, K10 `avient`, K11 `boellhoff`, K12 `bonenberger`, K14 `fathom`, K17 `fictivEnclosure`, K18 `fictivImSpec`, K19 `bayerSnap` |
 | Muhafaza | M1 `parker`, M2 `element`, M3 `rogers`, M4 `rst`, M5 `gore`, M20 `pcbway`, M21 `obo`, M22 `lapp`, M23 `sevilla`, M24 `mitDfa`, M25 `standoffBlog`, M26 `iso7089`, M27 `rsMount`, M28 `macrofab`, M29 `ulRti`, M30 `ensingerTemp` |
 | RF | R1 `espressif`, R3 `microchip`, R4 `digi`, R7 `tiMatch`, R8 `taoglasFlex`, R14 `antenova`, R16 `johanson`, R18 `pasternack` |
@@ -378,4 +378,4 @@ Katalogda bağlantısız anılan standartlar ve iç notlar. Standart metinleri b
 
 ## Sürüm geçmişi
 
-- **V2.0 (Kasım 2026):** katalogla eşleme tablosu; katalogda kullanılıp listede olmayan kaynaklar eklendi ([F23], [C25], [M26]–[M30], [N1]–[N8]); [K7] durumu ve "kontrol edilmedi" tanımı düzeltildi; kaynak kullanımları kural kimlikleriyle güncellendi.
+- **V2.0 (Kasım 2026):** katalogla eşleme tablosu (C12 `protolabsComplex` ve C19 `fictivGlossary` katalogda CNC-POCKET-DEPTH ve CNC-CUTOUT-TOOL kaynağı olarak eklendi); katalogda kullanılıp listede olmayan kaynaklar eklendi ([F23], [C25], [M26]–[M30], [N1]–[N8]); [K7] durumu ve "kontrol edilmedi" tanımı düzeltildi; kaynak kullanımları kural kimlikleriyle güncellendi.
