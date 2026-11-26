@@ -101,6 +101,9 @@ const S = {
   iec60529: { title: 'IEC 60529: Muhafazaların koruma dereceleri (IP kodu)', url: '' },
   galvanic: { title: 'Galvanik seri ve metal çiftleri (DIN EN ISO 8044 terimleri; iç mühendislik notu)', url: '' },
   materialTds: { title: 'Malzeme teknik veri sayfası (kural dosyası notlarındaki kaynak: HDT, yoğunluk, çekme dayanımı)', url: '' },
+  // Sıcaklık gereksinimi
+  ulRti: { title: 'Thermal Aging Tests for Plastics (UL 746B bağıl sıcaklık indeksi, RTI), UL Solutions', url: 'https://www.ul.com/services/thermal-aging-tests-plastics' },
+  ensingerTemp: { title: 'High temperature plastics (sürekli kullanım sıcaklığı ve ısıl şekil değiştirme sıcaklığı, HDT), Ensinger', url: 'https://ensingerplastics.com/en/plastic-material-selection/high-temperature-plastics' },
 };
 
 /** Kural tanımı yardımcısı */
@@ -132,6 +135,11 @@ export const RULES = {
   'GEN-CONDUCTIVE': R('İletken gövde ve topraklama', 'genel', ['cnc'], 'info',
     'Metal muhafazada PCB bakırı ile duvar, vida ve aralayıcılar arasındaki boşluk ve topraklama yolu bilinçli seçilmelidir.',
     [S.pcbway], 'medium', 90),
+
+  /* ---------- Gereksinimler (Gereksinimler aşaması; bulgu arayüzde, design-ui requirementFindings) ---------- */
+  'REQ-TEMP': R('Çalışma sıcaklığı gereksinimi', 'surec', ALL, 'error',
+    'En yüksek çalışma sıcaklığı malzemenin sürekli kullanım sıcaklığının (UL 746B\'ye göre bağıl sıcaklık indeksi RTI ya da üretici veri sayfasındaki uzun süreli kullanım sıcaklığı) payla altında kalmalıdır. Bu sınırın üstünde plastik sünme ve çarpılma gösterir, geçmeler gevşer, vida bağlantıları ön yükünü kaybeder ve sızdırmazlık bozulur. Isıl şekil değiştirme sıcaklığı (HDT) yalnızca kısa süreli bir karşılaştırma ölçüsüdür; yük altında sürekli kullanım sınırı yerine geçmez. RTI yalnızca incelenen özellik (elektriksel, darbeli ya da darbesiz mekanik) için geçerlidir.',
+    [S.ulRti, S.ensingerTemp, S.materialTds], 'medium', 9),
 
   /* ---------- FDM ---------- */
   'FDM-WALL-NOZZLE': R('Et kalınlığı nozul çapının katı', 'surec', ['fdm'], 'warn',
@@ -175,8 +183,8 @@ export const RULES = {
   'CNC-SETUPS': R('Bağlama (setup) sayısı', 'surec', ['cnc'], 'info',
     'Her ek işleme yönü yeni bir bağlama ister; 1–2 bağlama tercih edilir, yan duvar özellikleri maliyeti ve konum hatasını artırır.',
     [S.hubsCnc, S.fictivCnc], 'high', 90),
-  'CNC-NUT-POCKET-TOOL': R('Altıgen somun cebi için takım çapı ≤ s/2', 'surec', ['cnc'], 'error',
-    'Döner takım iç köşelerde takım yarıçapı kadar radyüs bırakır (kaynaklar); keskin köşe gereken yerde köşe boşaltılır (dogbone). s/2 sınırı bu kaynaklardan türetilmiştir: boşaltma her köşede kenarın ~1,155·r kadarını kullanır, altıgenin kenarı s/√3 olduğundan takım çapı anahtar ağzının yarısını (s/2) aşarsa boşaltma sığmaz ve köşelerde R = Ø/2 kalır. Bu durumda somunun yuvarlak köşelere oturup oturmadığı geometriyle sınanır (somun köşe ölçüsü e ile köşe yayı karşılaştırılır): girişim varsa hata, pay varsa bilgi verilir.',
+  'CNC-NUT-POCKET-TOOL': R('Altıgen somun cebi köşe boşaltması için freze çapı', 'surec', ['cnc'], 'error',
+    'Döner takım iç köşelerde takım yarıçapı kadar radyüs bırakır (kaynaklar); keskin köşe gereken yerde köşe boşaltılır (dogbone). Sınır bu kaynaklardan türetilmiştir: her köşedeki boşaltma dairesi kenardan 2/√3·r yer, altıgenin kenarı s/√3 olduğundan komşu boşaltmalar ancak freze yarıçapı r ≤ s/4 − 0,02 mm (çap ≈ s/2) iken çakışmaz; katı modeldeki boşaltma da aynı sınırla kurulur. Freze bundan büyükse köşelerde R = Ø/2 kalır ve somunun yuvarlak köşelere oturup oturmadığı geometriyle sınanır (somun köşe ölçüsü e ile köşe yayı karşılaştırılır): girişim varsa hata, pay varsa bilgi verilir. Düzeltme: sınırı aşmayan en büyük standart freze ya da somun cebi yerine Helicoil.',
     [S.xometryCorner, S.hubsCnc], 'medium', 32),
   'CNC-STOCK': R('Ham malzeme (stok) boyu', 'surec', ['cnc'], 'info',
     'Dışa taşan kulaklar ham blok boyunu ve kaldırılan malzemeyi büyütür; dış ölçü standart levha/blok boyunun ~3 mm altında tutulmalıdır.',
@@ -247,6 +255,9 @@ export const RULES = {
   'LID-TUBE-NONE': R('Kapak borusu (vida sütunu)', 'kapak', ALL, 'warn',
     'Delik üstü doluysa kapak borusu yapılamaz; kapak yalnızca geçmeyle ya da diğer vidalarla tutunur.',
     [S.mitDfa], 'medium', 66),
+  'LID-TUBE-WALL': R('Gövde duvarına yakın kapak borusu ve yastığı', 'kapak', ALL, 'warn',
+    'Kapaktan kaviteye inen boru ve yastıklar gövde duvarına kapak boşluğundan daha yakına inemez; aksi hâlde kapak takılırken duvara çarpar (gövde ile kapak çakışır). Bu öğeler duvar tarafında kapak boşluğu kadar açıklık kalacak biçimde düzleştirilir; düzleşen yüzde delik çevresinde kalan et malzemenin en az et kalınlığının altına düşerse öğe zayıf kalır, dolmaz ya da vida sıkılırken çatlar. Duvara yakın boss ile duvar arası doldurulmaz (kalın bölge yapar); delik duvardan uzak seçilmeli ya da kapak vidası olarak kullanılmamalıdır.',
+    [S.protolabsBoss, S.protolabsWall, S.formlabsWall], 'medium', 68),
   'LID-TUBE-SLENDER': R('Kapak borusu boy/çap oranı', 'kapak', ALL, 'warn',
     'İnce uzun boru baskıda titreşir, kalıpta maça pimi eğilir (kör delikte L/d ≤ 2–3), CNC\'de çok malzeme kaldırılır.',
     [S.ticona, S.hubsCnc], 'medium', 67),
@@ -471,10 +482,10 @@ export const RULES = {
     [S.tiMatch, S.espressif], 'high', 96),
 
   /* ---------- Katı model sonrası (kenar işlemleri; cad-worker işlem raporundaki rule alanı) ---------- */
-  'GEO-TREAT': R('Kenar işleminin katı modelde uygulanması', 'geometri', ALL, 'warn',
+  'GEO-TREAT': R('Kenar işlemleri', 'geometri', ALL, 'warn',
     'İstenen radyüs, pah ya da çıkma açısı katı modelde tam uygulanamadıysa model incelemedeki varsayımla örtüşmez; gerçekleşen geometri raporlanmalı ve ilgili DFM kuralı yeniden değerlendirilmelidir.',
     [S.autodeskDfm, S.altiumDfma], 'high', 26),
-  'GEO-BUILD': R('Katı model öğesi oluşturulamadı', 'geometri', ALL, 'error',
+  'GEO-BUILD': R('Katı model öğeleri', 'geometri', ALL, 'error',
     'Bir özelliğin Boole işlemi başarısız olduysa ya da parça kenar işlemsiz modele geri döndüyse üretilen model tasarımla aynı değildir; gerçekleşen geometri doğrulanmalıdır.',
     [S.autodeskDfm, S.altiumDfma], 'high', 2),
   'GEO-EDGE-BED': R('Tablaya değen kenarda pah (radyüs değil)', 'geometri', ['fdm'], 'warn',
