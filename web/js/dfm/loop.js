@@ -174,7 +174,7 @@ function cloneDesign(d) {
   return {
     ...d,
     geometry: d.geometry && typeof d.geometry === 'object' ? { ...d.geometry } : d.geometry,
-    checks: Array.isArray(d.checks) ? d.checks.map((c) => ({ ...c, fix: c.fix ? { ...c.fix } : c.fix })) : d.checks,
+    checks: Array.isArray(d.checks) ? d.checks.map((c) => ({ ...c, fix: c.fix ? { ...c.fix } : c.fix, ...(c.limits ? { limits: { ...c.limits } } : {}) })) : d.checks,
     params: d.params && typeof d.params === 'object' ? { ...d.params } : d.params,
   };
 }

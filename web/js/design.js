@@ -45,6 +45,25 @@ const depthRuleOf = (m, ins, process) => (m === 'insert' && process === 'fdm' ? 
 const RF_KEEPOUT = 15;
 // Karbon fiber / karbon katkılı (kayıplı, kısmen iletken) malzemeler
 const CARBON_FILLED = new Set(['pacf', 'petgcf']);
+// Enjeksiyon kapak dili en az çıkma açısı (IM-24/IM-39, Bonenberger; DuPont): dil çıkıntı gibi ≥ 2° (treat.js IM_LIP_DRAFT ile aynı)
+const LID_LIP_DRAFT = 2;
+// Standart parmak freze çapları (mm): öneriler bunlardan birine aşağı yuvarlanır
+const END_MILLS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+
+/**
+ * Altıgen somunun, köşeleri takım yarıçapı R ile yuvarlak kalan (boşaltılmamış) altıgen cebe oturma payı, mm
+ * (eksi = girişim, somun oturmaz). Cep: anahtar ağzı sp, köşe yayının merkezi köşe ekseninde (sp/2 − R)/cos30°.
+ * Somun: anahtar ağzı sn, köşeleri e (en küçük köşe ölçüsü) çemberiyle kesik; en dıştaki nokta V, e/2 çemberi ile yan
+ * yüzün kesiştiği köşedir. Pay = R − |V − yay merkezi|.
+ */
+export function hexCornerFit(sp, R, sn, e) {
+  const c30 = Math.cos(Math.PI / 6);
+  const dc = Math.max(0, sp / 2 - R) / c30;
+  const a = sn / 2;
+  const rho = Math.max(a, (Number.isFinite(e) && e > 0 ? e : 1.093 * sn) / 2);
+  const psi = Math.PI / 6 - Math.acos(Math.min(1, a / rho));
+  return R - Math.hypot(rho * Math.cos(psi) - dc, rho * Math.sin(psi));
+}
 
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
 const f = (v) => nf.format(Math.round(v * 100) / 100);
@@ -414,6 +433,8 @@ export function computeDesign(analysis, rules, params, options = {}) {
     if (meta) {
       for (const k of ['measured', 'limit', 'op', 'unit', 'part']) if (meta[k] !== undefined && meta[k] !== null) c[k] = meta[k];
       if (meta.cat) c.cat = meta.cat;
+      // Yüzey başına sınırlar (ör. kapak INJ-DRAFT: plaka/dil/boru); katı model sonrası inceleme kullanır
+      if (meta.limits && typeof meta.limits === 'object') c.limits = { ...meta.limits };
     }
     checks.push(c);
   };
@@ -786,13 +807,23 @@ export function computeDesign(analysis, rules, params, options = {}) {
           required = minEngage + 0.3;
           nutGeo = { shape: 'hex', s: pocketS, z0, depth: nz.m + 0.6, nutTop: z0 + nz.m + 0.6, Pn,
             area: 0.866 * nz.s * nz.s - (Math.PI / 4) * s.clearance * s.clearance, nz };
-          // CNC: altıgen cebin köşeleri takım yarıçapıyla boşaltılır (dogbone); kenar s/√3 < 2·1,155·r ise boşaltma sığmaz → takım Ø ≤ s/2
+          // CNC: döner takım altıgen cebin köşelerinde R = Ø/2 bırakır. Köşe boşaltması (dogbone) her köşede kenarın ~1,155·R'sini
+          // kullanır; kenar s/√3 iki boşaltmayı ancak takım Ø ≤ s/2 iken taşır (türetilmiş sınır). Boşaltma sığmazsa somunun
+          // R köşeli cebe oturup oturmadığı geometriyle sınanır (hexCornerFit): girişim varsa hata, pay varsa bilgi.
           const toolD = rules.process === 'cnc' ? rules.process_params?.tool_diameter : null;
           if (toolD && toolD > pocketS / 2 + 1e-6) {
-            const maxTool = Math.floor((pocketS / 2) * 10) / 10;
-            noteSpec('error', `${ntype.code} ${s.size} altıgen somun cebi (SW ${f(pocketS)}) Ø${f(toolD)} takımla işlenemez: köşeler takım yarıçapıyla boşaltılamaz, keskin kalır ve somun oturmaz. Takım çapı en fazla ${f(pocketS / 2)} mm (s/2) olmalı; Ø${f(maxTool)} mm ya da daha küçük freze kullanılmalı ya da somun cebi yerine kılavuz/Helicoil seçilmeli.`,
-              { key: 'toolDiameter', value: maxTool, label: `Ø${f(maxTool)} mm freze`, auto: false }, 'CNC-NUT-POCKET-TOOL',
-              { measured: num(toolD), limit: num(pocketS / 2), op: '<=', unit: 'mm', cat: 'surec' });
+            const eN = Number.isFinite(nz.e) ? nz.e : 1.093 * nz.s; // ISO 4032 e_min ≈ 1,09·s
+            const gap = hexCornerFit(pocketS, toolD / 2, nz.s, eN);
+            const stdTool = [...END_MILLS].reverse().find((d) => d <= pocketS / 2 + 1e-9) ?? END_MILLS[0];
+            const tm = { measured: num(toolD), limit: num(pocketS / 2), op: '<=', unit: 'mm', cat: 'surec' };
+            const head = `${ntype.code} ${s.size} altıgen somun cebi (SW ${f(pocketS)}): Ø${f(toolD)} takımla köşe boşaltması (dogbone) sığmaz (takım çapı en fazla s/2 = ${f(pocketS / 2)} mm olmalı), köşelerde R${f(toolD / 2)} kalır`;
+            if (gap < -1e-4) {
+              noteSpec('error', `${head}; somunun köşeleri (e ${f(eN)} mm) bu yuvarlak köşelere ${nf.format(Math.round(-gap * 1000) / 1000)} mm girişim yapar ve somun cebe oturmaz. Köşeler Ø${f(stdTool)} mm ya da daha küçük frezeyle boşaltılmalı ya da somun cebi yerine Helicoil seçilmeli.`,
+                { key: 'insertType', value: 'helicoil-fr', label: 'Helicoil seç' }, 'CNC-NUT-POCKET-TOOL', tm);
+            } else {
+              noteSpec('info', `${head}; somunun köşeleri (e ${f(eN)} mm) yuvarlak köşelere ${nf.format(Math.round(gap * 1000) / 1000)} mm payla sığar, somun oturur. Köşe boşaltması için Ø${f(stdTool)} mm ya da daha küçük freze gerekir.`,
+                null, 'CNC-NUT-POCKET-TOOL', tm);
+            }
           }
         }
       } else if (method === 'standoff' && sotype.sizes[s.size]) {
@@ -1645,6 +1676,21 @@ export function computeDesign(analysis, rules, params, options = {}) {
       add('ok', `Kapak dili / kapak kalınlığı oranı %${Math.round(ratio * 100)}: çöküntü riski düşük.`, null, null, 'INJ-LIP-RATIO', lm);
     }
   };
+  // Kapak kalıp çıkma açısı (kapak kendi kalıbında −Z yönünde çıkar). Her yüzey kendi derinliğiyle (treat.js injectionDraft):
+  // plaka yan yüzü kapak kalınlığı kadar, dil ve vida boruları plakadan aşağı indikleri boy kadar derindir; dil ayrıca en az
+  // 2° (IM-24/IM-39). limits (plate/lip/tube) katı model sonrası incelemede (review.js) satır satır kullanılır.
+  const lidDraftCheck = (lrules, label) => {
+    const lipH = Math.max(0, ...lipBars.map((l) => l.depth || 0));
+    const tubeH = Math.max(0, ...lidTubes.map((t) => t.length || 0));
+    const plateLimit = injectionDraft(lidT, lidT, lrules.draft_angle_min);
+    const lipLimit = lipH > 0 ? Math.max(LID_LIP_DRAFT, injectionDraft(lidT + lipH, lidT, lrules.draft_angle_min)) : null;
+    const tubeLimit = tubeH > 0 ? injectionDraft(lidT + tubeH, lidT, lrules.draft_angle_min) : null;
+    const parts = [`plaka yan yüzüne en az ${f(plateLimit)}°`];
+    if (lipLimit !== null) parts.push(`${f(lipH)} mm boyundaki dile en az ${f(lipLimit)}°`);
+    if (tubeLimit !== null) parts.push(`${f(tubeH)} mm boyundaki vida borularına en az ${f(tubeLimit)}°`);
+    add('info', `${label ? `Kapak (${label})` : 'Kapak'} kalıp çıkma açısı: ${parts.join(', ')} draft uygulanmalı; katı modelde uygulandığı oluşturma sonrası doğrulanır.`,
+      null, null, 'INJ-DRAFT', lidMeta({ limit: Math.max(plateLimit, lipLimit ?? 0, tubeLimit ?? 0), limits: { plate: plateLimit, lip: lipLimit, tube: tubeLimit }, op: '>=', unit: '°' }));
+  };
   const nf4 = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 4 });
   if (proc === 'injection') {
     // Draft: katı modelle aynı formül (treat.js injectionDraft — tek kaynak): dış duvarın kalıp derinliği (ağız – taban altı)
@@ -1662,7 +1708,10 @@ export function computeDesign(analysis, rules, params, options = {}) {
       add('ok', `İç köşe radyüsü ${f(rIn)} mm ≥ 0,5 × et kalınlığı; dış radyüs ${f(rOut)} mm = iç + et (köşede üniform et).`, null, null, 'INJ-CORNER-RADIUS',
         { measured: num(rIn), limit: num(rInj), op: '>=', unit: 'mm' });
     }
-    if (!lidOwn) lipRatioCheck(rules);
+    if (!lidOwn) {
+      lipRatioCheck(rules);
+      lidDraftCheck(rules, null); // aynı malzemede kapak da kalıplanır: kendi derinlikleriyle
+    }
     // Üniform et: kalın bloklar ve ani kalınlık değişimleri tasarımdan çıkarılır
     const thick = [];
     const fr = floor / wall;
@@ -1694,10 +1743,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   }
   if (lidOwn && lr.process === 'injection') {
     // Kapak kendi kalıbında, −Z yönünde çıkar: plaka yan yüzü + dil + borular
-    const depthL = lidT + lidFeatH;
-    const draftL = injectionDraft(depthL, lidT, lr.draft_angle_min);
-    add('info', `Kapak (${lr.label}) kalıp çıkma açısı: plaka yan yüzü ve ${f(lidFeatH)} mm boyundaki dil/boru yüzeylerine en az ${f(draftL)}° draft uygulanmalı (dil ≥ 2°); katı modelde uygulandığı oluşturma sonrası doğrulanır.`,
-      null, null, 'INJ-DRAFT', lidMeta({ limit: draftL, op: '>=', unit: '°' }));
+    lidDraftCheck(lr, lr.label);
     lipRatioCheck(lr);
     if (lidHoles.some((hh) => hh.pad)) {
       add('warn', 'Kapak et kalınlığı üniform değil: kapak altındaki köşe vidası yastıkları dolu blok. Kalın bölgeler çöküntü (sink) yapar; içten boşaltılmalı.', null, null, 'INJ-UNIFORM-WALL', { part: 'lid' });
@@ -1965,7 +2011,11 @@ export function computeDesign(analysis, rules, params, options = {}) {
     const grIn = rIn + wall / 2 - groove.width / 2;
     const grNeed = 3 * seal.cord_d;
     const gMeta = { measured: num(grIn), limit: num(grNeed), op: '>=', unit: 'mm' };
-    if (grIn < grNeed - 1e-6) {
+    if (wall < groove.rimNeed - 1e-6) {
+      // Kanal duvara sığmıyor (IP-RIM hatası): köşe radyüsü büyütmek kanalı sığdırmaz; önce et kalınlığı çözülmeli
+      add('info', `Conta kanalı duvara sığmadığı için iç köşe radyüsü değerlendirilmedi (önce IP-RIM: et kalınlığı en az ${f(groove.rimNeed)} mm); şu anki değer ${f(Math.max(grIn, 0))} mm, gereken en az ${f(grNeed)} mm.`,
+        null, null, 'IP-GROOVE-RADIUS', gMeta);
+    } else if (grIn < grNeed - 1e-6) {
       const crNeed = ceil005(grNeed + groove.width / 2 - wall / 2);
       add('warn', `Conta kanalı iç köşe radyüsü ${f(Math.max(grIn, 0))} mm, Ø${f(seal.cord_d)} kordon için en az ${f(grNeed)} mm (3 × kordon çapı, ideal 6×) olmalı: kordon köşede ezilir ya da kalkar.`,
         crNeed > p.cornerRadius + 1e-6 ? { key: 'cornerRadius', value: crNeed, label: `iç köşe radyüsü ${f(crNeed)} mm` } : null, null, 'IP-GROOVE-RADIUS', gMeta);
