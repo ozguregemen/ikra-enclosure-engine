@@ -16,6 +16,11 @@ const DOWN = [0, 0, -1];
 const COLOR = { steel: '#b9c0c8', brass: '#c9a54a', black: '#2c2e33', nylon: '#ece7da', plastic: '#3b3e44', gray: '#9aa0a6', clear: '#d8eefc', rubber: '#1d1e21', gold: '#e2b858' };
 const finishColor = (f) => ({ brass: COLOR.brass, black: COLOR.black, nylon: COLOR.nylon }[f] || COLOR.steel);
 const fmt = (v) => String(Math.round(v * 100) / 100).replace('.', ',');
+/**
+ * Pul iç yarıçapı. Kombi vidanın takılı pulu (ISO 10673, d1 < d: vida pulun altında inceltilmiş gövdeyle taşınır) montajda
+ * tam çaplı gövde silindiriyle çakışmasın diye gövde çapına açılır; ayrı pulda d1.
+ */
+export const washerBore = (w, d) => (w.captive ? Math.max(w.d1, d || 0) : w.d1) / 2;
 
 /** Vida: başın oturduğu nokta (x, y, z) ve shank yönü; havşa başta baş deliğin içindedir */
 function screwPrims(s, z, down = true) {
@@ -62,7 +67,7 @@ export function assemblyItems(d, boardTop) {
     if (s.washer) {
       const w = s.washer;
       items.push({ name: `${w.code}${w.form ? ' ' + w.form : ''} ${w.size} #${n}`, part, color: finishColor(w.material?.finish),
-        prims: [{ k: 'cyl', p: [s.x, s.y, seat - (s.seat || w.s)], dir: UP, h: w.s, r: w.d2 / 2, rIn: w.d1 / 2 }] });
+        prims: [{ k: 'cyl', p: [s.x, s.y, seat - (s.seat || w.s)], dir: UP, h: w.s, r: w.d2 / 2, rIn: washerBore(w, s.d) }] });
     }
   }
   // DIN ray klipsi vidaları (içeriden, tabana oturur) ve klipsteki insertler (klipsle birlikte)
@@ -105,7 +110,7 @@ export function assemblyItems(d, boardTop) {
         const cw = top?.washer?.captive ? top.washer : null;
         if (top) items.push({ name: `Alt vida ${top.size}x${fmt(b.bottom.length)} #${m}`, part: 'base', color: finishColor(top.material?.finish), prims: screwPrims({ ...top, length: b.bottom.length }, b.zBase - (cw ? cw.s : 0), false) });
         if (cw) items.push({ name: `${cw.code} ${cw.form || ''} ${cw.size} alt #${m}`.replace(/\s+/g, ' '), part: 'base', color: finishColor(cw.material?.finish),
-          prims: [{ k: 'cyl', p: [st.x, st.y, b.zBase - cw.s], dir: UP, h: cw.s, r: cw.d2 / 2, rIn: cw.d1 / 2 }] });
+          prims: [{ k: 'cyl', p: [st.x, st.y, b.zBase - cw.s], dir: UP, h: cw.s, r: cw.d2 / 2, rIn: washerBore(cw, top.d) }] });
       } else if (b.bottom?.kind === 'nut') {
         items.push({ name: `${b.bottom.code} somun #${m}`, part: 'base', color: finishColor(b.bottom.material?.finish),
           prims: [{ k: 'hex', p: [st.x, st.y, b.zBase], dir: DOWN, h: b.bottom.m, af: b.bottom.s, rIn: b.dIn / 2 }] });

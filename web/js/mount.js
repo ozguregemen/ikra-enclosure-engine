@@ -33,8 +33,22 @@ const SNAP_STRAIN = {
 const STD_LEN = [4, 5, 6, 8, 10, 12, 14, 16, 20, 25];
 
 /**
+ * Tabandan çıkan vida başı / somun (panel.js bottomBump): kutu ya da klips plakası düz oturmaz. Çıkıntının tamamı bombeli
+ * havşa başlarının (ISO 7047 / ISO 7051) bombesiyse (bottomBumpDome) düz havşa karşılığı önerilir; yoksa havşa başlı alt vida
+ * ya da somun cebi.
+ */
+function bottomBumpWarn(ctx, add, what) {
+  if (!(ctx.bottomBump > 0)) return;
+  const alt = ctx.bottomBumpDome;
+  add('warn', alt
+    ? `Tabandan ${f(ctx.bottomBump)} mm vida başı bombesi çıkıyor: ${what}. Düz havşa başlı alt vida (${alt.code}) seçilmeli.`
+    : `Tabandan ${f(ctx.bottomBump)} mm vida başı/somun çıkıyor: ${what}. Havşa başlı alt vida ya da somun cebi seçilmeli.`,
+  alt ? { key: 'screwType', value: alt.id, label: `${alt.code} seç` } : null, 'MNT-BOTTOM-BUMP', { measured: ctx.bottomBump, unit: 'mm' });
+}
+
+/**
  * ctx: { mount, rules, tol, fitSel, fasteners, washers, outer, center, z0, wall, floor, floorTop, rIn, rOut, cav,
- *        ports, panelItems, standoffs, cornerBosses, bottomBump, p, below, seal }
+ *        ports, panelItems, standoffs, cornerBosses, bottomBump, bottomBumpDome, p, below, seal }
  * Dönüş: { ears, floorHoles, holes (çizim/delik listesi), checks, bom, footprint, info }
  * checks: [{ level, text, fix, rule, measured?, limit?, op?, unit?, part? }] — rule: dfm/catalog.js kimliği (MNT-*)
  */
@@ -132,7 +146,7 @@ export function planMount(ctx) {
       for (const c of [...new Set(L.conflicts)]) add('warn', `${c}.`, fix, 'MNT-EAR-CONFLICT');
     }
     if (ctx.hasFeet) add('warn', 'Lastik ayak ve montaj kulağı birlikte: kutu ayaklara oturur, kulaklar yüzeye değmez. Duvara montajda ayaklar kaldırılmalı.', null, 'MNT-FEET');
-    if (ctx.bottomBump > 0) add('warn', `Tabandan ${f(ctx.bottomBump)} mm vida başı/somun çıkıyor: kutu montaj yüzeyine düz oturmaz. Havşa başlı alt vida ya da somun cebi seçilmeli.`, null, 'MNT-BOTTOM-BUMP', { measured: ctx.bottomBump, unit: 'mm' });
+    bottomBumpWarn(ctx, add, 'kutu montaj yüzeyine düz oturmaz');
     if (rules.process === 'cnc') add('info', `CNC'de kulaklar ham malzeme (stok) boyunu ${f(out.footprint.L)} × ${f(out.footprint.W)} mm'ye büyütür; çok sayıda parçada ayrı sac braket daha ekonomik olabilir.`, null, 'CNC-STOCK');
     if (rules.process === 'fdm') add('ok', 'Kulaklar taban hizasında: baskı tablasına oturur, destek gerekmez.', null, 'FDM-PRINT-ORIENT');
     out.bom.push(`Montaj: ${out.ears.length} × ${m.size} vida (+ ISO 7089 pul) — kulaklarda Ø${f(d)}${slot ? `×${f(d + slot)} uzun` : ''} delik, aralık ${[sx, sy].filter((v) => v > 0).map(f).join(' × ')} mm; vida/dübel montaj yüzeyine göre seçilir`);
@@ -298,7 +312,7 @@ function planDin(ctx, m, out, add, s) {
   headRoom();
   if (ctx.seal) add('warn', `${ctx.seal.label}: klips vidalarının taban delikleri sızdırmazlığı bozar; iki vidada sızdırmazlık pulu (ya da O-ring) kullanılmalı.`, null, 'IP-FLOOR-HOLES');
   if (ctx.hasFeet) add('warn', 'Lastik ayaklar kutuyla klips arasına girer: DIN montajında ayaklar kaldırılmalı.', null, 'MNT-FEET');
-  if (ctx.bottomBump > 0) add('warn', `Tabandan ${f(ctx.bottomBump)} mm vida başı/somun çıkıyor: klips plakası kutuya düz oturmayabilir. Havşa başlı alt vida ya da somun cebi seçilmeli.`, null, 'MNT-BOTTOM-BUMP', { measured: ctx.bottomBump, unit: 'mm' });
+  bottomBumpWarn(ctx, add, 'klips plakası kutuya düz oturmayabilir');
   if (rules.process === 'fdm') add('ok', 'Klips üst yüzü tablaya gelecek şekilde (kancalar yukarı) desteksiz basılır; dudak çıkıntısı 1,2 mm.', null, 'FDM-PRINT-ORIENT', clip);
   else if (rules.process === 'cnc') add('info', `CNC: klips ray yönünde sabit kesitli bir profil (dil yarıkları ve boss'lar ek işlem). Az adette ticari vidalı TS35 klipsi daha ekonomik olabilir; delik aralığı ${f(sp)} mm.`, null, 'MNT-DIN-PROCESS', clip);
   else add('info', 'Kalıpta kanca dudakları yan maça ister: klipsi ayrı FDM parça olarak basmak ya da ticari TS35 klipsi kullanmak daha ucuzdur.', null, 'MNT-DIN-PROCESS', clip);

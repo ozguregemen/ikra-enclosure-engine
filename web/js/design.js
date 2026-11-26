@@ -371,25 +371,26 @@ export function driveText(ttype, sz, recess = null) {
 
 /**
  * SolidWorks Toolbox tarzı tanım: "ISO 7045 - M3 × 12 - H", "ISO 7049 - ST2.9 × 13 - C - H", Pozidriv "… - Z";
- * kombi vidada vida sembolü ve pul tipi: "ISO 10644 - M3 × 10 - H - S3 - N" (ISO 10644:1998 madde 6 öğeleri)
+ * kombi vidada vida sembolü, pul tipi ve pul sertlik sınıfı: "ISO 10644 - M3 × 10 - H - S3 - N - 200 HV"
+ * (ISO 10644:2009 madde 7 öğeleri)
  */
 export function designation(ttype, size, L, recess = null) {
   const len = L === null || L === undefined ? '…' : nfDrive.format(L);
   const rec = ttype.recess ? recess || ttype.recess : null;
   const cw = ttype.combi ? ttype.sizes?.[size]?.washer : null;
   return `${ttype.code} - ${size} × ${len}${ttype.form ? ' - ' + ttype.form : ''}${rec ? ' - ' + rec : ''}` +
-    (ttype.combi ? ` - ${ttype.combi}${cw?.type ? ' - ' + cw.type : ''}` : '');
+    (ttype.combi ? ` - ${ttype.combi}${cw?.type ? ' - ' + cw.type : ''}${ttype.washer_hardness ? ' - ' + ttype.washer_hardness : ''}` : '');
 }
 
 /**
  * Kombi vidanın (ISO 10644) vidaya takılı düz pulu (ISO 10673): pul tipi gibi davranır (oturma, tork, boy, 3B, BOM).
- * Malzeme vidayı izler (çelik → 200 HV galvaniz, paslanmaz → A2). Kombi değilse ya da boyutta pul yoksa null.
+ * ISO 10644 yalnızca çelik vidaları kapsar: pul 200 HV galvanizli çeliktir. Kombi değilse ya da boyutta pul yoksa null.
  */
 export function combiWasher(ttype, size) {
   const z = ttype?.combi ? ttype.sizes?.[size]?.washer : null;
   if (!z) return null;
   return {
-    type: { id: 'iso10673', code: 'ISO 10673', name: `Düz pul, kombi vida için (tip ${z.type})`, kind: 'flat', materials: ['st200zn', 'a2'], captive: true },
+    type: { id: 'iso10673', code: 'ISO 10673', name: `Düz pul, kombi vida için (tip ${z.type})`, kind: 'flat', materials: ['st200zn'], captive: true },
     z: { d1: z.d1, d2: z.d2, s: z.s, form: z.type },
   };
 }
@@ -1517,8 +1518,12 @@ export function computeDesign(analysis, rules, params, options = {}) {
       const antenna = (analysis.parts || []).find((pt) => !pt.isBoard && (isAntennaName(pt.name || '') || isRfName(pt.name || '')));
       if (antenna && screwMat.magnetic) {
         const nonMag = (ttype?.materials || []).map((id) => matList.find((m) => m.id === id)).find((m) => m && !m.magnetic);
-        noteSpec('info', `Kartta ${antenna.name} var: anten/RF yakınında manyetik olmayan vida tercih edilir (${screwMat.tag} manyetiktir).`,
-          nonMag ? { key: 'screwMaterial', value: nonMag.id, label: `${nonMag.tag} seç` } : null, 'RF-MAGNETIC', { cat: 'rf' });
+        // Kombi vida (ISO 10644) yalnızca çeliktir: manyetik olmayan karşılık pulsuz ISO 7045 (+ ayrı A2 pul)
+        const plainAlt = !nonMag && ttype?.combi ? (options.toolbox?.types || []).find((t) => t.id === 'iso7045') : null;
+        noteSpec('info', `Kartta ${antenna.name} var: anten/RF yakınında manyetik olmayan vida tercih edilir (${screwMat.tag} manyetiktir).` +
+          (plainAlt ? ` ${ttype.code} yalnızca çelik vidaları kapsar; ${plainAlt.code} ile ayrı A2 pul seçilebilir.` : ''),
+        nonMag ? { key: 'screwMaterial', value: nonMag.id, label: `${nonMag.tag} seç` } : plainAlt ? { key: 'screwType', value: plainAlt.id, label: `${plainAlt.code} seç` } : null,
+        'RF-MAGNETIC', { cat: 'rf' });
       }
       if (screwMat.family === 'plastic') {
         noteSpec('info', `${screwMat.tag} vida yalıtkan ve manyetik değildir; dayanımı düşüktür (önerilen tork ≈ ${f(torqueOf[0]?.T ?? 0)} N·m), 80 °C üstünde ve titreşimde gevşeyebilir.`, null, 'FAS-PLASTIC-SCREW');
@@ -1783,7 +1788,7 @@ export function computeDesign(analysis, rules, params, options = {}) {
   // --- Kutunun bağlanması: montaj kulakları ya da tabandan içten vida ---
   const mount = planMount({
     mount: options.mount, rules, tol, fitSel, fasteners, washers: options.toolbox?.washers || [], outer, center, z0, wall, floor,
-    floorTop, rIn, rOut, cav, ports, panelItems: panel.items, standoffs, cornerBosses, bottomBump: panel.bottomBump || 0,
+    floorTop, rIn, rOut, cav, ports, panelItems: panel.items, standoffs, cornerBosses, bottomBump: panel.bottomBump || 0, bottomBumpDome: panel.bottomBumpDome || null,
     hasFeet: panel.items.some((it) => it.kind === 'foot'), p, below, seal,
   });
   bom.push(...mount.bom);

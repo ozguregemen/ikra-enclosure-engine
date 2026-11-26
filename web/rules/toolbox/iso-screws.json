@@ -1,5 +1,5 @@
 {
-  "aciklama": "Toolbox · ISO cıvata ve vidalar (mm). dk: baş çapı en büyük; havşa başlarda dk teorik (keskin kenar) çaptır ve havşa bununla açılır, dk_actual gerçek baş çapıdır. k: baş yüksekliği en büyük. P: diş adımı. drive: yıldızda uç no. (PH), düz başta yarık genişliği n, imbusta anahtar ölçüsü s, torx'ta T no.; A: torx uç ölçüsü, m: yıldız iz çapı. Boylar yaygın katalog boylarıdır, tedarikçiyle doğrulayın. M5 ve M6 baş ölçüleri fasten.it DIN EN ISO tablolarından (ISO 7380-1 dahil); fasten.it havşa başlarda yalnız gerçek dk verdiği için M5/M6 havşalarda teorik dk (10,4 / 12,6; ISO 10642: 11,2 / 13,44) ISO 2009 tablosundandır. Metrik (M) tiplerde geçiş deliği, kılavuz ve insert ölçüleri fasteners.json'dan gelir; sac vidalarında (ST) d, PCB deliği, geçiş deliği ve plastik için ön delik (pilot, ≈0,87·d başlangıç değeri, malzemeye göre deneyle doğrulayın) burada tanımlıdır. Yıldız izi: recess varsayılan iz (H Phillips), recesses izinli izler (H ve Z Pozidriv; ISO 7045/7046-1/7047/7048/7049/7050/7051, DIN 7985 başlıkları ve tabloları), mZ Pozidriv iz çapı (m Phillips içindir; uç no. iki izde aynıdır). Bombeli havşa (raised: ISO 7047, ISO 7051): havşa kısmı ISO 7046-1/7050 ile aynıdır, f bombe yüksekliği (≈), rf bombe yarıçapı (≈); boy havşa üst düzleminden (dk teorik) uca ölçülür, bombe boya dahil değildir ve yüzeyden f kadar çıkar (ISO 7047:1994 Şekil 1, ISO 7051:2011). DIN 7985: v silindir yüksekliği, rf bombe yarıçapı, k_nom anma yüksekliği; k en büyük değerdir (Westfield, boltport); withdrawn yerine gelen standarttır (DIN Media: DIN 7985:1990-08 geri çekilmiş, yerine DIN EN ISO 7045). Kombi vida (combi: ISO 10644 vida sembolü, S3 = ISO 7045 başı): washer vidaya takılı düz pulun tipi (ISO 10673 N), d1, d2, s ölçüleridir; pul dahil boy baş altından ölçülür (ISO 10644:2009, ISO 10673:1998). M2 kombi vida boyları kaynakta bulunamadığı için tanımlanmadı. din: eski DIN karşılığı, din_note: M2–M6 ölçü farkı (not yoksa ölçüler aynı); Würth DINO bölüm 3 ve fasten.it DIN/ISO tabloları. ISO 7047 ve ISO 7048 tabloları ISO 7047:1994 ve ISO 7048:1998 örnek sayfalarından (2011 baskıları küçük revizyon), ISO 7051 ISO 7051:2011 örnek sayfasından; fasten.it 2011 tablolarıyla karşılaştırıldı.",
+  "aciklama": "Toolbox · ISO cıvata ve vidalar (mm). dk: baş çapı en büyük; havşa başlarda dk teorik (keskin kenar) çaptır ve havşa bununla açılır, dk_actual gerçek baş çapıdır. k: baş yüksekliği en büyük. P: diş adımı. drive: yıldızda uç no. (PH), düz başta yarık genişliği n, imbusta anahtar ölçüsü s, torx'ta T no.; A: torx uç ölçüsü, m: yıldız iz çapı. Boylar yaygın katalog boylarıdır, tedarikçiyle doğrulayın. M5 ve M6 baş ölçüleri fasten.it DIN EN ISO tablolarından (ISO 7380-1 dahil); fasten.it havşa başlarda yalnız gerçek dk verdiği için M5/M6 havşalarda teorik dk (10,4 / 12,6; ISO 10642: 11,2 / 13,44) ISO 2009 tablosundandır. Metrik (M) tiplerde geçiş deliği, kılavuz ve insert ölçüleri fasteners.json'dan gelir; sac vidalarında (ST) d, PCB deliği, geçiş deliği ve plastik için ön delik (pilot, ≈0,87·d başlangıç değeri, malzemeye göre deneyle doğrulayın) burada tanımlıdır. Yıldız izi: recess varsayılan iz (H Phillips), recesses izinli izler (H ve Z Pozidriv; ISO 7045/7046-1/7047/7048/7049/7050/7051, DIN 7985 başlıkları ve tabloları), mZ Pozidriv iz çapı (m Phillips içindir; uç no. iki izde aynıdır). Bombeli havşa (raised: ISO 7047, ISO 7051): havşa kısmı ISO 7046-1/7050 ile aynıdır, f bombe yüksekliği (≈), rf bombe yarıçapı (≈); boy havşa üst düzleminden (dk teorik) uca ölçülür, bombe boya dahil değildir ve yüzeyden f kadar çıkar (ISO 7047:1994 Şekil 1, ISO 7051:2011). DIN 7985: v silindir yüksekliği, rf bombe yarıçapı, k_nom anma yüksekliği; k en büyük değerdir (Westfield, boltport); withdrawn yerine gelen standarttır (DIN Media: DIN 7985:1990-08 geri çekilmiş, yerine DIN EN ISO 7045). Kombi vida (combi: ISO 10644 vida sembolü, S3 = ISO 7045 başı): washer vidaya takılı düz pulun tipi (ISO 10673 N), d1, d2, s ölçüleridir; boy baş altından ölçülür, pul kalınlığı boya eklenmez (pul boyun içindedir); washer_hardness pul sertlik sınıfıdır ve tanıma yazılır; standart yalnızca çelik vidaları kapsar (ISO 10644:2009, ISO 10673:1998). M2 kombi vida boyları kaynakta bulunamadığı için tanımlanmadı. din: eski DIN karşılığı, din_verified: false ise ölçü eşdeğerliği doğrulanmamıştır, din_note: M2–M6 ölçü farkı (not yoksa ölçüler aynı); dim_src: o satırın ölçüleri ISO yerine bu standarttandır (mevcut tasarımlar değişmesin diye korunan DIN değerleri); Würth DINO bölüm 3 ve fasten.it DIN/ISO tabloları. ISO 7047 ve ISO 7048 tabloları ISO 7047:1994 ve ISO 7048:1998 örnek sayfalarından (2011 baskıları küçük revizyon), ISO 7051 ISO 7051:2011 örnek sayfasından; fasten.it 2011 tablolarıyla karşılaştırıldı.",
   "standard": "ISO",
   "categories": [
     {
@@ -13,13 +13,13 @@
             {
               "id": "iso7045", "code": "ISO 7045", "materials": ["a2-70", "st48zn", "a4-80", "brass", "pa66"], "name": "Yıldız başlı bombe vida", "short": "Yıldız bombe baş",
               "head": "pan", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "length_includes_head": false,
-              "din": "DIN 7985", "din_note": "M2, M4 ve M6 başları aynı. M2,5 k 2→2,1; M3 dk 6→5,6; M5 dk 10→9,5, k 3,8→3,7 (DIN → ISO). Uç no. aynı, iz çapı m az farklı. DIN başı yuvarlak silindir biçimindedir; stok parçalar çoğu kez DIN 7985 ölçüsünde teslim edilir.",
+              "din": "DIN 7985", "din_note": "M2, M4 ve M6 başları aynı. M2,5 k 2→2,1; M3 dk 6→5,6; M5 dk 10→9,5, k 3,8→3,7 (DIN → ISO). Katalogdaki M5 satırı DIN 7985 ölçüsündedir. Uç no. M2'de farklıdır (DIN'de PH1, ISO'da PH0; m 2,5→1,9), diğer boyutlarda aynıdır; iz çapı m az farklı. DIN başı yuvarlak silindir biçimindedir; stok parçalar çoğu kez DIN 7985 ölçüsünde teslim edilir.",
               "sizes": {
                 "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 0, "mZ": 2.1, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 1, "mZ": 2.6, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
                 "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive": 1, "mZ": 2.8, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25, 30] },
                 "M4": { "dk": 8.0, "k": 3.1, "P": 0.7, "drive": 2, "mZ": 4.3, "lengths": [5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40] },
-                "M5": { "dk": 10, "k": 3.8, "P": 0.8, "drive": 2, "mZ": 4.7, "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
+                "M5": { "dk": 10, "k": 3.8, "P": 0.8, "drive": 2, "mZ": 4.7, "dim_src": "DIN 7985", "lengths": [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50] },
                 "M6": { "dk": 12, "k": 4.6, "P": 1.0, "drive": 3, "mZ": 6.7, "lengths": [8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 60] }
               }
             },
@@ -74,9 +74,10 @@
               }
             },
             {
-              "id": "iso10644", "code": "ISO 10644", "materials": ["st48zn", "a2-70"], "name": "Yıldız başlı bombe kombi vida (kaybolmaz düz pullu)", "short": "Yıldız bombe baş, pullu (kombi)",
-              "head": "pan", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "length_includes_head": false, "combi": "S3",
-              "din": "DIN 6900-1", "din_note": "DIN 6900-1 (düz pullu kombi vida) geri çekilmiş, yerine DIN EN ISO 10644 gelmiştir. Ölçü karşılaştırması kaynaklarda bulunamadı; DIN parçası denetlenmeden eşdeğer sayılmamalıdır. Stokta çoğu kez DIN 7985 başlı (M3 dk 6, M5 dk 10) ve Pozidriv (Z) izlidir.",
+              "id": "iso10644", "code": "ISO 10644", "materials": ["st48zn"], "name": "Yıldız başlı bombe kombi vida, kaybolmaz düz pullu", "short": "Yıldız bombe baş, pullu (kombi)",
+              "head": "pan", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "thread": "M", "length_includes_head": false, "combi": "S3", "washer_hardness": "200 HV",
+              "din": "DIN 6900-1", "din_verified": false, "din_note": "DIN 6900-1 (düz pullu kombi vida) geri çekilmiş, yerine DIN EN ISO 10644 gelmiştir. Ölçü karşılaştırması kaynaklarda bulunamadı; DIN parçası denetlenmeden eşdeğer sayılmamalıdır. Stokta çoğu kez DIN 7985 başlı (M3 dk 6, M5 dk 10) ve Pozidriv (Z) izlidir.",
+              "note": "ISO 10644 yalnızca çelik vidaları (10.9'a kadar) ve 200 HV / 300 HV pulları kapsar; A2 kombi vidalar standart dışı tedarikçi parçasıdır. Paslanmaz gerekiyorsa ISO 7045 ile ISO 7089 A2 pul seçilebilir.",
               "sizes": {
                 "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 1, "m": 2.7, "mZ": 2.6, "washer": { "type": "N", "d1": 2.25, "d2": 6, "s": 0.6 }, "lengths": [4, 5, 6, 8, 10] },
                 "M3": { "dk": 5.6, "k": 2.4, "P": 0.5, "drive": 1, "m": 3.0, "mZ": 2.8, "washer": { "type": "N", "d1": 2.75, "d2": 7, "s": 0.6 }, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -120,7 +121,7 @@
             {
               "id": "iso2009", "code": "ISO 2009", "materials": ["a2-70", "st48zn", "brass"], "alt": "iso1580", "name": "Düz havşa başlı vida", "short": "Düz havşa baş",
               "head": "countersunk", "drive_kind": "slot", "thread": "M", "countersink_angle": 90, "length_includes_head": true,
-              "din": "DIN 963", "din_note": "M2 ve M2,5 aynı. M3 dk 5,6→5,5; M4 dk/k 7,5/2,2→8,4/2,7; M5 9,2/2,5→9,3/2,7; M6 dk 11→11,3, k 3,3 aynı (DIN → ISO). DIN yalnız gerçek baş çapını verir.",
+              "din": "DIN 963", "din_note": "M2 ve M2,5 aynı. M3 dk 5,6→5,5; M4 dk/k 7,5/2,2→8,4/2,7; M5 9,2/2,5→9,3/2,7; M6 dk/k 11/3→11,3/3,3 (DIN → ISO). DIN yalnız gerçek baş çapını verir.",
               "sizes": {
                 "M2": { "dk": 4.4, "dk_actual": 3.8, "k": 1.2, "P": 0.4, "drive": 0.5, "lengths": [4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 5.5, "dk_actual": 4.7, "k": 1.5, "P": 0.45, "drive": 0.6, "lengths": [4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -193,7 +194,7 @@
             {
               "id": "iso14583", "code": "ISO 14583", "materials": ["a2-70", "st48zn", "a4-80"], "name": "Torx bombe başlı vida", "short": "Torx bombe baş",
               "head": "pan", "drive_kind": "torx", "thread": "M", "length_includes_head": false,
-              "din_note": "Eski DIN karşılığı yoktur. Baş ölçüleri ISO 7045 ile aynıdır.",
+              "din_note": "Eski DIN karşılığı yoktur. Baş ölçüleri ISO 7045 standardıyla aynıdır (katalogdaki ISO 7045 M5 satırı DIN 7985 ölçüsündedir).",
               "sizes": {
                 "M2": { "dk": 4.0, "k": 1.6, "P": 0.4, "drive": 6, "A": 1.75, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20] },
                 "M2.5": { "dk": 5.0, "k": 2.1, "P": 0.45, "drive": 8, "A": 2.4, "lengths": [3, 4, 5, 6, 8, 10, 12, 16, 20, 25] },
@@ -225,12 +226,12 @@
             {
               "id": "iso7049", "code": "ISO 7049", "materials": ["sttap", "a2"], "name": "Yıldız bombe başlı sac vidası", "short": "Sac vidası, bombe baş",
               "head": "pan", "drive_kind": "cross", "recess": "H", "recesses": ["H", "Z"], "form": "C", "thread": "ST", "length_includes_head": false,
-              "din": "DIN 7981", "din_note": "ST2,2 dk/k/uç 4,2/1,8/PH1→4,0/1,6/PH0; ST2,9 k 2,2→2,4; ST3,5 dk 6,9→7,0; ST4,2 dk/k 8,2/3,05→8,0/3,1 (DIN → ISO). Tedarikçiler çoğu kez DIN ölçüsünde teslim eder.",
+              "din": "DIN 7981", "din_note": "ST2,2 dk/k/uç 4,2/1,8/PH1→4,0/1,6/PH0; ST2,9 k 2,2→2,4; ST3,5 dk 6,9→7,0; ST4,2 dk/k 8,2/3,05→8,0/3,1 (DIN → ISO). Katalogdaki baş ölçüleri ve uç no. DIN 7981 değerleridir; tedarikçiler çoğu kez DIN ölçüsünde teslim eder.",
               "sizes": {
-                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.2, "k": 1.8, "P": 0.8, "drive": 1, "mZ": 2.0, "lengths": [4.5, 6.5, 9.5, 13, 16] },
-                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 5.6, "k": 2.2, "P": 1.1, "drive": 1, "mZ": 3.0, "lengths": [6.5, 9.5, 13, 16, 19, 22, 25] },
-                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 6.9, "k": 2.6, "P": 1.3, "drive": 2, "mZ": 4.0, "lengths": [9.5, 13, 16, 19, 22, 25, 32] },
-                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 8.2, "k": 3.05, "P": 1.4, "drive": 2, "mZ": 4.4, "lengths": [9.5, 13, 16, 19, 22, 25, 32, 38] }
+                "ST2.2": { "d": 2.2, "min_pcb_hole": 2.3, "clearance": 2.6, "pilot": 1.9, "dk": 4.2, "k": 1.8, "P": 0.8, "drive": 1, "mZ": 2.4, "dim_src": "DIN 7981", "lengths": [4.5, 6.5, 9.5, 13, 16] },
+                "ST2.9": { "d": 2.9, "min_pcb_hole": 3.0, "clearance": 3.4, "pilot": 2.5, "dk": 5.6, "k": 2.2, "P": 1.1, "drive": 1, "mZ": 3.0, "dim_src": "DIN 7981", "lengths": [6.5, 9.5, 13, 16, 19, 22, 25] },
+                "ST3.5": { "d": 3.5, "min_pcb_hole": 3.6, "clearance": 4.0, "pilot": 3.05, "dk": 6.9, "k": 2.6, "P": 1.3, "drive": 2, "mZ": 4.0, "dim_src": "DIN 7981", "lengths": [9.5, 13, 16, 19, 22, 25, 32] },
+                "ST4.2": { "d": 4.2, "min_pcb_hole": 4.3, "clearance": 4.6, "pilot": 3.65, "dk": 8.2, "k": 3.05, "P": 1.4, "drive": 2, "mZ": 4.4, "dim_src": "DIN 7981", "lengths": [9.5, 13, 16, 19, 22, 25, 32, 38] }
               }
             },
             {
@@ -349,7 +350,7 @@
           "types": [
             {
               "id": "iso4032", "code": "ISO 4032", "name": "Altıgen somun, normal", "short": "Altıgen, normal", "kind": "hex",
-              "din": "DIN 934", "din_note": "s M2–M6 aynı; m M2–M4 aynı, M5 4,0→4,7, M6 5,0→5,2 (DIN → ISO).",
+              "din": "DIN 934", "din_note": "s M2–M6 aynı; m M2–M4 aynı, M5 4,0→4,7, M6 5,0→5,2 (DIN → ISO). Katalogdaki M6 satırı DIN 934 değeridir.",
               "materials": ["a2", "st88zn", "brass", "pa66"],
               "sizes": {
                 "M2": { "s": 4, "e": 4.32, "m": 1.6 },
@@ -357,7 +358,7 @@
                 "M3": { "s": 5.5, "e": 6.01, "m": 2.4 },
                 "M4": { "s": 7, "e": 7.66, "m": 3.2 },
                 "M5": { "s": 8, "e": 8.79, "m": 4.7 },
-                "M6": { "s": 10, "e": 11.05, "m": 5.0 }
+                "M6": { "s": 10, "e": 11.05, "m": 5.0, "dim_src": "DIN 934" }
               }
             },
             {

@@ -58,6 +58,34 @@ export function panelTitle(pd) {
 }
 
 const cylBox = (x, y, d, za, zb) => ({ min: [x - d / 2, y - d / 2, Math.min(za, zb)], max: [x + d / 2, y + d / 2, Math.max(za, zb)] });
+
+/**
+ * Yalnızca PCB'yi tutan vidanın başı (kart üstünde) panel elemanları için engel kutusudur. Kombi vidanın (ISO 10644)
+ * takılı pulu baş altında her zaman vardır: engel pul çapında ve pul kalınlığı kadar yüksektir.
+ */
+export function pcbScrewHeadBox(s, boardTop) {
+  const cw = s.washer?.captive ? s.washer : null;
+  return cylBox(s.x, s.y, Math.max(s.head_d, cw ? cw.d2 : 0), boardTop, boardTop + (cw ? cw.s : 0) + s.head_h);
+}
+
+/**
+ * Hazır aralayıcının altından tabana çıkan vida başı ya da somun: { x, y, h, r, what, dome, tapping } ya da null.
+ * Havşa başlı alt vida tabanla aynı hizadadır; bombeli havşada (ISO 7047 / ISO 7051) bombe f kadar çıkar (dome).
+ * Kombi vidada (ISO 10644) takılı pul da çıkar: yükseklik k + s, iz pul çapında (d2 > dk).
+ */
+export function bottomBumpOf(st, sc) {
+  const ins = st.insert;
+  if (ins?.kind !== 'standoff') return null;
+  if (st.bottomCountersink && !(sc?.head_f > 0)) return null;
+  const cw = !st.bottomCountersink && sc?.washer?.captive ? sc.washer : null;
+  const h = st.bottomCountersink ? sc.head_f
+    : ins.bottom?.kind === 'screw' ? (sc?.head_h ?? 0) + (cw ? cw.s : 0)
+      : ins.bottom?.kind === 'nut' ? (ins.bottom.m || 0) + 1 : 0;
+  const dd = ins.bottom?.kind === 'screw' ? Math.max(sc?.head_d ?? 4, cw ? cw.d2 : 0) : (ins.bottom?.e || 6);
+  const dome = !!st.bottomCountersink;
+  if (!(h > 0)) return null;
+  return { x: st.x, y: st.y, h, r: dd / 2, what: dome ? 'vida başı bombesi' : ins.bottom.kind === 'screw' ? 'vida başı' : 'somun', dome, tapping: !!sc?.tapping };
+}
 const hit = (a, b, g = GAP) => a.min[0] < b.max[0] + g && a.max[0] > b.min[0] - g &&
   a.min[1] < b.max[1] + g && a.max[1] > b.min[1] - g && a.min[2] < b.max[2] + g && a.max[2] > b.min[2] - g;
 const rectHit = (a, b, g = GAP) => a.a0 < b.a1 + g && a.a1 > b.a0 - g && a.z0 < b.z1 + g && a.z1 > b.z0 - g;
@@ -117,7 +145,7 @@ export function planPanel(ctx) {
     });
   }
   for (const hh of lidHoles) if (hh.pad) solids.push({ box: cylBox(hh.x, hh.y, hh.pad.od, cavTop - hh.pad.h, cavTop), name: 'köşe vidası yastığı' });
-  for (const s of screws) if (s.role === 'pcb') solids.push({ box: cylBox(s.x, s.y, s.head_d, boardTop, boardTop + s.head_h), name: 'vida başı' });
+  for (const s of screws) if (s.role === 'pcb') solids.push({ box: pcbScrewHeadBox(s, boardTop), name: 'vida başı' });
 
   // Kapak üstündeki dolu daireler (vida başları); ışık boruları ve kapak elemanları eklendikçe büyür
   const lidDiscs = screws.filter((s) => s.lid).map((s) => ({ x: s.x, y: s.y, r: Math.max(s.head_d, s.counterbore?.d || 0) / 2, name: 'kapak vidası' }));
@@ -141,17 +169,14 @@ export function planPanel(ctx) {
   // Tabandan çıkan vida başı / somun
   const bottomBumps = [];
   for (const s of standoffs) {
-    const ins = s.insert;
-    if (ins?.kind !== 'standoff') continue;
     const sc = screws.find((q) => Math.abs(q.x - s.x) < 1e-6 && Math.abs(q.y - s.y) < 1e-6);
-    // Havşa başlı alt vida tabanla aynı hizada; bombeli havşada (ISO 7047 / ISO 7051) bombe f kadar dışarı çıkar
-    if (s.bottomCountersink && !(sc?.head_f > 0)) continue;
-    const h = s.bottomCountersink ? sc.head_f
-      : ins.bottom?.kind === 'screw' ? (sc?.head_h ?? 0) + (sc?.washer?.captive ? sc.washer.s : 0) // kombi vidada takılı pul da çıkar
-        : ins.bottom?.kind === 'nut' ? (ins.bottom.m || 0) + 1 : 0;
-    const dd = ins.bottom?.kind === 'screw' ? sc?.head_d ?? 4 : (ins.bottom?.e || 6);
-    if (h > 0) bottomBumps.push({ x: s.x, y: s.y, h, r: dd / 2, what: ins.bottom.kind === 'screw' ? 'vida başı' : 'somun' });
+    const bb = bottomBumpOf(s, sc);
+    if (bb) bottomBumps.push(bb);
   }
+  // Çıkıntının tamamı bombeli havşa başlarının bombesiyse (ISO 7047 / ISO 7051) gömme baş önerisi düz havşa karşılığıdır
+  const domeOnly = bottomBumps.length > 0 && bottomBumps.every((b) => b.dome);
+  const flatAlt = domeOnly ? (bottomBumps[0].tapping ? { id: 'iso7050', code: 'ISO 7050' } : { id: 'iso7046', code: 'ISO 7046-1' }) : null;
+  out.bottomBumpDome = flatAlt;
   const bottomOpen = standoffs.filter((s) => s.nutPocket?.shape === 'hex' || s.bottomCountersink).map((s) => ({ x: s.x, y: s.y, r: (s.nutPocket?.s || s.bottomCountersink?.dTop || 4) / 2 + 0.5 }));
   const bump = bottomBumps.reduce((m, b) => Math.max(m, b.h), 0);
   out.bottomBump = bump;
@@ -182,8 +207,13 @@ export function planPanel(ctx) {
     out.parts.push({ ...part(pd, { name: 'Yapışkanlı lastik ayak', spec: `köşeden ${f(inset)} mm`, material: 'kauçuk' }, 'bottom', [pos[0].x, pos[0].y, z0 - pd.h / 2], false), qty: 4 });
   }
   if (bump > 0 && !feet.length) {
-    add('warn', `Tabandan ${f(bump)} mm ${bottomBumps[0].what} çıkıyor: kutu düz oturmaz. Gömme baş (havşa) seçilmeli ya da en az ${f(bump + 0.5)} mm lastik ayak eklenmeli.`,
-      { key: 'panelAdd', value: 'bumper', label: 'Lastik ayak ekle' }, null, 'PNL-BOTTOM-BUMP', { measured: bump, unit: 'mm' });
+    if (flatAlt) {
+      add('warn', `Tabandan ${f(bump)} mm ${bottomBumps[0].what} çıkıyor: kutu düz oturmaz. Düz havşa başlı vida (${flatAlt.code}) seçilmeli ya da en az ${f(bump + 0.5)} mm lastik ayak eklenmeli.`,
+        { key: 'screwType', value: flatAlt.id, label: `${flatAlt.code} seç` }, null, 'PNL-BOTTOM-BUMP', { measured: bump, unit: 'mm' });
+    } else {
+      add('warn', `Tabandan ${f(bump)} mm ${bottomBumps[0].what} çıkıyor: kutu düz oturmaz. Gömme baş (havşa) seçilmeli ya da en az ${f(bump + 0.5)} mm lastik ayak eklenmeli.`,
+        { key: 'panelAdd', value: 'bumper', label: 'Lastik ayak ekle' }, null, 'PNL-BOTTOM-BUMP', { measured: bump, unit: 'mm' });
+    }
   }
 
   // --- Işık boruları: LED üstüne kapakta delik ---
