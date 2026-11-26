@@ -9,7 +9,7 @@ import { Viewer } from './viewer.js';
 import { analyzeAssembly } from './analysis.js';
 import { createDesignUI } from './design-ui.js';
 
-const APP_VERSION = '0.20.0 (V1.14)';
+const APP_VERSION = '0.21.0 (V2.0)';
 
 const LARGE_FILE_MB = 50;
 
@@ -240,6 +240,11 @@ review.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && ui.isDrawer() && review.classList.contains('open') && !dialogOpen()) { e.preventDefault(); closeReview({ returnFocus: true }); }
 });
 window.matchMedia('(max-width: 1199px)').addEventListener('change', (m) => { if (!m.matches) closeReview(); });
+// "Tasarım incelemesine geç" bağlantısı: dar ekranda inceleme kapalı çekmecededir (görünmez); bağlantı çekmeceyi açar
+document.querySelectorAll('a.skip-link[href="#review"]').forEach((a) => a.addEventListener('click', (e) => {
+  e.preventDefault();
+  openReview({ focus: true });
+}));
 
 /* ---------- Menüler (örnek kart, tema): menü düğmesi deseni ---------- */
 

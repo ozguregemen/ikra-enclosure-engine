@@ -14,7 +14,8 @@
  * "Güncel" karşılaştırması geometrinin parmak iziyle yapılır (muafiyet, süzgeç gibi geometri dışı değişiklikler
  * yeniden oluşturma tetiklemez).
  */
-import { defaultParams, paramHint, pickScrew, screwTable, libraryTypes, LID_MODES, PARAM_FIELDS } from './design.js';
+import { defaultParams, paramHint, pickScrew, screwTable, libraryTypes, LID_MODES, PARAM_FIELDS, isAntennaName } from './design.js';
+import { isConnectorName } from './ports.js';
 import { buildSheets, exportPdf } from './drawing.js';
 import { createToolbox, headIcon, insertIcon, panelIcon } from './toolbox.js';
 import { FACE_LABEL, holeText } from './panel.js';
@@ -23,7 +24,7 @@ import { assemblyItems } from './assembly.js';
 import { FIT_CLASSES, toleranceOf } from './fits.js';
 import { MOUNT_TYPES, MOUNT_SIZES } from './mount.js';
 import { runDesignLoop, baseParams, AUTO_KEYS } from './dfm/loop.js';
-import { reviewBuild, summarize, toFinding, mergeBuildFindings, staleWaivers, validWaiver } from './dfm/review.js';
+import { reviewBuild, summarize, toFinding, mergeBuildFindings, staleWaivers, applyWaiver } from './dfm/review.js';
 import { ruleInfo } from './dfm/catalog.js';
 import { treatmentFor } from './treat.js';
 
@@ -107,9 +108,9 @@ const STOP_SHORT = {
   oscillation: 'salınım', stalled: 'ilerleme yok',
 };
 const STOP_TEXT = {
-  converged: 'Uygulanabilecek güvenli otomatik düzeltme kalmadı; tasarım kuralların izin verdiği en iyi noktada.',
+  converged: 'Açık hata ve uyarıların hiçbirinde uygulanmamış düzeltme kalmadı; tasarım kuralların izin verdiği en iyi noktada.',
   'needs-user': 'Kalan bulguların düzeltmesi otomatik uygulanamaz: bir seçim değişikliği, kilitli bir değer ya da yalnızca öneri. Karar kullanıcıdadır.',
-  'max-iter': 'Döngü en fazla 8 tur çalışır; kalan düzeltmeler gözden geçirilmelidir.',
+  'max-iter': 'Döngü en fazla 8 kabul edilen düzeltme turu (toplam 24 deneme) çalışır; kalan düzeltmeler gözden geçirilmelidir.',
   oscillation: 'Düzeltmeler birbirini geri aldığı için döngü durduruldu; ilgili parametrelerden biri kilitlenmelidir.',
   stalled: 'Denenen düzeltmeler bulguları azaltmadı ve geri alındı; kalan bulgular için kullanıcı kararı gerekir.',
 };
@@ -126,6 +127,11 @@ const PARAM_LIMITS = { wall: [0.2, 20], pcbClearance: [0, 20], topClearance: [0,
 /** Katı modelden önce değerlendirilemeyen (yalnızca son incelemede üretilen) kurallar: muafiyetleri ön incelemede "eşleşmeyen" sayılmaz */
 const POST_ONLY_RULES = new Set(['GEO-TREAT', 'GEO-BUILD']);
 const STAGE_CATS = { req: ['surec', 'ip', 'montaj', 'rf'], design: ['genel', 'port', 'kapak', 'baglanti', 'panel'] };
+// Bulgunun düzeltildiği kart, kuralın katalog kategorisinden farklı olabilir: freze çapına bağlı süreç kuralları
+// Parametreler kartındaki "Freze takım çapı" satırından (genel), somun cebi freze kuralı "Kartın tutulması" kartından
+// (bağlantı) düzeltilir. Kart noktaları ve aşama durumları bu kategoriyle hesaplanır; inceleme paneli katalog kategorisini korur.
+const CONTROL_CAT = { 'CNC-NUT-POCKET-TOOL': 'baglanti', 'CNC-CORNER-TOOL': 'genel', 'CNC-CORNER-DEPTH': 'genel', 'CNC-POCKET-DEPTH': 'genel' };
+const ctrlCat = (fd) => CONTROL_CAT[fd?.rule] || fd?.cat || 'genel';
 const CONF_LABEL = { high: 'yüksek', medium: 'orta', low: 'düşük' };
 const KIND_LABEL = {
   chamfer: 'pah', fillet: 'radyüs', draft: 'çıkma açısı', countersink: 'havşa', dogbone: 'köşe boşaltma',
@@ -212,7 +218,7 @@ export function createDesignUI({ viewer, ui }) {
     tolOverrides: loadTolOverrides(),
     locks: new Set(), // kullanıcının yazdığı (kilitli) anahtarlar: tasarım döngüsü bunları değiştirmez
     toolDiameter: null, // CNC freze takım çapı (mm); null: kural dosyasının değeri. Yazılınca "Kilitli" sayılır
-    waivers: {}, // { bulguId: { reason, date, rule, title } } — kullanıcı muafiyetleri (proje dosyasına yazılır)
+    waivers: {}, // { bulguId: { reason, date, rule, title, text, measured, limit, op, unit } } — kullanıcı muafiyetleri (proje dosyasına yazılır)
     req: { tempMax: null }, // gereksinimler: en yüksek çalışma sıcaklığı (°C)
     loop: null, // son tasarım döngüsü sonucu (dfm/loop.js)
     post: null, // son inceleme bulguları (güncel katı model için)
@@ -566,6 +572,7 @@ export function createDesignUI({ viewer, ui }) {
   }
   async function setLidSel(sel) {
     const had = state.rules && state.analysis;
+    const wasCnc = usesCnc();
     state.lidSel = sel;
     try { await loadLidRules(); } catch (err) { ui.alert(err.message); return; }
     if (state.req.tempMax && state.lidSel) await ensureProcessRules(state.lidSel.process).catch(() => null);
@@ -574,6 +581,14 @@ export function createDesignUI({ viewer, ui }) {
     renderSelectors();
     state.actionLabel = 'Kapak malzemesi';
     update();
+    // CNC yeniden devreye girdiyse (ör. CNC kapak seçildi) saklı freze çapı kilitli değer olarak geri gelir: bildirilir
+    if (!wasCnc && usesCnc() && state.toolDiameter !== null) {
+      ui.toast(`Kilitli değerler korundu: ${TOOL_LABEL} Ø${fx(state.toolDiameter)} mm.`, {
+        action: 'Kilitleri kaldır',
+        onAction: () => { clearLocks(); renderParams(); state.actionLabel = 'Kilitler kaldırıldı'; update(); },
+        timeout: 9000,
+      });
+    }
   }
   $('#lid-mat-mode').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-lidmode]');
@@ -620,6 +635,8 @@ export function createDesignUI({ viewer, ui }) {
     // Yalnızca CNC (gövde ya da ayrı kapak) varken; süreç değişince saklanan değer başka sürece uygulanmaz
     toolDiameter: usesCnc() ? state.toolDiameter : null,
   });
+  /** Kartta dahili (PCB/çip) anten var mı: design.js RF-METAL-BODY ile aynı ölçüt (anten adlı, konnektör olmayan parça) */
+  const hasAntenna = () => (state.analysis?.parts || []).some((pt) => !pt.isBoard && pt.box && isAntennaName(pt.name || '') && !isConnectorName(pt.name || ''));
   /** CNC süreci (gövde ya da ayrı kapak) var mı; freze takım çapı alanı yalnızca o zaman gösterilir */
   const usesCnc = () => state.rules?.process === 'cnc' || !!(state.lidSel && state.lidRules?.process === 'cnc');
   /** Kural dosyasındaki takım çapı (gövde CNC ise gövdenin, değilse CNC kapağın); CNC yoksa null */
@@ -773,7 +790,11 @@ export function createDesignUI({ viewer, ui }) {
     const badge = row.querySelector('.mode-badge');
     badge.textContent = locked ? 'Kilitli' : 'Otomatik';
     badge.classList.toggle('locked', locked);
-    row.querySelector('.hint').textContent = `Boş: kural değeri Ø${fx(def)} mm. Atölyedeki en küçük parmak frezenin çapı yazılır; iç köşe radyüsü (≥ takım yarıçapı), port ve cep köşeleri ile somun cebi köşe boşaltması buna göre.`;
+    // İpucu CNC işlenen parçaya göre: gövde CNC ise kavite, port ve somun cebi; yalnız kapak CNC ise kapak dili ve boruları
+    const maxR = (state.rules?.process === 'cnc' ? state.rules : state.lidRules)?.process_params?.max_depth_ratio || 4;
+    row.querySelector('.hint').textContent = state.rules?.process === 'cnc'
+      ? `Boş: kural değeri Ø${fx(def)} mm. Kavite köşelerini ve cepleri bitiren parmak frezenin çapı yazılır: iç köşe radyüsü (≥ 1,3 × takım yarıçapı), port açıklığı köşeleri, somun cebi köşe boşaltması ve cep derinliği (≤ ${fx(maxR)} × Ø) buna göre denetlenir; çok küçük freze derinlik uyarısı verir.`
+      : `Boş: kural değeri Ø${fx(def)} mm. Kapağı işleyen parmak frezenin çapı yazılır: kapak dili ve borularının işleme derinliği (≤ ${fx(maxR)} × Ø) buna göre denetlenir.`;
     const note = row.querySelector('.auto-note');
     // Freze önerisi birincil düzeltme ya da seçenek (fixes[]) olabilir; katı model sonrası bulgular da (birleşik inceleme) sayılır
     const toolFixOf = (fd) => fixList(fd).find((x) => x.key === TOOL_KEY && Number.isFinite(Number(x.value)));
@@ -1567,21 +1588,26 @@ export function createDesignUI({ viewer, ui }) {
         .filter((x) => x.r && Number.isFinite(x.r.max_service_temp_c) && x.r.max_service_temp_c >= tmax)
         .sort((a, b) => a.r.max_service_temp_c - b.r.max_service_temp_c);
       const list = fits.slice(0, 4).map((x) => `${x.m.label} (≈ ${x.r.max_service_temp_c} °C)`).join(', ');
+      // Düzeltme seçenekleri: önce plastikler (en düşük yeterli sıcaklık), sonra metaller; kartta dahili anten varsa iletken
+      // malzeme önerilmez (RF-METAL-BODY ile aynı girdi: anten adlı parça). En çok üç seçenek; fixes[0] en iyi çakışmasız seçim.
+      const conductive = (x) => !!x.r.conductive || x.r.conductive_filler === true;
+      const ranked = [...fits.filter((x) => !conductive(x)), ...(hasAntenna() ? [] : fits.filter(conductive))];
+      const fixOf = (x) => ({ key: fixKey, value: x.m.id, label: `${part === 'lid' ? 'Kapak malzemesi' : 'Malzeme'}: ${x.m.label} seç`, auto: false });
+      const fixes = ranked.slice(0, 3).map(fixOf);
+      const metalNote = hasAntenna() && fits.some(conductive) ? ' Kartta dahili anten olduğu için metal malzeme önerilmez (RF-METAL-BODY).' : '';
       out.push(toFinding({
         ...base, level: 'error',
         text: `${who} ${R.label} sürekli kullanımda ≈ ${R.max_service_temp_c} °C dayanır; istenen en yüksek çalışma sıcaklığı ${tmax} °C. ` +
-          (fits.length ? `Bu süreçte uygun malzemeler: ${list}.` : 'Bu süreçte uygun malzeme yok; başka üretim yöntemi seçilmeli.'),
-        fix: fits.length ? { key: fixKey, value: fits[0].m.id, label: `Malzeme: ${fits[0].m.label} seç`, auto: false } : null,
+          (fits.length ? `Bu süreçte uygun malzemeler: ${list}.${metalNote}` : 'Bu süreçte uygun malzeme yok; başka üretim yöntemi seçilmeli.'),
+        fix: fixes[0] || null,
+        ...(fixes.length > 1 ? { fixes } : {}),
       }));
     };
     const lidDiff = !!(state.lidSel && state.lidRules);
     check(state.rules, state.process, lidDiff ? 'base' : 'all', 'material');
     if (lidDiff) check(state.lidRules, state.lidSel.process, 'lid', 'lidMaterial');
     // Başlık, gerekçe ve kaynaklar katalogdan (dfm/catalog.js REQ-TEMP; toFinding)
-    for (const fd of out) {
-      const w = state.waivers[fd.id];
-      if (fd.level !== 'ok' && validWaiver(w)) fd.waived = { reason: String(w.reason).trim(), date: w.date || null };
-    }
+    for (const fd of out) applyWaiver(fd, state.waivers[fd.id]); // ölçü kötüleştiyse muafiyet örtmez
     return out;
   }
 
@@ -1610,8 +1636,10 @@ export function createDesignUI({ viewer, ui }) {
    */
   function staleList(r) {
     const ids = staleWaivers(state.waivers, r.findings);
-    return ids.map((id) => ({ id, ...(state.waivers[id] || {}) }))
-      .filter((w) => r.phase === 'post' || !(w.post === true || POST_ONLY_RULES.has(w.rule)));
+    // Bulgusu duran ama ölçüsü kötüleşen muafiyet: önceki ve şimdiki ölçü (review.js waiverWorse)
+    const worseOf = (id) => (r.findings || []).find((fd) => fd.id === id && fd.waiverWorse)?.waiverWorse || null;
+    return ids.map((id) => ({ id, ...(state.waivers[id] || {}), worse: worseOf(id) }))
+      .filter((w) => w.worse || r.phase === 'post' || !(w.post === true || POST_ONLY_RULES.has(w.rule)));
   }
 
   /* ---------- Ana hesap ---------- */
@@ -1697,7 +1725,7 @@ export function createDesignUI({ viewer, ui }) {
     const m = Number.isFinite(fd.measured) ? fd.measured : null;
     const L = fd.limit;
     const unit = fd.unit || '';
-    const sp = unit && unit !== '°' && unit !== '%' ? ' ' : '';
+    const sp = unit && unit !== '°' && unit !== '%' && !unit.startsWith('×') ? ' ' : ''; // °, % ve ×D sayıya bitişik (bulgu metniyle aynı)
     const fmt = (v) => `${fx(v)}${sp}${unit}`;
     const OP = { '>=': '≥', '<=': '≤', '>': '>', '<': '<', '=': '=' };
     if (m === null && (L === null || L === undefined)) return '';
@@ -1918,12 +1946,14 @@ export function createDesignUI({ viewer, ui }) {
     const staleRow = (w) => {
       const title = w.title || ruleInfo(w.rule)?.title || 'Bulgu';
       const date = w.date ? new Date(w.date).toLocaleDateString('tr-TR') : '';
+      const u = w.worse?.unit ? (w.worse.unit === '°' || w.worse.unit === '%' || w.worse.unit.startsWith('×') ? w.worse.unit : ` ${w.worse.unit}`) : '';
+      const worse = w.worse ? (w.worse.unitChanged ? 'ölçü birimi değişti · ' : `ölçü kötüleşti: ${fx(w.worse.from)}${u} → ${fx(w.worse.to)}${u} · `) : '';
       return `<li class="chg stale" data-wid="${esc(w.id)}"><span class="chg-main">${esc(title)}</span>
-        <span class="chg-sub">${w.rule ? `<span class="rule-id">${esc(w.rule)}</span> · ` : ''}${date ? `${esc(date)} · ` : ''}gerekçe: ${esc(w.reason || '–')}</span>
+        <span class="chg-sub">${w.rule ? `<span class="rule-id">${esc(w.rule)}</span> · ` : ''}${esc(worse)}${date ? `${esc(date)} · ` : ''}gerekçe: ${esc(w.reason || '–')}</span>
         <button type="button" class="btn sm" data-act="unstale" data-wid="${esc(w.id)}" aria-label="Eşleşmeyen muafiyeti kaldır: ${esc(title)}">Kaldır</button></li>`;
     };
     const staleHtml = stale.length ? sec('sec:stale', `${lvlIcon('waived')} Eşleşmeyen muafiyetler`, stale.length,
-      `<p class="muted small">Bu muafiyetler artık hiçbir bulguyla eşleşmiyor: sorun giderilmiş ya da bulgunun metni (ör. bir ölçü) değişmiş olabilir. Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz; gerekiyorsa ilgili bulgu yeniden muaf tutulmalı.</p>
+      `<p class="muted small">Bu muafiyetler artık bulgularını örtmüyor: sorun giderilmiş, bulgunun metni (ör. parça ya da açıklama) değişmiş ya da ölçü muafiyet verildiğinden kötüleşmiş olabilir. Sayılar bulgu kimliğine girmez: ölçü aynı kalır ya da iyileşirse muafiyet bulgusunu örtmeye devam eder, kötüleşirse burada listelenir ve bulgu yeniden açılır. Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz; gerekiyorsa ilgili bulgu yeniden muaf tutulmalı.</p>
        <ul class="rv-list">${stale.map(staleRow).join('')}</ul>${stale.length > 1 ? '<div class="row"><button type="button" class="btn sm" data-act="unstale-all">Tümünü kaldır</button></div>' : ''}`, true) : '';
 
     const chips = [['all', 'Tümü', open.length], ['error', 'Hata', lvlCount('error')], ['warn', 'Uyarı', lvlCount('warn')], ['info', 'Bilgi', lvlCount('info')]]
@@ -2008,12 +2038,22 @@ export function createDesignUI({ viewer, ui }) {
     if (!fix) return;
     const before = numericFixText(fix);
     state.actionLabel = `Düzeltme: ${fd.title}`;
+    // Geri alma kaydı düzeltmenin adını taşır (alt işlevler kendi genel etiketlerini yazsa da)
+    state.fixActionLabel = `Düzeltme: ${fd.title}`;
     // Malzeme değişikliği gibi düzeltmeler kural dosyasını yükler (eşzamansız): bildirim geçmiş kaydından sonra
-    const ok = await Promise.resolve(applyFix(fix.key, fix.value)).catch((err) => { console.error(err); return false; });
+    const ok = await Promise.resolve(applyFix(fix.key, fix.value)).catch((err) => { console.error(err); return false; }).finally(() => { state.fixActionLabel = null; });
     if (!ok) { ui.toast('Bu öneri otomatik uygulanamıyor; ilgili ayar elle değiştirilmeli.'); return; }
     toastUndo(`Düzeltme uygulandı: ${fd.title}${before ? ` — ${before}` : ''}.`);
     keepFocus(`#review-body [data-fid="${CSS.escape(fd.id)}"] [data-act]`);
   }
+  /** Seçim düzeltmesinin etiketi ("Helicoil seç", "Pencere yap") bildirimde geçmiş zamanla: "Helicoil seçildi" */
+  const PAST_TENSE = { 'Açıklığı aç': 'açıklık açıldı', 'Pencere yap': 'pencere yapıldı', 'Çentik yap': 'çentik yapıldı' };
+  const pastTense = (label) => {
+    const s = String(label || '').trim();
+    if (PAST_TENSE[s]) return PAST_TENSE[s];
+    const m = /^(.*\S)\s+(seç|yap|uygula)$/.exec(s);
+    return m ? `${m[1]} ${{ seç: 'seçildi', yap: 'yapıldı', uygula: 'uygulandı' }[m[2]]}` : s;
+  };
   const numericFixText = (fix) => {
     if (fix && (fix.key === 'material' || fix.key === 'lidMaterial')) {
       const pid = fix.key === 'lidMaterial' ? state.lidSel?.process : state.process;
@@ -2026,7 +2066,7 @@ export function createDesignUI({ viewer, ui }) {
       return to === null ? `${TOOL_LABEL.toLocaleLowerCase('tr')} kural değerine döndü`
         : `${TOOL_LABEL.toLocaleLowerCase('tr')} ${was !== null ? `Ø${fx(was)} → ` : ''}Ø${fx(to)} mm (kilitlendi)`;
     }
-    if (!fix || !AUTO_KEYS.includes(fix.key) || !Number.isFinite(Number(fix.value))) return fix?.label || '';
+    if (!fix || !AUTO_KEYS.includes(fix.key) || !Number.isFinite(Number(fix.value))) return pastTense(fix?.label);
     return `${PARAM_LABEL[fix.key]} ${fx(state.params[fix.key])} → ${fx(Number(fix.value))} mm (kilitlendi)`;
   };
 
@@ -2089,7 +2129,9 @@ export function createDesignUI({ viewer, ui }) {
     if (!fd) return;
     // post: katı model sonrası bulgu (model güncel değilken eşleşmeyen sayılmaz)
     const post = (state.post || []).some((x) => x.id === fd.id);
-    state.waivers = { ...state.waivers, [fd.id]: { reason, date: new Date().toISOString().slice(0, 10), rule: fd.rule || null, title: fd.title || '', ...(post ? { post: true } : {}) } };
+    // Ölçü kaydı (measured/limit/op/unit, metin): ölçü sonradan kötüleşirse muafiyet bulguyu örtmez (review.js applyWaiver)
+    const meas = Number.isFinite(fd.measured) ? { measured: fd.measured, limit: Number.isFinite(fd.limit) ? fd.limit : null, op: fd.op || null, unit: fd.unit ?? null } : {};
+    state.waivers = { ...state.waivers, [fd.id]: { reason, date: new Date().toISOString().slice(0, 10), rule: fd.rule || null, title: fd.title || '', text: fd.text || '', ...meas, ...(post ? { post: true } : {}) } };
     state.openSecs.add('sec:waived');
     state.actionLabel = `Muafiyet: ${fd.title}`;
     update();
@@ -2137,7 +2179,7 @@ export function createDesignUI({ viewer, ui }) {
     const fs = state.review?.findings || [];
     document.querySelectorAll('#side .card[data-cat]').forEach((card) => {
       const cat = card.dataset.cat;
-      const list = fs.filter((fd) => (fd.cat || 'genel') === cat);
+      const list = fs.filter((fd) => ctrlCat(fd) === cat);
       const w = worstOf(list);
       card.dataset.status = w || '';
       // Durum yalnızca renkle değil, biçimle de gösterilir (sekizgen ×, üçgen !, daire ✓)
@@ -2159,7 +2201,7 @@ export function createDesignUI({ viewer, ui }) {
     const ph = phase();
     const fs = r?.findings || [];
     const st = (cats) => {
-      const w = worstOf(fs.filter((fd) => cats.includes(fd.cat || 'genel')));
+      const w = worstOf(fs.filter((fd) => cats.includes(ctrlCat(fd))));
       return w === 'error' ? 'error' : w === 'warn' ? 'warn' : 'done';
     };
     const SR = { done: 'tamam', warn: 'uyarı var', error: 'hata var', run: 'çalışıyor', pending: 'bekliyor', wait: 'beklemede' };
@@ -2328,6 +2370,8 @@ export function createDesignUI({ viewer, ui }) {
     state.forceKey = geomKey(state.design);
     state.buildFail = null;
     generate({ force: true });
+    // Düğme gizlenir ve "Katı modeli oluştur" oluşturma sürerken devre dışıdır: odak katı model paneline taşınır
+    setTimeout(() => { if (!document.activeElement || document.activeElement === document.body || document.activeElement.closest?.('[hidden], .hidden')) $('#panel-solid')?.focus(); }, 0);
   });
 
   function treatTableHtml(rep) {
@@ -2431,7 +2475,7 @@ export function createDesignUI({ viewer, ui }) {
     const errs = openErrors();
     if (!errs.length) return true;
     const ans = await ui.confirm({
-      title: `Tasarımda ${errs.length} hata var; yine de indirmek istiyor musunuz?`,
+      title: `Tasarımda ${errs.length} hata var; dosyalar yine de indirilsin mi?`,
       html: `<p>Açık hatalar düzeltilmeden ya da muaf tutulmadan üretilen dosyalar üretilemeyebilir ya da montajda çakışabilir.</p>
         <ul class="confirm-list">${errs.map((fd) => `<li><b>${esc(fd.title)}</b> <span class="rule-id">${esc(fd.rule || '')}</span><br>${esc(fd.text)}</li>`).join('')}</ul>`,
       buttons: [{ id: 'cancel', label: 'Vazgeç' }, { id: 'review', label: 'Hataları göster' }, { id: 'go', label: 'Yine de indir', primary: true, danger: true }],
@@ -2669,6 +2713,11 @@ export function createDesignUI({ viewer, ui }) {
   /* ---------- Teknik resim ve montaj STEP'i ---------- */
 
   const dialog = $('#drawing-dialog');
+  // Hazırlık sırasında düğme devre dışı kaldığı için pencerenin açıldığı anda odak gövdedeydi: kapanınca düğmeye dönülür
+  dialog.addEventListener('close', () => {
+    // Odak gövdeye düştüyse ya da kapanan pencerenin içinde kaldıysa (açılırken odak yoktu) teknik resim düğmesine dönülür
+    setTimeout(() => { const a = document.activeElement; if (!a || a === document.body || dialog.contains(a)) $('#drawing-btn')?.focus(); }, 0);
+  });
 
   function requestDrawing() {
     if (!state.result || !isCurrent()) return;
@@ -2864,7 +2913,8 @@ export function createDesignUI({ viewer, ui }) {
     if (state.silent || h.present === null) { state.actionLabel = null; return; }
     const s = snap();
     if (s === h.present) { state.actionLabel = null; return; }
-    h.undo.push({ snap: h.present, label: state.actionLabel || 'Değişiklik', id: ++h.seq });
+    // Bulgu düzeltmesinde (fixFinding) alt işlevlerin yazdığı genel etiket yerine düzeltmenin adı kalır
+    h.undo.push({ snap: h.present, label: state.fixActionLabel || state.actionLabel || 'Değişiklik', id: ++h.seq });
     if (h.undo.length > HISTORY_MAX) h.undo.shift();
     h.redo = [];
     h.present = s;

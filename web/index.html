@@ -595,7 +595,7 @@
       <section>
         <h3 class="sub-title">Tasarım akışı</h3>
         <p>Sol çubuktaki yedi aşama sırayla işler. <b>Kart</b> aşamasında STEP analiz edilir; <b>Gereksinimler</b> aşamasında süreç, malzeme, IP seviyesi ve kutunun sabitlenmesi seçilir. En yüksek çalışma sıcaklığı girilirse seçili malzemenin sürekli kullanım sıcaklığıyla karşılaştırılır; yetmiyorsa incelemede hata olarak listelenir ve bu süreçte uygun malzeme önerilir.
-          <b>Tasarım</b> ölçüleri kural setinden üretir. Her değişiklikten sonra <b>İnceleme döngüsü</b> çalışır, ardından yarım saniye içinde <b>Katı model</b> yeniden oluşturulur ve
+          <b>Tasarım</b> ölçüleri kural setinden üretir. Her değişiklikten sonra <b>İnceleme döngüsü</b> çalışır; son değişiklikten yarım saniye sonra (döngüde açık hata yoksa) <b>Katı model</b> yeniden oluşturulmaya başlar (oluşturma birkaç saniye sürer) ve
           <b>Son inceleme</b> katı modelde gerçekten uygulanan kenar işlemlerini ve kalıp açısını doğrular. <b>Çıktılar</b> ancak model güncel olduğunda indirilebilir.</p>
         <p>Her aşamanın simgesi durumunu gösterir: <span class="lvl-inline ok">✓ tamam</span>, <span class="lvl-inline warn">! uyarı var</span>, <span class="lvl-inline error">× hata var</span>; numara henüz çalışmamış aşamayı gösterir. Dar ekranda aşama adları çubuğun altında, seçili aşama için yazılır.</p>
       </section>
@@ -604,9 +604,9 @@
         <p>Tasarım, kaynaklı DFM kural kataloğuyla incelenir. Sayısal ve güvenli düzeltmeler (et kalınlığını, boşlukları, PCB altı yüksekliği ya da köşe radyüsünü yalnızca <i>artıran</i> öneriler)
           otomatik uygulanır ve tasarım yeniden incelenir. Düzeltme bulguları azaltmazsa geri alınır ve “Denendi, uygulanmadı” listesine yazılır. Döngü şu nedenlerden biriyle durur:</p>
         <ul class="plain">
-          <li><b>Yakınsadı</b>: uygulanabilecek otomatik düzeltme kalmadı.</li>
+          <li><b>Yakınsadı</b>: açık hata ve uyarıların hiçbirinde uygulanmamış düzeltme kalmadı.</li>
           <li><b>Kullanıcı kararı gerekiyor</b>: kalan bulguların düzeltmesi bir seçim değişikliği, kilitli bir değer ya da yalnızca öneri.</li>
-          <li><b>Tur sınırı</b>: en fazla 8 tur çalışır.</li>
+          <li><b>Tur sınırı</b>: en fazla 8 kabul edilen düzeltme turu (toplam 24 deneme) çalışır.</li>
           <li><b>Salınım</b>: düzeltmeler birbirini geri aldığı için durduruldu.</li>
           <li><b>İlerleme yok</b>: denenen düzeltmeler bulguları azaltmadı.</li>
         </ul>
@@ -615,21 +615,21 @@
         <h3 class="sub-title">Otomatik ve Kilitli değerler</h3>
         <p><b>Otomatik</b> parametreyi kural seti ve inceleme döngüsü belirler. Alana farklı bir değer yazılınca parametre <b>Kilitli</b> olur (Esc yazmayı iptal eder, kilitlemez); döngü onu değiştirmez, ilgili bulgu kullanıcı kararı olarak kalır.
           Kilit simgesiyle değer yeniden otomatiğe döndürülebilir. Süreç ya da malzeme değişince kilitli değerler korunur. Bir otomatik düzeltmenin “Geri al” düğmesi parametreyi önceki değerinde kilitler.</p>
-        <p>CNC'de <b>Freze takım çapı</b> alanı atölyedeki en küçük parmak frezeyi alır (0,5–12 mm). Boş bırakılırsa kural dosyasındaki değer (yer tutucuda yazan) kullanılır; yazılan değer kilitlenir ve iç köşe radyüsleri, port ve cep köşeleri ile somun cebi köşe boşaltması buna göre hesaplanır.</p>
+        <p>CNC'de <b>Freze takım çapı</b> alanı kavite köşelerini ve cepleri bitiren parmak frezenin çapını alır (0,5–12 mm). Boş bırakılırsa kural dosyasındaki değer (yer tutucuda yazan) kullanılır; yazılan değer kilitlenir. İç köşe radyüsü (en az takım yarıçapı, önerilen 1,3 × takım yarıçapı), port açıklığı köşeleri ve somun cebi köşe boşaltması buna göre hesaplanır; cep derinliği oranı da (CNC-POCKET-DEPTH: ≤ 4 × Ø önerilir, 10 × Ø üstü ve Ø1 mm ve küçük frezede 9,52 mm'den derin cep işlenemez) aynı çapla denetlenir. Bu yüzden çok küçük bir freze yazılırsa derinlik uyarısı ya da hatası çıkar; frezeden dar port açıklıkları ayrı bir freze ister (CNC-CUTOUT-TOOL).</p>
       </section>
       <section>
         <h3 class="sub-title">Bulgu düzeyleri ve kararlar</h3>
         <table class="keys">
-          <tr><td><span class="lvl-inline error">× Hata</span></td><td>Üretilemez ya da fiziksel çakışma. Katı model oluşturulmaz (bilerek “Hatalara rağmen oluştur” seçilebilir); indirmeden önce onay istenir.</td></tr>
+          <tr><td><span class="lvl-inline error">× Hata</span></td><td>Üretilemez ya da fiziksel çakışma. Tasarım ve inceleme döngüsündeki hatalar katı modelin oluşturulmasını durdurur (bilerek “Hatalara rağmen oluştur” seçilebilir); gereksinim hataları (REQ-TEMP) modeli engellemez ama kararı “Üretime uygun değil” yapar. İndirmeden önce onay istenir.</td></tr>
           <tr><td><span class="lvl-inline warn">! Uyarı</span></td><td>Kalite, maliyet ya da montaj riski. Tasarım uyarılarla hazırdır.</td></tr>
           <tr><td><span class="lvl-inline info">i Bilgi</span></td><td>Üretim notu ya da doğrulanacak varsayım.</td></tr>
           <tr><td><span class="lvl-inline ok">✓ Geçti</span></td><td>Kural sağlanıyor; “N kontrol geçti” altında toplanır.</td></tr>
-          <tr><td><span class="lvl-inline waived">– Muaf</span></td><td>Gerekçeyle kabul edilmiş risk; proje dosyasına, rapora ve teknik resme yazılır.</td></tr>
+          <tr><td><span class="lvl-inline waived">– Muaf</span></td><td>Gerekçeyle kabul edilmiş risk; gerekçesi ve tarihiyle proje dosyasına, rapora ve teknik resme yazılır.</td></tr>
         </table>
         <p>Her bulgu kartı ölçülen değeri sınırla karşılaştırır (ör. <span class="mono">1,6 mm &lt; 1,95 mm</span>; eksi değerler <span class="mono">−0,2 mm</span> biçiminde), “Neden?” altında kuralın gerekçesini ve kaynaklarını gösterir.
           <b>Uygula</b> önerilen düzeltmeyi yapar, <b>Göster</b> ilgili parçayı 3B görünümde vurgular, <b>Muaf tut</b> gerekçe ister.</p>
         <p>Aynı kuralın aynı düzeydeki tekrarlanan bulguları tek grup kartında toplanır (ör. <span class="mono">PORT-RECESS · 3 bulgu</span>); grup açılınca her bulgu kendi düğmeleriyle listelenir. Hata grupları açık, uyarı ve bilgi grupları kapalı gelir; açık hata ya da uyarı varken <b>Bilgiler</b> bölümü de kapalıdır.</p>
-        <p><b>Eşleşmeyen muafiyetler</b>: artık hiçbir bulguya bağlanmayan muafiyetler (sorun giderilmiş ya da bulgunun ölçüsü değişmiş) gerekçeleriyle listelenir. Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz; <b>Kaldır</b> ile silinir.</p>
+        <p><b>Eşleşmeyen muafiyetler</b>: artık bulgusunu örtmeyen muafiyetler gerekçeleriyle listelenir: sorun giderilmiş, bulgunun metni (ör. parça ya da açıklama) değişmiş ya da ölçü muafiyet verildiğinden kötüleşmiş olabilir. Sayılar bulgu kimliğine girmez: ölçü aynı kalır ya da iyileşirse muafiyet bulgusunu örtmeye devam eder; kötüleşirse (ör. <span class="mono">6,64×D → 8,3×D</span>) bulgu yeniden açılır ve muafiyet burada “ölçü kötüleşti” notuyla görünür. Yeni bir sorunu sessizce örtmemesi için başka bulguya aktarılmaz; <b>Kaldır</b> ile silinir.</p>
         <p>Karar: <b>Hazır</b> (hata ve uyarı yok), <b>Uyarılarla hazır</b> (yalnızca uyarı), <b>Üretime uygun değil</b> (en az bir açık hata). Teknik resimdeki DFM inceleme paftası aynı kararı yazar.</p>
       </section>
       <section>
